@@ -10,7 +10,7 @@
  */
 
 import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef, MemoryRef, MiniSkill, SourceSnapshot, ObservationReader } from '../types.js';
-import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId } from '../store/orama-store.js';
+import { searchObservations, getTimeline, getObservationsByIds, makeOramaObservationId, getLastSearchMode } from '../store/orama-store.js';
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { ensureFreshIndex } from '../memory/freshness.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail, type RetrievalSurface } from './index-format.js';
@@ -62,6 +62,14 @@ export function normalizeMemoryBrowseQuery(query: string): string {
   return broadMemoryRequests.has(compact) ? '' : query;
 }
 
+export interface CompactSearchReceipt {
+  version: '1';
+  mode: string;
+  resultCount: number;
+  tokenCount: number;
+  elapsedMs: number;
+}
+
 /**
  * Layer 1: Search and return a compact index.
  * Agent scans this to decide which observations to fetch in detail.
@@ -70,7 +78,9 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
   entries: IndexEntry[];
   formatted: string;
   totalTokens: number;
+  receipt: CompactSearchReceipt;
 }> {
+  const startedAt = Date.now();
   await ensureFreshIndex({ loadCorpus: false });
   const searchOptions = { ...options, query: normalizeMemoryBrowseQuery(options.query) };
   let entries = (await searchObservations(searchOptions)).map((entry) =>
@@ -133,7 +143,18 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
 
   const totalTokens = countTextTokens(formatted);
 
-  return { entries, formatted, totalTokens };
+  return {
+    entries,
+    formatted,
+    totalTokens,
+    receipt: {
+      version: '1',
+      mode: getLastSearchMode(options.projectId),
+      resultCount: entries.length,
+      tokenCount: totalTokens,
+      elapsedMs: Math.max(0, Date.now() - startedAt),
+    },
+  };
 }
 
 /**

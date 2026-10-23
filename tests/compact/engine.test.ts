@@ -50,6 +50,19 @@ describe('Compact Engine', () => {
       expect(result.entries[0].tokens).toBeGreaterThan(0);
     });
 
+    it('returns a structured retrieval receipt with measured assembly time', async () => {
+      const result = await compactSearch({ query: 'port', projectId: 'test/project' });
+
+      expect(result.receipt).toMatchObject({
+        version: '1',
+        mode: expect.any(String),
+        resultCount: 0,
+        tokenCount: result.totalTokens,
+        elapsedMs: expect.any(Number),
+      });
+      expect(result.receipt.elapsedMs).toBeGreaterThanOrEqual(0);
+    });
+
     it('should return formatted markdown table', async () => {
       await storeObservation({
         entityName: 'auth',

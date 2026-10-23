@@ -127,6 +127,9 @@ artifacts for the VPS/hosted build path only.
 - [x] The HTTP control-plane `/health` response now exposes the same privacy-safe
   binding receipt with `transport: dashboard`, verified project/data-directory
   hashes, and Git remote state.
+- [x] Retrieval receipts now cross the compact engine, MCP search, and CLI JSON
+  search surfaces. They record schema version, actual mode, result count, token
+  count, and elapsed time without query text or raw memory content.
 
 ## 1.9.x Maintenance and Ecosystem Closeout (2026-10-16)
 

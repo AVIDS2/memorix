@@ -579,7 +579,24 @@ describe('Tool profile registration', () => {
 
       await projectContext({ task: 'Continue the JWT refresh rollout safely. Do not modify any files.', refresh: 'never' });
 
-      expect(getText(await search({ query: 'JWT refresh rollout' }))).toContain('Autopilot retrieval boundary');
+      const blockedSearch = await search({ query: 'JWT refresh rollout' });
+      expect(getText(blockedSearch)).toContain('Autopilot retrieval boundary');
+      const expandedSearch = await search({
+        query: 'JWT refresh rollout',
+        purpose: 'The user explicitly asked for the full decision record.',
+      });
+      const forcedSearch = await search({
+        query: 'JWT refresh rollout',
+        purpose: 'The user explicitly asked for the full decision record.',
+        force: true,
+      });
+      expect(forcedSearch.structuredContent?.retrieval).toMatchObject({
+        version: '1',
+        mode: expect.any(String),
+        resultCount: expect.any(Number),
+        tokenCount: expect.any(Number),
+        elapsedMs: expect.any(Number),
+      });
       expect(getText(await detail({ ids: [observation.observation.id] }))).toContain('Autopilot retrieval boundary');
       expect(getText(await contextPack({ task: 'Continue the JWT refresh rollout safely.' }))).toContain('Autopilot retrieval boundary');
       expect(getText(await store({
@@ -589,19 +606,12 @@ describe('Tool profile registration', () => {
         narrative: 'This should not persist without explicit user approval.',
       }))).toContain('Memorix write boundary');
 
-      expect(getText(await search({
-        query: 'JWT refresh rollout',
-        purpose: 'The user explicitly asked for the full decision record.',
-      }))).toContain('already represented');
+      expect(getText(expandedSearch)).toContain('already represented');
       expect(getText(await detail({
         ids: [observation.observation.id],
         purpose: 'The user explicitly asked for the full decision record.',
       }))).toContain('already represented');
-      expect(getText(await search({
-        query: 'JWT refresh rollout',
-        purpose: 'The user explicitly asked for the full decision record.',
-        force: true,
-      }))).toContain('Found 1 observation');
+      expect(getText(forcedSearch)).toContain('Found 1 observation');
       expect(getText(await detail({
         ids: [observation.observation.id],
         purpose: 'The user explicitly asked for the full decision record.',

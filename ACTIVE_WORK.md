@@ -151,7 +151,7 @@ artifacts for the VPS/hosted build path only.
   Registry `io.github.AVIDS2/memorix@1.10.0` are published. npm integrity is
   `sha512-Eyxg9TwkYef4YfmUG3xcB/4y6lqsJQxMStK3QJW51AF6Nb6k8MHoPKyzG0XuyYOTjiAUNA5h9DIAsV3W1KuCiw==`.
 
-## 1.10.1 Release Candidate (2026-10-23)
+## 1.10.1 Release Closeout (2026-10-23)
 
 - [x] Contributor PR #359 was revalidated on the current 1.10.0 main line and
   integrated through PR #361 (`6558c8f`). Cheaper Inference is opt-in, uses a
@@ -160,8 +160,11 @@ artifacts for the VPS/hosted build path only.
   preserved in the integrated commit.
 - [x] The provider and derived-view receipt hardening are now staged in
   `CHANGELOG.md` as `1.10.1` release content.
-- [ ] Release PR CI, package smoke, tag/release, npm publication, and MCP
-  Registry publication remain pending for this patch release.
+- [x] Release PR #363 merged as commit `7c51d34`; all 7 release checks,
+  full regression, build, package smoke, and npm signature audit passed.
+- [x] Tag `v1.10.1`, GitHub Release, npm `memorix@1.10.1`, and official MCP
+  Registry `io.github.AVIDS2/memorix@1.10.1` are published. npm integrity is
+  `sha512-Ic2xYLW/22KhnfX9/8/hJMeI+mPAdxR/TudcsH2ZpaCx74T5b+m3xdeOnyfHRnlbW/vXKqB31ezS6puVHLiZBQ==`.
 - [x] Derived-view receipt hardening now reports FTS, Orama, embedding, and
   CodeGraph generation/freshness/rebuild status/failure reason through the
   bounded context and retrieval receipts. This is also unreleased and must be

@@ -790,7 +790,8 @@ describe('extension package installer', () => {
       expect(pluginCode).toContain('ctx.register_hook("pre_llm_call"');
       expect(pluginCode).toContain('ctx.register_command("memorix"');
       expect(pluginCode).toContain('ctx.register_cli_command("memorix"');
-      expect(pluginCode).toContain('ctx.register_skill(child.name, skill_md)');
+      expect(pluginCode).toContain('ctx.register_skill(child.name, str(skill_path))');
+      expect(pluginCode).not.toContain('skill_path.read_text');
       expect(manifest).toContain('  - memorix-troubleshooting');
       expect(config).toContain('enabled:');
       expect(config).toContain('- memorix');

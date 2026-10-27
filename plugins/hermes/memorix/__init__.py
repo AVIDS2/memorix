@@ -111,5 +111,4 @@ def register(ctx):
         skill_path = child / "SKILL.md"
         if not skill_path.exists():
             continue
-        skill_md = skill_path.read_text(encoding="utf-8")
-        ctx.register_skill(child.name, skill_md)
+        ctx.register_skill(child.name, str(skill_path))

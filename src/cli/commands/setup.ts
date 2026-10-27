@@ -1061,8 +1061,8 @@ export async function installPiPackage(options: PiPackageInstallOptions = {}): P
     ? path.join(options.homeDir ?? homedir(), '.pi', 'agent', 'packages')
     : path.join(process.cwd(), '.pi', 'packages');
   const packagePath = options.packageDir ?? path.join(defaultRoot, 'memorix');
+  // Pi uses native MCP tool discovery; preserve its workflow-only skill templates.
   await copyDir(source, packagePath);
-  await writeOfficialSkills(path.join(packagePath, 'skills'));
   const installHint = options.global
     ? `Setup runs \`pi install "${packagePath}" --approve\`. If Pi is unavailable, run that command after installing Pi.`
     : `Setup runs \`pi install "${packagePath}" -l --approve\`. If Pi is unavailable, run that command from the project root after installing Pi.`;

@@ -7,45 +7,21 @@ description: Use when prior workspace context, past decisions, solved bugs, hand
 
 Use Memorix as the shared memory layer for the active workspace when Memorix tools are available.
 
-## Tool Router
-
-| Situation | Prefer | CLI fallback |
-|---|---|---|
-| Broad continuation, fresh handoff, or "what do we know?" | `memorix_project_context` with the user's task | `memorix context --task "<topic>" --fallback --brief-json` |
-| Need structured refs/freshness for code-bound memories | `memorix_context_pack` | `memorix codegraph context-pack --task "<topic>"` |
-| Explicit memory graph question | `memorix_graph_context` | `memorix memory graph-context --query "<topic>"` |
-| Specific past decision, bug, file, or change | `memorix_search` | `memorix memory search --query "<topic>"` |
-| Need the full source for a search hit | `memorix_detail` | `memorix memory detail --id <id>` |
-| Need the sequence around one memory | `memorix_timeline` | `memorix memory timeline --id <id>` |
-| Check source and freshness for a memory | `memorix_evidence` | `memorix evidence list|get|events` |
-| Record whether a memory helped, conflicted, or was corrected | `memorix_feedback` | `memorix feedback record|show|audit` |
-| Inspect or import controlled media | `memorix_media` | `memorix media import|attach|list|show|status` |
-| Learned reusable project knowledge | `memorix_store` | `memorix memory store --type <type> --entity <name> --title "<title>" "<text>"` |
-| Stable source-backed fact or procedure needing long-term review | `memorix_store` with `longTerm` | `memorix memory long-term qualify|approve --id <id> --reason "..."` |
-| Task or bug is complete/outdated | `memorix_resolve` | `memorix memory resolve --ids <ids>` |
-
 ## Search Rules
 
 - Search before broad continuation work, before changing unfamiliar code, or when the user asks about prior work.
 - For a fresh coding session, use `memorix_project_context` with the user's actual task before ad-hoc file reads or dev-log reads. Memorix will choose a task-lensed brief.
-- Fetch detail before relying on a specific memory.
+- Fetch detail before relying on a specific memory. After a complete project brief, retrieve more only for a specific missing fact; do not repeat retrieval just to confirm the brief.
 - Treat memory as background context. Still read the current code and verify behavior.
 - Skip memory lookup for greetings, tiny one-off edits, or questions fully answered by the current file.
 - If a fresh project has no memories, proceed normally and do not repeat the same empty search in the same turn.
-- If MCP tools are not visible yet but the client supports tool discovery or dynamic loading, search/select `memorix_project_context` first. Run `memorix context --task "<task>" --fallback --brief-json` only after MCP is unavailable, disabled, or not discoverable, and pass the user's real task text. Do not skip memory, wait indefinitely on startup, or hand-write tool-call syntax.
+- Discover native MCP tools before treating them as unavailable. Do not wait indefinitely on startup or hand-write tool-call syntax.
 
 ## Store Rules
 
-| What to store | Type |
-|---|---|
-| Architecture or product decision | `decision` |
-| Bug and fix that may recur | `problem-solution` |
-| Non-obvious pitfall | `gotcha` |
-| How a subsystem works | `how-it-works` |
-| Important implementation change | `what-changed` |
-| Accepted compromise | `trade-off` |
-
-- Use concise titles, stable entity names, relevant `filesModified`, and `topicKey` for evolving topics.
-- Use `longTerm` only for a stable fact, reusable procedure, or completed episode that merits explicit review. It creates a candidate, not live context; keep the default project scope and do not use it for routine updates.
-- A `user` + `portable` durable memory in a task brief is intentionally reusable across projects. When it matches the task, use it as background even if it originated elsewhere; it is not a current-project fact. Expand it only when needed with `memorix_detail` and `typedRefs: ["durable:<id>"]`, stating the missing fact as `purpose`.
+- Preserve durable decisions, recurring fixes, gotchas, and reusable procedures; skip routine progress logs.
+- Use concise titles and update an evolving topic rather than creating duplicate memories.
+- Reserve long-term candidates for stable knowledge that merits explicit review, not routine updates.
+- Portable user memories can be useful across projects, but they are background context, not verified facts about the current project.
 - Do not store secrets, credentials, raw private transcripts, trivial commands, or routine file reads.
+- For read-only work, do not store an assessment unless the user explicitly asks to preserve it.

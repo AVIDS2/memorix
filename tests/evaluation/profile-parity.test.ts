@@ -6,6 +6,7 @@ import path from 'node:path';
 import { buildMemorixServer } from '../../src/cli/commands/setup.js';
 import { installAgentGuidance } from '../../src/hooks/installers/index.js';
 import { TOOL_PROFILES, isToolInProfile, countToolsInProfile, describeProfile } from '../../src/server/tool-profile.js';
+import { OFFICIAL_MEMORIX_SKILLS } from '../../src/hooks/official-skills.js';
 
 /**
  * Profile-parity exam: the tools an agent is taught must exist in the profile
@@ -57,7 +58,7 @@ describe('profile parity exam', () => {
   });
 
   it('keeps packaged memory skills aware of the reachable lite surface', () => {
-    for (const agent of ['claude', 'codebuddy', 'codex', 'copilot', 'cursor', 'pi']) {
+    for (const agent of ['claude', 'codebuddy', 'codex', 'copilot', 'cursor']) {
       const content = readFileSync(
         path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../plugins/${agent}/memorix/skills/memorix-memory/SKILL.md`),
         'utf8',
@@ -65,6 +66,20 @@ describe('profile parity exam', () => {
       expect(content, `${agent} memory skill`).toContain('memorix_evidence');
       expect(content, `${agent} memory skill`).toContain('memorix_feedback');
       expect(content, `${agent} memory skill`).toContain('memorix_media');
+    }
+  });
+
+  it('Pi skills omit tool catalogs and reference only reachable workflow tools', () => {
+    for (const { name } of OFFICIAL_MEMORIX_SKILLS) {
+      const content = readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../plugins/pi/memorix/skills/${name}/SKILL.md`),
+        'utf8',
+      );
+      expect(content, name).not.toContain('## Tool Router');
+      expect(content, name).not.toContain('| Situation | Prefer | CLI fallback |');
+      for (const [tool] of content.matchAll(/\bmemorix_[a-z_]+\b/g)) {
+        expect(isToolInProfile(tool, 'lite'), `${name}: ${tool} must be reachable`).toBe(true);
+      }
     }
   });
 

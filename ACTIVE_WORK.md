@@ -32,6 +32,13 @@ artifacts for the VPS/hosted build path only.
 - [x] Removed the Pi 0.x compatibility guidance and simplified setup messaging
   to assume Pi 1.0+. TypeScript checks, CLI build, 77 focused tests, and the
   isolated Pi 1.4.0 connection smoke pass after this simplification.
+- [x] Pi skills retain workflow and safety guidance, diagnostics, and CLI-only
+  operations instead of repeating native MCP tool catalogs and routing tables.
+  Pi setup copies these templates without overwriting them with the shared
+  tool-heavy skills; other agents' skills remain unchanged. Reinstall coverage
+  verifies both scopes and retained safety/HTTP-binding guidance. TypeScript
+  checks, CLI build, 83 focused tests, and isolated Pi 1.4.0 connection smoke
+  pass; the full suite passes 3,255 tests with 5 skipped (15-second timeout).
 
 ## Current Product State
 

@@ -8,6 +8,7 @@ import { buildSetupPlan, installAgentSetup, installMcpConfig } from '../../src/c
 import { inspectAgentIntegrations, repairAgentIntegrations } from '../../src/cli/commands/agent-integrations.js';
 import { getMCPConfigEntries } from '../../src/cli/commands/uninstall.js';
 import { MEMORIX_INTEGRATIONS } from '../../src/integrations/registry.js';
+import { OFFICIAL_MEMORIX_SKILLS } from '../../src/hooks/official-skills.js';
 
 const homedirMock = vi.hoisted(() => vi.fn());
 vi.mock('node:os', async () => ({
@@ -117,6 +118,32 @@ describe('Pi native MCP setup', () => {
       });
     });
   }
+
+  it.each([false, true])('keeps workflow-only skills on reinstall (global=%s)', async global => {
+    const plan = buildSetupPlan({ agent: 'pi', global });
+    const skillsRoot = global
+      ? path.join(home, '.pi', 'agent', 'packages', 'memorix', 'skills')
+      : path.join(project, '.pi', 'packages', 'memorix', 'skills');
+    for (let install = 0; install < 2; install++) {
+      await installAgentSetup('pi', plan, global);
+      for (const { name } of OFFICIAL_MEMORIX_SKILLS) {
+        const content = readFileSync(path.join(skillsRoot, name, 'SKILL.md'), 'utf-8');
+        const template = new URL(`../../plugins/pi/memorix/skills/${name}/SKILL.md`, import.meta.url);
+        expect(content).toBe(readFileSync(template, 'utf-8'));
+        expect(content).toContain(`name: ${name}`);
+        expect(content).not.toContain('## Tool Router');
+        expect(content).not.toContain('| Situation | Prefer | CLI fallback |');
+      }
+    }
+    const memory = readFileSync(path.join(skillsRoot, 'memorix-memory', 'SKILL.md'), 'utf-8');
+    expect(memory).toContain('Do not store secrets');
+    expect(memory).toContain('verify behavior');
+    expect(memory).not.toContain('| What to store | Type |');
+    const sessions = readFileSync(path.join(skillsRoot, 'memorix-sessions', 'SKILL.md'), 'utf-8');
+    expect(sessions).toContain('In HTTP mode, pass the absolute workspace path as `projectRoot`');
+    const reasoning = readFileSync(path.join(skillsRoot, 'memorix-reasoning', 'SKILL.md'), 'utf-8');
+    expect(reasoning).toContain('alternatives considered');
+  });
 
   it('defaults to stdio and supports MCP-only setup without the package', async () => {
     const plan = buildSetupPlan({ agent: 'pi', plugin: false, hooks: false, rules: false });

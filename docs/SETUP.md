@@ -477,7 +477,7 @@ Check the loaded package resources with:
 pi config --approve
 ```
 
-You should see the Memorix extension and the official Memorix skills listed under the Pi package. MCP tools come from the native server entry; lifecycle capture still comes from the extension.
+You should see the Memorix extension and the Memorix workflow skills listed under the Pi package. Native MCP supplies tool discovery and schemas; Pi skills retain decision rules, safety boundaries, and CLI-only workflows rather than repeating the tool catalog. Lifecycle capture comes from the extension.
 
 For project-local setup, run `memorix setup --agent pi` from the project root. This writes `.pi/mcp.json` and installs `.pi/packages/memorix` with `pi install <path> -l --approve`. Pi must trust the project before it loads project-local MCP configuration.
 

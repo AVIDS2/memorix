@@ -7,17 +7,7 @@ description: Use when durable project knowledge, gotchas, workflows, or repeated
 
 Promote memories into mini-skills only when they are reusable instructions, not just historical notes.
 
-The standard setup uses the `lite` MCP profile. `memorix_skills` and `memorix_promote` are full-profile tools, so use the CLI fallback unless the current server was explicitly started with `MEMORIX_MODE=full` or `--mode full`. Do not probe hidden MCP tools repeatedly.
-
-## Tool Router
-
-| Situation | Prefer | CLI fallback |
-|---|---|---|
-| Preview/discover existing project skills | `memorix_skills` action `list` | `memorix skills list` |
-| Generate skills from memory patterns | `memorix_skills` action `generate` | `memorix skills generate` |
-| Write generated skills to an agent | `memorix_skills` action `generate`, `write: true` | `memorix skills generate --write --target codex` |
-| Promote selected memories permanently | `memorix_promote` action `promote` | `memorix memory promote --ids 42,43` |
-| List/delete promoted mini-skills | `memorix_promote` | `memorix memory promote --action list|delete` |
+The default `lite` profile does not expose skill generation or promotion. Discover available tools rather than repeatedly probing hidden ones. For an explicit promotion workflow without changing profiles, use `memorix skills generate` or `memorix memory promote --ids <ids>`.
 
 ## Promote When
 

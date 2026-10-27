@@ -189,7 +189,12 @@ describe('OpenCode integration files', () => {
       for (const name of OFFICIAL_SKILL_NAMES) {
         const skill = await fs.readFile(path.join(root, name, 'SKILL.md'), 'utf-8');
         expect(skill).toContain(`name: ${name}`);
-        expect(skill).toContain('CLI fallback');
+        if (root === path.resolve('plugins/pi/memorix/skills')) {
+          expect(skill).not.toContain('## Tool Router');
+          expect(skill).not.toContain('| Situation | Prefer | CLI fallback |');
+        } else {
+          expect(skill).toContain('CLI fallback');
+        }
         expect(skill).not.toContain("project's shared memory layer");
         expect(skill).not.toContain('This project uses Memorix');
       }

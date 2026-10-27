@@ -43,12 +43,17 @@ async function cleanup(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true });
 }
 
-async function expectOfficialSkills(skillsRoot: string): Promise<void> {
+async function expectOfficialSkills(skillsRoot: string, workflowOnly = false): Promise<void> {
   for (const name of OFFICIAL_SKILL_NAMES) {
     const skillPath = path.join(skillsRoot, name, 'SKILL.md');
     const content = await fs.readFile(skillPath, 'utf-8');
     expect(content).toContain(`name: ${name}`);
-    expect(content).toContain('CLI fallback');
+    if (workflowOnly) {
+      expect(content).not.toContain('## Tool Router');
+      expect(content).not.toContain('| Situation | Prefer | CLI fallback |');
+    } else {
+      expect(content).toContain('CLI fallback');
+    }
   }
 }
 
@@ -730,7 +735,7 @@ describe('extension package installer', () => {
       });
       expect(await fs.readFile(extension, 'utf-8')).toContain("hook_event_name: 'pi.tool_result'");
       expect(await fs.readFile(skill, 'utf-8')).toContain('name: memorix-memory');
-      await expectOfficialSkills(skillsRoot);
+      await expectOfficialSkills(skillsRoot, true);
     } finally {
       await cleanup(tmpDir);
     }
@@ -833,7 +838,7 @@ describe('extension package installer', () => {
       expect(result.installHint).toContain('pi install');
       expect(result.installHint).not.toContain(' -l ');
       expect(JSON.parse(await fs.readFile(path.join(packageDir, 'package.json'), 'utf-8')).name).toBe('memorix-pi-package');
-      await expectOfficialSkills(path.join(packageDir, 'skills'));
+      await expectOfficialSkills(path.join(packageDir, 'skills'), true);
     } finally {
       await cleanup(tmpDir);
     }

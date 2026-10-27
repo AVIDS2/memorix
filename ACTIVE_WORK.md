@@ -17,7 +17,8 @@ artifacts for the VPS/hosted build path only.
 
 - [x] Pi 1.0+ setup writes native project `.pi/mcp.json` or user
   `~/.pi/agent/mcp.json` alongside the existing extension/skills package.
-  Stdio remains the default; HTTP and package-only `--mcp none` are supported.
+  Pi 0.x is unsupported. Stdio remains the default; `--mcp http` selects HTTP,
+  and `--mcp none` skips MCP configuration without changing existing entries.
 - [x] The adapter preserves unrelated configuration; doctor/repair and manual
   uninstall discovery now include native Pi MCP. Setup guidance and English/
   Chinese documentation describe the Pi 1.0+ boundary and project trust.
@@ -28,6 +29,9 @@ artifacts for the VPS/hosted build path only.
   passed and 5 skipped. The first default-timeout run hit one unrelated
   semantic-index 5-second timeout; that file subsequently passed in isolation
   at the default timeout. No semantic-index code or test configuration changed.
+- [x] Removed the Pi 0.x compatibility guidance and simplified setup messaging
+  to assume Pi 1.0+. TypeScript checks, CLI build, 77 focused tests, and the
+  isolated Pi 1.4.0 connection smoke pass after this simplification.
 
 ## Current Product State
 

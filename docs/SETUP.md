@@ -459,7 +459,7 @@ Project config: `.kiro/settings/mcp.json`
 
 ### Pi
 
-[Pi 1.0+ supports native MCP](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/docs/mcp.md) alongside its package system. Setup installs both the extension/skills package and a native MCP server entry:
+Requires [Pi 1.0+](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/docs/mcp.md). Setup installs both the extension/skills package and a native MCP server entry:
 
 ```bash
 memorix setup --agent pi --global
@@ -490,7 +490,7 @@ memorix background start
 
 This writes `mcpServers.memorix.url = "http://localhost:3211/mcp"` instead of a stdio command. In HTTP mode, bind the active repository with `memorix_session_start(projectRoot=...)`.
 
-Use `--mcp none` for package-only setup, including older Pi versions without native MCP. It neither creates nor removes MCP configuration. Setup can write native MCP config before Pi is installed; Pi 1.0+ is required to load it.
+Use `--mcp none` to skip MCP configuration. Existing MCP configuration is left untouched.
 
 After setup, run `pi mcp list` to check connections, then `/reload` in Pi (or restart it). Use `/mcp` to inspect servers in a session. Pi exposes MCP tools through codemode by default; tool discovery is not evidence that the server is missing. Extensions such as `pi-mcp-adapter` that replace Pi's built-in `/mcp` also replace native config loading; use Pi's built-in MCP support for this setup.
 

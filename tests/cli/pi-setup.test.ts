@@ -75,7 +75,7 @@ describe('Pi native MCP setup', () => {
           expect(spawnSync).toHaveBeenCalledWith('pi',
             global ? ['install', packagePath, '--approve'] : ['install', packagePath, '-l', '--approve'],
             expect.any(Object));
-          expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('native MCP requires Pi 1.0+'));
+          expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('pi: run `pi mcp list`'));
           expect(p.log.info).not.toHaveBeenCalledWith(expect.stringContaining('Pi has no MCP'));
           if (mcp === 'http') {
             expect(p.log.info).toHaveBeenCalledWith(expect.stringContaining('memorix background start'));
@@ -83,7 +83,7 @@ describe('Pi native MCP setup', () => {
         });
       }
 
-      it('keeps package-only setup with --mcp none and leaves existing MCP untouched', async () => {
+      it('skips MCP configuration with --mcp none and leaves existing MCP untouched', async () => {
         const file = configPath(global);
         const plan = buildSetupPlan({ agent: 'pi', mcp: 'none', global });
         expect(plan.actions).not.toContain('mcp-stdio');
@@ -96,7 +96,7 @@ describe('Pi native MCP setup', () => {
         writeFileSync(file, existing);
         await installAgentSetup('pi', plan, global);
         expect(readFileSync(file, 'utf-8')).toBe(existing);
-        expect(p.log.info).not.toHaveBeenCalledWith(expect.stringContaining('native MCP requires'));
+        expect(p.log.info).not.toHaveBeenCalledWith(expect.stringContaining('pi: run `pi mcp list`'));
       });
 
       it('preserves unrelated servers and settings across idempotent installs and transport changes', async () => {

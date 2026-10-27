@@ -1683,7 +1683,7 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   }
 
   if (agent === 'pi' && plan.mcp !== 'none') {
-    p.log.info('pi: native MCP requires Pi 1.0+. Run `pi mcp list` to check connections, then `/reload` in Pi. Trust the project to load project-local MCP config.');
+    p.log.info('pi: run `pi mcp list` to check connections, then `/reload` in Pi. Trust the project to load project-local MCP config.');
   }
 
   if (agent === 'grok') {

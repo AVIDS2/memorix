@@ -287,7 +287,7 @@ What it installs depends on the target agent, but the goal is the same: make Mem
 - Claude Code: installs the Memorix plugin package, adds `CLAUDE.md` guidance, and enables hook capture when you do not pass `--noHooks`.
 - Codex: installs one user-level Memorix plugin with bundled stdio MCP, skills, and lifecycle hooks. It does not write project-local `.codex` config or change your model, approval, or sandbox settings. When Codex asks, review the plugin hook definition once with `/hooks`; `--noHooks` skips automatic capture.
 - GitHub Copilot CLI: installs the Copilot plugin package and official Memorix skills.
-- Pi: installs the user-level Pi package and official skills.
+- Pi: installs the Pi extension/skills package and native MCP config (Pi 1.0+): `~/.pi/agent/mcp.json` with `--global`, or `.pi/mcp.json` for project setup. Use `--mcp none` for package-only setup on older Pi.
 - Cursor: writes Cursor MCP/rules/config entries in the chosen scope.
 - Gemini CLI: installs the extension package, `GEMINI.md` context, hooks, and skills. Antigravity CLI has an official Gemini CLI migration path, but Gemini CLI remains an active standalone target.
 - OpenCode: installs the local plugin file, `opencode.json`, skills, and `AGENTS.md` guidance.

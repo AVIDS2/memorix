@@ -110,6 +110,21 @@ export function getMCPConfigEntries(home: string, cwd: string): MCPConfigEntry[]
     note: 'Remove the "memorix" key from mcpServers in this file.',
   });
 
+  // Pi — native MCP is separate from the extension/skills package.
+  for (const [kind, configPath] of [
+    ['global', path.join(home, '.pi', 'agent', 'mcp.json')],
+    ['project', path.join(cwd, '.pi', 'mcp.json')],
+  ] as const) {
+    entries.push({
+      agent: 'Pi',
+      path: configPath,
+      kind,
+      format: 'json',
+      detected: checkJSON(configPath),
+      note: 'Remove the "memorix" key from mcpServers in this file.',
+    });
+  }
+
   // Windsurf
   entries.push({
     agent: 'Windsurf',

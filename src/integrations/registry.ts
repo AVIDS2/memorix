@@ -246,7 +246,8 @@ const integrationEntries: Array<Omit<MemorixIntegration, 'capabilities'>> = [
     entry: 'official-package',
     status: 'ready',
     install: 'memorix setup --agent pi',
-    surfaces: ['Pi package', 'extension API', 'skills', 'hooks'],
+    surfaces: ['MCP', 'Pi package', 'extension API', 'skills', 'hooks'],
+    note: 'Pi 1.0+ uses native .pi/mcp.json or ~/.pi/agent/mcp.json alongside the extension/skills package. Use --mcp none for package-only setup on older Pi versions.',
   },
   {
     agent: 'any-mcp',

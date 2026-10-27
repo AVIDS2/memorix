@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-27
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -12,6 +12,22 @@
 tests directly with Node/npm on the E: workspace. Do not start Docker or add
 local Docker data. The Dockerfile and image workflow remain deployment
 artifacts for the VPS/hosted build path only.
+
+## Pi Native MCP Setup (2026-10-27)
+
+- [x] Pi 1.0+ setup writes native project `.pi/mcp.json` or user
+  `~/.pi/agent/mcp.json` alongside the existing extension/skills package.
+  Stdio remains the default; HTTP and package-only `--mcp none` are supported.
+- [x] The adapter preserves unrelated configuration; doctor/repair and manual
+  uninstall discovery now include native Pi MCP. Setup guidance and English/
+  Chinese documentation describe the Pi 1.0+ boundary and project trust.
+- [x] Full Node/npm build, TypeScript checks, and 320 focused regression tests
+  pass. An isolated Pi 1.4.0 smoke test connects to the generated stdio server
+  and discovers all 21 lite-profile tools without changing real Pi settings.
+- [x] Full regression rerun with a 15-second test timeout passes: 3,252 tests
+  passed and 5 skipped. The first default-timeout run hit one unrelated
+  semantic-index 5-second timeout; that file subsequently passed in isolation
+  at the default timeout. No semantic-index code or test configuration changed.
 
 ## Current Product State
 

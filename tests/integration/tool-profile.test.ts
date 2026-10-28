@@ -590,6 +590,13 @@ describe('Tool profile registration', () => {
         purpose: 'The user explicitly asked for the full decision record.',
         force: true,
       });
+      expect(forcedSearch.structuredContent?.results).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          ref: `obs:${observation.observation.id}@${projectId}`,
+          title: expect.any(String),
+          type: expect.any(String),
+        }),
+      ]));
       expect(forcedSearch.structuredContent?.retrieval).toMatchObject({
         version: '1',
         mode: expect.any(String),

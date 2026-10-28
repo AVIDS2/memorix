@@ -31,6 +31,7 @@ import { extractEntities } from './memory/entity-extractor.js';
 import { scopeKnowledgeGraphToProject } from './memory/graph-scope.js';
 import { canManageObservation, canReadObservation, filterReadableObservations, resolveObservationVisibility } from './memory/visibility.js';
 import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
+import { formatEntryRef } from './compact/index-format.js';
 import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
 import { detectProject } from './project/detector.js';
 import { homeProjectRootError, isHomeDirectory, writeLastProjectRoot } from './project/launch-root.js';
@@ -1562,7 +1563,18 @@ export async function createMemorixServer(
             text,
           },
         ],
-        structuredContent: { retrieval: result.receipt },
+        // Clients that surface only structuredContent (e.g. Claude Code) must
+        // still see the results, not just the retrieval diagnostics.
+        structuredContent: {
+          results: result.entries.map(entry => ({
+            ref: formatEntryRef(entry),
+            title: entry.title,
+            type: entry.type,
+            time: entry.time,
+            tokens: entry.tokens,
+          })),
+          retrieval: result.receipt,
+        },
       };
       }, { loadCorpus: false }); // withFreshIndex
     },

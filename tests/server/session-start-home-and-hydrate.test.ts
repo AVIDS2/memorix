@@ -125,6 +125,7 @@ describe('memorix_session_start home bind and hydrate', () => {
 
       expect(text).toContain('AVIDS2/session-fast');
       expect(text).toContain('Session started');
+      expect(result.structuredContent?.card).toBe(text);
       expect(result.structuredContent?.binding).toMatchObject({
         version: '1',
         state: 'resolved',

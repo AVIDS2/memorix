@@ -4098,9 +4098,12 @@ export async function createMemorixServer(
         }
       } catch { /* team context injection is optional */ }
 
+      const card = lines.filter(Boolean).join('\n');
       return {
-        content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }],
-        structuredContent: { binding: bindingReceipt },
+        content: [{ type: 'text' as const, text: card }],
+        // Clients that surface only structuredContent (e.g. Claude Code) must
+        // still see the session card, not just the binding receipt.
+        structuredContent: { card, binding: bindingReceipt },
       };
     },
   );

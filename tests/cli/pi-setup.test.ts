@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -119,30 +119,29 @@ describe('Pi native MCP setup', () => {
     });
   }
 
-  it.each([false, true])('keeps workflow-only skills on reinstall (global=%s)', async global => {
-    const plan = buildSetupPlan({ agent: 'pi', global });
+  it.each([
+    { global: false, mcp: 'stdio' },
+    { global: false, mcp: 'http' },
+    { global: false, mcp: 'none' },
+    { global: true, mcp: 'stdio' },
+    { global: true, mcp: 'http' },
+    { global: true, mcp: 'none' },
+  ] as const)('installs shared skills on setup and reinstall (global=$global, mcp=$mcp)', async ({ global, mcp }) => {
+    const plan = buildSetupPlan({ agent: 'pi', global, mcp });
     const skillsRoot = global
       ? path.join(home, '.pi', 'agent', 'packages', 'memorix', 'skills')
       : path.join(project, '.pi', 'packages', 'memorix', 'skills');
     for (let install = 0; install < 2; install++) {
       await installAgentSetup('pi', plan, global);
-      for (const { name } of OFFICIAL_MEMORIX_SKILLS) {
-        const content = readFileSync(path.join(skillsRoot, name, 'SKILL.md'), 'utf-8');
-        const template = new URL(`../../plugins/pi/memorix/skills/${name}/SKILL.md`, import.meta.url);
-        expect(content).toBe(readFileSync(template, 'utf-8'));
-        expect(content).toContain(`name: ${name}`);
-        expect(content).not.toContain('## Tool Router');
-        expect(content).not.toContain('| Situation | Prefer | CLI fallback |');
+      expect(readdirSync(skillsRoot).sort()).toEqual(OFFICIAL_MEMORIX_SKILLS.map(skill => skill.name).sort());
+      for (const { name, content } of OFFICIAL_MEMORIX_SKILLS) {
+        expect(readFileSync(path.join(skillsRoot, name, 'SKILL.md'), 'utf-8'), name).toBe(content);
+      }
+      if (install === 0) {
+        // Reinstall must replace legacy Pi-specific guidance with the shared skills.
+        writeFileSync(path.join(skillsRoot, 'memorix-memory', 'SKILL.md'), '# Legacy Pi-only skill\n');
       }
     }
-    const memory = readFileSync(path.join(skillsRoot, 'memorix-memory', 'SKILL.md'), 'utf-8');
-    expect(memory).toContain('Do not store secrets');
-    expect(memory).toContain('verify behavior');
-    expect(memory).not.toContain('| What to store | Type |');
-    const sessions = readFileSync(path.join(skillsRoot, 'memorix-sessions', 'SKILL.md'), 'utf-8');
-    expect(sessions).toContain('In HTTP mode, pass the absolute workspace path as `projectRoot`');
-    const reasoning = readFileSync(path.join(skillsRoot, 'memorix-reasoning', 'SKILL.md'), 'utf-8');
-    expect(reasoning).toContain('alternatives considered');
   });
 
   it('defaults to stdio and supports MCP-only setup without the package', async () => {

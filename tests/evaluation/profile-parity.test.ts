@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { buildMemorixServer } from '../../src/cli/commands/setup.js';
+import { buildMemorixServer, installPiPackage } from '../../src/cli/commands/setup.js';
 import { installAgentGuidance } from '../../src/hooks/installers/index.js';
 import { TOOL_PROFILES, isToolInProfile, countToolsInProfile, describeProfile } from '../../src/server/tool-profile.js';
 import { OFFICIAL_MEMORIX_SKILLS } from '../../src/hooks/official-skills.js';
@@ -69,17 +69,14 @@ describe('profile parity exam', () => {
     }
   });
 
-  it('Pi skills omit tool catalogs and reference only reachable workflow tools', () => {
-    for (const { name } of OFFICIAL_MEMORIX_SKILLS) {
-      const content = readFileSync(
-        path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../plugins/pi/memorix/skills/${name}/SKILL.md`),
-        'utf8',
-      );
-      expect(content, name).not.toContain('## Tool Router');
-      expect(content, name).not.toContain('| Situation | Prefer | CLI fallback |');
-      for (const [tool] of content.matchAll(/\bmemorix_[a-z_]+\b/g)) {
-        expect(isToolInProfile(tool, 'lite'), `${name}: ${tool} must be reachable`).toBe(true);
-      }
+  it('Pi installs shared memory guidance for the reachable lite surface', async () => {
+    sandbox = mkdtempSync(path.join(tmpdir(), 'memorix-profile-parity-'));
+    const { packagePath } = await installPiPackage({ packageDir: path.join(sandbox, 'memorix') });
+    const content = readFileSync(path.join(packagePath, 'skills', 'memorix-memory', 'SKILL.md'), 'utf-8');
+    expect(content).toBe(OFFICIAL_MEMORIX_SKILLS.find(skill => skill.name === 'memorix-memory')?.content);
+    for (const tool of ['memorix_evidence', 'memorix_feedback', 'memorix_media']) {
+      expect(content).toContain(tool);
+      expect(isToolInProfile(tool, 'lite'), `${tool} must be reachable`).toBe(true);
     }
   });
 

@@ -32,13 +32,14 @@ artifacts for the VPS/hosted build path only.
 - [x] Removed the Pi 0.x compatibility guidance and simplified setup messaging
   to assume Pi 1.0+. TypeScript checks, CLI build, 77 focused tests, and the
   isolated Pi 1.4.0 connection smoke pass after this simplification.
-- [x] Pi skills retain workflow and safety guidance, diagnostics, and CLI-only
-  operations instead of repeating native MCP tool catalogs and routing tables.
-  Pi setup copies these templates without overwriting them with the shared
-  tool-heavy skills; other agents' skills remain unchanged. Reinstall coverage
-  verifies both scopes and retained safety/HTTP-binding guidance. TypeScript
-  checks, CLI build, 83 focused tests, and isolated Pi 1.4.0 connection smoke
-  pass; the full suite passes 3,255 tests with 5 skipped (15-second timeout).
+- [x] Pi setup generates the shared official Memorix skills, like other
+  supported agents. Removed the Pi-specific skill templates; native MCP and
+  extension lifecycle capture remain unchanged. Shared-skill compaction is
+  deferred to follow-up work rather than introducing a Pi-only guidance fork.
+- [x] Shared-skill installation and legacy-template replacement on reinstall
+  are covered in both scopes and all MCP modes. All 85 focused tests across
+  six files pass, along with TypeScript checks and the CLI build. The full
+  suite and live Pi connection smoke were not rerun for this follow-up.
 
 ## Current Product State
 

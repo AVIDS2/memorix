@@ -348,7 +348,7 @@ function getProgressiveDisclosureHint(hasProject: boolean, surface: RetrievalSur
 // ── Phase 3a display helpers ──────────────────────────────────────
 
 /** Format an entry reference as a canonical typed ref usable in memorix_detail */
-function formatEntryRef(entry: IndexEntry): string {
+export function formatEntryRef(entry: IndexEntry): string {
   if (entry.documentType === 'mini-skill') return `skill:${entry.id}`;
   return entry.projectId ? `obs:${entry.id}@${entry.projectId}` : `obs:${entry.id}`;
 }

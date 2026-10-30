@@ -13,7 +13,7 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current published release line is **1.10.1** and package metadata is kept
+The current release line is **1.10.2** and package metadata is kept
 synchronized with the root package and MCP Registry manifest. The next larger
 feature phase follows the 1.11 relay-preview plan.
 

@@ -47,7 +47,7 @@ Memorix 已经超过“给 coding agent 加一个记忆工具”的阶段。当�
 
 ### 1.1 当前事实
 
-当前发布基线是 `v1.10.1`。1.9.12 的 CJK 搜索、搜索回退、大库 alias 迁移、
+当前发布基线是 `v1.10.2`。本补丁修复 LanceDB 语义索引无限增长；1.9.12 的 CJK 搜索、搜索回退、大库 alias 迁移、
 Node 26 Pi hooks、Qwen hooks、API Route provider、session label、发布
 provenance 收紧和后台更新脚本隔离，已经与 1.10 的可信上下文、检索收据、
 真实矩阵评估和容量门禁一起发布。

@@ -9,6 +9,7 @@ const mockLoadIdCounter = vi.fn();
 const mockIsEmbeddingEnabled = vi.fn();
 const mockHasObservationVector = vi.fn();
 const mockDeferredCachedVectorHydration = vi.fn();
+const mockGetPersistentSemanticVectorIds = vi.fn();
 const mockIsEmbeddingExplicitlyDisabled = vi.fn();
 
 vi.mock('../../src/store/orama-store.js', () => ({
@@ -23,6 +24,7 @@ vi.mock('../../src/store/orama-store.js', () => ({
   getDeferredCachedVectorHydration: mockDeferredCachedVectorHydration,
   isEmbeddingEnabled: mockIsEmbeddingEnabled,
   hasObservationVector: mockHasObservationVector,
+  getPersistentSemanticVectorIds: mockGetPersistentSemanticVectorIds,
   makeOramaObservationId: (projectId: string, observationId: number) => `${projectId}:${observationId}`,
   getLastSearchMode: vi.fn(() => 'fulltext'),
   searchObservations: vi.fn(),
@@ -82,6 +84,8 @@ describe('prepareSearchIndex', () => {
     mockHasObservationVector.mockReturnValue(false);
     mockDeferredCachedVectorHydration.mockReset();
     mockDeferredCachedVectorHydration.mockReturnValue(null);
+    mockGetPersistentSemanticVectorIds.mockReset();
+    mockGetPersistentSemanticVectorIds.mockResolvedValue(null);
     mockIsEmbeddingExplicitlyDisabled.mockReset();
     mockIsEmbeddingExplicitlyDisabled.mockReturnValue(false);
   });
@@ -172,6 +176,23 @@ describe('prepareSearchIndex', () => {
 
     expect(mockBatchGenerateEmbeddings).not.toHaveBeenCalled();
     expect(getVectorMissingIds()).toEqual([]);
+  });
+
+  it('does not re-embed vectors already persisted in Lance after a cold cache start', async () => {
+    mockLoadObservationsJson.mockResolvedValue([
+      { id: 21, projectId: 'AVIDS2/memorix', title: 'Persisted vector', facts: [], filesModified: [], concepts: [] },
+      { id: 22, projectId: 'AVIDS2/memorix', title: 'Missing vector', facts: [], filesModified: [], concepts: [] },
+    ]);
+    mockLoadIdCounter.mockResolvedValue(23);
+    mockHydrateIndexForStartup.mockResolvedValue(2);
+    mockGetPersistentSemanticVectorIds.mockResolvedValue(new Set([21]));
+
+    const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
+    await initObservations('E:/tmp/project');
+    await prepareSearchIndex();
+
+    expect(mockGetPersistentSemanticVectorIds).toHaveBeenCalledWith('E:/tmp/project');
+    expect(getVectorMissingIds()).toEqual([22]);
   });
 
   it('does not reset an already prepared search index during status refreshes', async () => {

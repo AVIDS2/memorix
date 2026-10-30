@@ -112,6 +112,29 @@ Code Memory refresh are queued durably and run in an isolated child process.
 Vector backfill updates the persistent semantic shadow index and keeps Orama as
 the compatibility fallback.
 
+### LanceDB semantic index maintenance
+
+The persistent semantic index groups individual observation writes into batches
+of up to 100 vectors, flushing after 50 ms. It compacts fragments and prunes
+versions older than 24 hours after every 20 committed batches. Existing vectors
+in LanceDB are not re-embedded merely because the disposable API embedding cache
+evicted them. These controls are separate from SQLite observation retention.
+
+For an index already inflated by older releases, stop processes using the
+shared data directory, then run `memorix repair index` from any associated Git
+project. This optimizes every Memorix semantic table without requiring the
+original embedding provider. It retains the last 24 hours of table versions and
+does not remove files that LanceDB considers unverified, because another process
+may have an in-progress transaction. It can therefore leave some recent space
+unreclaimed; rerun after the retention window if necessary. Do not manually
+delete `_versions` or `data` files.
+
+`MEMORIX_SEMANTIC_WRITE_BATCH_SIZE`, `MEMORIX_SEMANTIC_WRITE_FLUSH_MS`,
+`MEMORIX_SEMANTIC_OPTIMIZE_EVERY`, and
+`MEMORIX_SEMANTIC_VERSION_RETENTION_MS` tune these defaults. The batch size and
+retention window trade commit frequency and disk use against write latency and
+rollback history.
+
 ## What Is Lightweight
 
 - `memorix_session_start` is lightweight by default. It opens a memory/session context and does not join orchestration coordination state unless `joinTeam: true` is explicitly set.

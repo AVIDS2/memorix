@@ -19,7 +19,9 @@ import {
   type EmbeddingInput,
   type EmbeddingOptions,
   type EmbeddingProvider,
+  type EmbeddingRuntimeHealth,
 } from '../embedding/provider.js';
+import * as embeddingRuntime from '../embedding/provider.js';
 import { calculateProjectAffinity, extractProjectKeywords, type AffinityContext, type MemoryContent } from './project-affinity.js';
 import { detectQueryIntent, applyIntentBoost } from '../search/intent-detector.js';
 import { maybeExpandSearchQuery } from '../search/query-expansion.js';
@@ -29,11 +31,17 @@ import { getObservationStore } from './obs-store.js';
 import {
   createSemanticIndexProfile,
   searchSemanticVectors,
+  listSemanticVectorIds,
+  upsertSemanticVector,
   upsertSemanticVectors,
   type SemanticIndexProfile,
   type SemanticVectorRecord,
 } from '../search/semantic-index.js';
-import type { RetrievalDerivedViews } from '../search/derived-view-receipt.js';
+import {
+  embeddingHealthReceipt,
+  sanitizeDerivedViewFailureReason,
+  type RetrievalDerivedViews,
+} from '../search/derived-view-receipt.js';
 
 let db: AnyOrama | null = null;
 let dbInitPromise: Promise<AnyOrama> | null = null;
@@ -96,14 +104,16 @@ export function getSearchDerivedViews(): RetrievalDerivedViews {
           generation,
           freshness: 'unknown',
           rebuildStatus: 'unavailable',
-          failureReason: store.getBackendReason?.() ?? 'persistent lexical index unavailable',
+          failureReason: sanitizeDerivedViewFailureReason(
+            store.getBackendReason?.() ?? 'persistent lexical index unavailable',
+          ),
         };
       }
     } catch (error) {
       views.fts = {
         freshness: 'unknown',
         rebuildStatus: 'failed',
-        failureReason: error instanceof Error ? error.message.slice(0, 240) : String(error).slice(0, 240),
+        failureReason: sanitizeDerivedViewFailureReason(error instanceof Error ? error.message : String(error)),
       };
     }
   } else {
@@ -123,18 +133,15 @@ export function getSearchDerivedViews(): RetrievalDerivedViews {
       failureReason: 'Orama index is not initialized',
     };
 
-  const configuredEmbeddingMode = process.env.MEMORIX_EMBEDDING?.trim().toLowerCase();
-  if (configuredEmbeddingMode === 'off') {
-    views.embedding = { freshness: 'current', rebuildStatus: 'disabled' };
-  } else if (embeddingEnabled) {
-    views.embedding = { freshness: 'current', rebuildStatus: 'idle' };
-  } else {
-    views.embedding = {
-      freshness: 'unknown',
-      rebuildStatus: 'unavailable',
-      failureReason: 'embedding provider is not initialized',
-    };
+  let embeddingHealth: EmbeddingRuntimeHealth | undefined;
+  try {
+    embeddingHealth = (embeddingRuntime as unknown as {
+      getEmbeddingRuntimeHealth?: () => EmbeddingRuntimeHealth;
+    }).getEmbeddingRuntimeHealth?.();
+  } catch {
+    // Legacy provider mocks/adapters may not expose health metadata.
   }
+  views.embedding = embeddingHealthReceipt(embeddingHealth, embeddingEnabled);
 
   return views;
 }
@@ -610,6 +617,12 @@ export function getActiveSemanticIndexProfile(): SemanticIndexProfile | null {
   return indexEmbeddingProvider ? createSemanticIndexProfile(indexEmbeddingProvider) : null;
 }
 
+/** Read the durable semantic shadow's IDs without loading vector payloads. */
+export async function getPersistentSemanticVectorIds(dataDir: string): Promise<Set<number> | null> {
+  if (!indexEmbeddingProvider) return null;
+  return listSemanticVectorIds(dataDir, createSemanticIndexProfile(indexEmbeddingProvider));
+}
+
 /** Queue one derived vector without delaying the durable observation write. */
 export async function queueSemanticVector(
   dataDir: string,
@@ -622,7 +635,7 @@ export async function queueSemanticVector(
   const profile = provider ? createSemanticIndexProfile(provider) : null;
   if (!profile) return;
   try {
-    await upsertSemanticVectors(dataDir, profile, [record]);
+    await upsertSemanticVector(dataDir, profile, record);
   } catch {
     // The vector index is rebuildable; lexical memory remains authoritative.
   }
@@ -729,6 +742,9 @@ async function attachCachedVectors(
 ): Promise<void> {
   const semanticDataDir = (await import('../memory/observations.js')).getObservationDataDir();
   const semanticProfile = getActiveSemanticIndexProfile();
+  const persistedSemanticIds = semanticDataDir && semanticProfile
+    ? await listSemanticVectorIds(semanticDataDir, semanticProfile).catch(() => null)
+    : null;
   const batchSize = 200;
   for (let start = 0; start < observations.length; start += batchSize) {
     // Keep cache lookup and the temporary vector array bounded to one batch.
@@ -744,7 +760,7 @@ async function attachCachedVectors(
       const vector = cachedVectors[index];
       if (!isCompatibleCachedVector(vector)) continue;
       const observation = batch[index];
-      if (semanticDataDir && semanticProfile) {
+      if (semanticDataDir && semanticProfile && !persistedSemanticIds?.has(observation.id)) {
         semanticRecords.push({
           observationId: observation.id,
           projectId: observation.projectId,

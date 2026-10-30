@@ -28,6 +28,7 @@ import {
   batchGenerateEmbeddings,
   getDb,
   getDeferredCachedVectorHydration,
+  getPersistentSemanticVectorIds,
   getVectorDimensions,
   queueSemanticVector,
   hydrateIndexForStartup,
@@ -1369,16 +1370,17 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
   }
 
   const hydratedProjectDir = projectDir;
-  const queueMissingVectors = () => {
-    if (projectDir !== hydratedProjectDir) return;
+  const queueMissingVectors = async () => {
+    if (!hydratedProjectDir || projectDir !== hydratedProjectDir) return;
     vectorMissingIds.clear();
     if (!isEmbeddingExplicitlyDisabled()) {
+      const persistedSemanticIds = await getPersistentSemanticVectorIds(hydratedProjectDir).catch(() => null);
       const projectsWithMissingVectors = new Set<string>();
       for (const obs of observations) {
         // Queue ALL statuses for vector backfill — status filtering happens at query time,
         // not at index time. Omitting non-active observations here would permanently
         // exclude resolved/archived memories from hybrid search after restart.
-        if (!hasObservationVector(obs.projectId, obs.id)) {
+        if (!hasObservationVector(obs.projectId, obs.id) && !persistedSemanticIds?.has(obs.id)) {
           vectorMissingIds.add(obs.id);
           projectsWithMissingVectors.add(obs.projectId);
         }
@@ -1391,9 +1393,9 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
   if (cacheHydration) {
     // Let the disk cache finish outside the interactive startup path. Misses are
     // queued only after it has had a chance to restore compatible vectors.
-    void cacheHydration.finally(queueMissingVectors);
+    void cacheHydration.then(queueMissingVectors, queueMissingVectors).catch(() => undefined);
   } else {
-    queueMissingVectors();
+    await queueMissingVectors();
   }
 
   searchIndexPrepared = true;

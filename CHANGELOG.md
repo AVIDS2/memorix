@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+### Fixed
+- LanceDB semantic-index writes are batched and periodically optimized, with
+  `memorix repair index` available to compact older inflated indexes safely.
+  Startup now checks persisted vector IDs before scheduling re-embedding or
+  rewriting cached vectors.
+- Derived-view receipts now report degraded embedding health and redact local
+  paths and credentials from failure reasons.
 
 ## [1.10.1] - 2026-10-23
 

@@ -20,18 +20,22 @@ artifacts for the VPS/hosted build path only.
   batches individual writes, optimizes periodically, checks persisted vector
   IDs before backfill, and adds `memorix repair index` for existing tables.
 - PR #366 (Hermes skill paths) and PR #368 (MCP structured results/card) are
-  merged into the patch baseline. PR #369 carries the 1.10.2 release; its seven
-  PR checks passed. Main-commit CI and publication are pending.
+  merged into the patch baseline. PR #369 and the release commit passed all
+  seven CI checks. Tag `v1.10.2`, npm with provenance, the MCP Registry, and
+  GitHub Release are published from `d1bb6fa`.
 - Local TypeScript checks and build pass. Full suite: 345 files passed,
   3 skipped; 3,240 tests passed, 5 skipped.
 - PR #367 adds native MCP setup for Pi 1.0+ at project `.pi/mcp.json` and user
   `~/.pi/agent/mcp.json`, with stdio/HTTP/none modes. The extension lifecycle
-  capture and generated shared skills remain. Local typecheck and 104 focused
-  integration tests pass; this feature is staged after the patch release.
+  capture and generated shared skills remain. PR #367 was merged as `f631ad9`
+  after the patch tag and is not in the 1.10.2 package. Its combined commit
+  passed seven CI checks; local typecheck and 104 focused tests also passed.
+  One local full-suite run hit a Windows Vitest temporary SSR-cache `ENOENT`
+  after 2,577 passing tests; representative files passed on an isolated rerun.
 
 ## Current Product State
 
-- `1.10.2` is the prepared patch release on the 1.10 line. It addresses
+- `1.10.2` is the published patch release on the 1.10 line. It addresses
   LanceDB semantic-index growth and two agent integration defects.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves

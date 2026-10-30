@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+### Added
+- Pi 1.0+ native MCP setup through project or user `mcp.json`, with stdio and
+  HTTP transports alongside the existing extension and shared skills (#367).
 
 ## [1.10.2] - 2026-10-30
 

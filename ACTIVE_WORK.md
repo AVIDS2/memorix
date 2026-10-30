@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-23
+**Last updated:** 2026-10-30
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -13,10 +13,23 @@ tests directly with Node/npm on the E: workspace. Do not start Docker or add
 local Docker data. The Dockerfile and image workflow remain deployment
 artifacts for the VPS/hosted build path only.
 
+## 1.10.2 Patch Candidate (2026-10-30)
+
+- Issue #365 identified unbounded LanceDB metadata growth from one-row commits,
+  absent compaction, and cold-start re-embedding after cache eviction. The patch
+  batches individual writes, optimizes periodically, checks persisted vector
+  IDs before backfill, and adds `memorix repair index` for existing tables.
+- PR #366 (Hermes skill paths) and PR #368 (MCP structured results/card) are
+  merged into the patch baseline. PR #367 (Pi native MCP) remains under review
+  as a feature change outside the urgent patch.
+- Local TypeScript checks and build pass. Full suite: 345 files passed,
+  3 skipped; 3,240 tests passed, 5 skipped. Remote CI and publication remain
+  pending for the patch candidate.
+
 ## Current Product State
 
-- `1.9.12` is the current published baseline. It is a security and release
-  hardening patch on top of 1.9.11; the product contract remains unchanged.
+- `1.10.2` is the prepared patch release on the 1.10 line. It addresses
+  LanceDB semantic-index growth and two agent integration defects.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.

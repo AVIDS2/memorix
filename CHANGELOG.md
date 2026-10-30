@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 No unreleased changes.
 
+## [1.10.2] - 2026-10-30
+
+### Fixed
+- LanceDB semantic-index writes are batched and periodically optimized, with
+  `memorix repair index` available to compact older inflated indexes safely.
+  Startup now checks persisted vector IDs before scheduling re-embedding or
+  rewriting cached vectors.
+- Derived-view receipts now report degraded embedding health and redact local
+  paths and credentials from failure reasons.
+- Hermes now registers bundled skills by file path, matching the current
+  plugin API (#366).
+- MCP search results and the session-start card are available in
+  `structuredContent` for clients that do not display text blocks (#368).
+
 ## [1.10.1] - 2026-10-23
 
 ### Added

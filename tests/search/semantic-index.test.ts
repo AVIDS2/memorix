@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   closeSemanticIndexes,
+  closeSemanticIndex,
   createSemanticIndexProfile,
   deleteSemanticVector,
   ensureSemanticIndex,
+  getSemanticIndexStats,
+  optimizeSemanticIndexes,
+  listSemanticVectorIds,
   isSemanticIndexAvailable,
   resetSemanticIndexRuntime,
   searchSemanticVectors,
+  upsertSemanticVector,
   upsertSemanticVectors,
 } from '../../src/search/semantic-index.js';
 
@@ -94,5 +99,47 @@ describe('persistent semantic shadow index', () => {
       vector: [1, 0, 0],
       limit: 5,
     })).resolves.toBeNull();
+  });
+
+  it('coalesces single-vector writes into bounded Lance commits', async () => {
+    if (!(await isSemanticIndexAvailable())) {
+      throw new Error('LanceDB is unavailable in the supported Node test environment');
+    }
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-batch-'));
+    const profile = createSemanticIndexProfile({ name: 'batched-embedding', dimensions: 3 });
+    await Promise.all(Array.from({ length: 25 }, (_, observationId) => upsertSemanticVector(dataDir, profile, {
+      observationId: observationId + 1,
+      projectId: 'project-alpha',
+      status: 'active',
+      vector: [1, 0, 0],
+    })));
+
+    const stats = await getSemanticIndexStats(dataDir, profile);
+    expect(stats?.rowCount).toBe(25);
+    expect(stats?.version ?? 99).toBeLessThan(10);
+    expect((await listSemanticVectorIds(dataDir, profile))?.size).toBe(25);
+  });
+
+  it('repairs persisted tables without an embedding provider', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-repair-'));
+    const profile = createSemanticIndexProfile({ name: 'repair-embedding', dimensions: 3 });
+    await upsertSemanticVectors(dataDir, profile, [
+      { observationId: 1, projectId: 'project-alpha', status: 'active', vector: [1, 0, 0] },
+    ]);
+    await closeSemanticIndexes();
+
+    await expect(optimizeSemanticIndexes(dataDir)).resolves.toHaveLength(1);
+    expect((await getSemanticIndexStats(dataDir, profile))?.rowCount).toBe(1);
+  });
+
+  it('flushes pending writes before closing one data directory', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-close-'));
+    const profile = createSemanticIndexProfile({ name: 'close-embedding', dimensions: 3 });
+    const write = upsertSemanticVector(dataDir, profile, {
+      observationId: 1, projectId: 'project-alpha', status: 'active', vector: [1, 0, 0],
+    });
+    await closeSemanticIndex(dataDir);
+    await write;
+    expect((await getSemanticIndexStats(dataDir, profile))?.rowCount).toBe(1);
   });
 });

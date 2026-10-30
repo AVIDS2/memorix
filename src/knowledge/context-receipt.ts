@@ -1,5 +1,8 @@
 import type { CodeGraphProviderQuality } from '../codegraph/types.js';
-import type { RetrievalDerivedViewReceipt } from '../search/derived-view-receipt.js';
+import {
+  sanitizeDerivedViewFailureReason,
+  type RetrievalDerivedViewReceipt,
+} from '../search/derived-view-receipt.js';
 import type { TaskWorkset } from './workset.js';
 import type { TaskContinuityLedger } from './task-continuity.js';
 
@@ -44,7 +47,7 @@ export function buildCodeGraphDerivedView(input: {
       ...(snapshot.incomplete
         ? { failureReason: 'latest CodeGraph snapshot is incomplete' }
         : externalFailure && provider?.external.reason
-          ? { failureReason: provider.external.reason.slice(0, 240) }
+          ? { failureReason: sanitizeDerivedViewFailureReason(provider.external.reason) }
           : {}),
     };
   }
@@ -53,7 +56,7 @@ export function buildCodeGraphDerivedView(input: {
     freshness: 'unknown',
     rebuildStatus: externalFailure ? 'failed' : 'unavailable',
     ...(provider?.external.reason
-      ? { failureReason: provider.external.reason.slice(0, 240) }
+      ? { failureReason: sanitizeDerivedViewFailureReason(provider.external.reason) }
       : { failureReason: 'CodeGraph snapshot is not initialized' }),
   };
 }

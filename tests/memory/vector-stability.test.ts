@@ -26,6 +26,7 @@ vi.mock('../../src/store/orama-store.js', () => ({
   getDeferredCachedVectorHydration: vi.fn().mockReturnValue(null),
   isEmbeddingEnabled: vi.fn().mockReturnValue(false),
   hasObservationVector: vi.fn().mockReturnValue(false),
+  getPersistentSemanticVectorIds: vi.fn().mockResolvedValue(null),
   getLastSearchMode: vi.fn().mockReturnValue('fulltext'),
   searchObservations: vi.fn().mockResolvedValue([]),
   makeOramaObservationId: (projectId: string, id: number) => `obs-${projectId}-${id}`,

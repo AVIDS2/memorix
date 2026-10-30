@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { EmbeddingProvider } from '../embedding/provider.js';
@@ -29,6 +30,10 @@ const SEMANTIC_INDEX_DIR = 'semantic-index';
 const TABLE_PREFIX = 'observations_';
 const DEFAULT_INDEX_THRESHOLD = 10_000;
 const MAX_INDEX_PARTITIONS = 32;
+const DEFAULT_WRITE_BATCH_SIZE = 100;
+const DEFAULT_WRITE_FLUSH_MS = 50;
+const DEFAULT_OPTIMIZE_EVERY = 20;
+const DEFAULT_VERSION_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 type SemanticIndexState = {
   key: string;
@@ -41,6 +46,15 @@ type SemanticIndexState = {
 const statePromises = new Map<string, Promise<SemanticIndexState | null>>();
 const writeQueues = new Map<string, Promise<void>>();
 const indexBuilds = new Map<string, Promise<boolean>>();
+const mutationCounts = new Map<string, number>();
+type PendingVectorBatch = {
+  dataDir: string;
+  profile: SemanticIndexProfile;
+  records: Map<string, SemanticVectorRecord>;
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+  timer?: ReturnType<typeof setTimeout>;
+};
+const pendingVectorBatches = new Map<string, PendingVectorBatch>();
 let availability: boolean | undefined;
 const requireFromHere = createRequire(import.meta.url);
 
@@ -176,6 +190,35 @@ function queueOperation(key: string, operation: () => Promise<void>): Promise<vo
   return run;
 }
 
+function positiveEnvInt(name: string, fallback: number): number {
+  const value = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function semanticWriteBatchSize(): number {
+  return positiveEnvInt('MEMORIX_SEMANTIC_WRITE_BATCH_SIZE', DEFAULT_WRITE_BATCH_SIZE);
+}
+
+function semanticWriteFlushMs(): number {
+  return positiveEnvInt('MEMORIX_SEMANTIC_WRITE_FLUSH_MS', DEFAULT_WRITE_FLUSH_MS);
+}
+
+function semanticOptimizeEvery(): number {
+  return positiveEnvInt('MEMORIX_SEMANTIC_OPTIMIZE_EVERY', DEFAULT_OPTIMIZE_EVERY);
+}
+
+function semanticVersionRetentionMs(): number {
+  return positiveEnvInt('MEMORIX_SEMANTIC_VERSION_RETENTION_MS', DEFAULT_VERSION_RETENTION_MS);
+}
+
+async function optimizeState(state: SemanticIndexState): Promise<void> {
+  if (!state.table || typeof state.table.optimize !== 'function') return;
+  await state.table.optimize({
+    cleanupOlderThan: new Date(Date.now() - semanticVersionRetentionMs()),
+    deleteUnverified: false,
+  });
+}
+
 async function mergeVectors(dataDir: string, profile: SemanticIndexProfile, records: SemanticVectorRecord[]): Promise<void> {
   if (records.length === 0) return;
   const state = await getState(dataDir, profile, records);
@@ -186,10 +229,32 @@ async function mergeVectors(dataDir: string, profile: SemanticIndexProfile, reco
     .whenMatchedUpdateAll()
     .whenNotMatchedInsertAll()
     .execute(rows);
+  const key = stateKey(dataDir, profile);
+  const mutationCount = (mutationCounts.get(key) ?? 0) + 1;
+  if (mutationCount >= semanticOptimizeEvery()) {
+    mutationCounts.set(key, 0);
+    await optimizeState(state).catch(() => undefined);
+  } else {
+    mutationCounts.set(key, mutationCount);
+  }
   // Build the ANN index asynchronously once the table is large enough. The
   // current write remains cheap and the unindexed tail stays queryable while
   // LanceDB trains the derived HNSW/SQ index.
   void ensureSemanticIndex(dataDir, profile);
+}
+
+function flushPendingVectorBatch(key: string): Promise<void> {
+  const pending = pendingVectorBatches.get(key);
+  if (!pending) return Promise.resolve();
+  if (pending.timer) clearTimeout(pending.timer);
+  pendingVectorBatches.delete(key);
+  const records = [...pending.records.values()];
+  const waiters = pending.waiters.splice(0);
+  return queueOperation(key, () => mergeVectors(pending.dataDir, pending.profile, records))
+    .then(() => waiters.forEach((waiter) => waiter.resolve()))
+    .catch((error) => {
+      waiters.forEach((waiter) => waiter.reject(error));
+    });
 }
 
 export function upsertSemanticVector(
@@ -197,7 +262,17 @@ export function upsertSemanticVector(
   profile: SemanticIndexProfile,
   record: SemanticVectorRecord,
 ): Promise<void> {
-  return queueOperation(stateKey(dataDir, profile), () => mergeVectors(dataDir, profile, [record]));
+  const key = stateKey(dataDir, profile);
+  let pending = pendingVectorBatches.get(key);
+  if (!pending) {
+    pending = { dataDir, profile, records: new Map(), waiters: [] };
+    pendingVectorBatches.set(key, pending);
+  }
+  pending.records.set(`${record.projectId}:${record.observationId}`, record);
+  const promise = new Promise<void>((resolve, reject) => pending!.waiters.push({ resolve, reject }));
+  if (pending.records.size >= semanticWriteBatchSize()) void flushPendingVectorBatch(key);
+  else if (!pending.timer) pending.timer = setTimeout(() => { void flushPendingVectorBatch(key); }, semanticWriteFlushMs());
+  return promise;
 }
 
 export function upsertSemanticVectors(
@@ -206,6 +281,68 @@ export function upsertSemanticVectors(
   records: SemanticVectorRecord[],
 ): Promise<void> {
   return queueOperation(stateKey(dataDir, profile), () => mergeVectors(dataDir, profile, records));
+}
+
+/** Return persisted vector IDs without loading vector payloads. */
+export async function listSemanticVectorIds(
+  dataDir: string,
+  profile: SemanticIndexProfile,
+): Promise<Set<number> | null> {
+  const state = await getState(dataDir, profile);
+  if (!state?.table) return null;
+  const rows = await state.table.query().select(['observation_id']).toArray();
+  return new Set(rows.map((row: any) => Number(row.observation_id)).filter(Number.isSafeInteger));
+}
+
+/** Read small, operator-safe table statistics without exposing vector data. */
+export async function getSemanticIndexStats(
+  dataDir: string,
+  profile: SemanticIndexProfile,
+): Promise<{ rowCount: number; version: number } | null> {
+  const state = await getState(dataDir, profile);
+  if (!state?.table) return null;
+  return {
+    rowCount: await state.table.countRows(),
+    version: typeof state.table.version === 'function' ? await state.table.version() : 0,
+  };
+}
+
+/** Compact Lance fragments and prune old manifests for a semantic profile. */
+export function optimizeSemanticIndex(
+  dataDir: string,
+  profile: SemanticIndexProfile,
+): Promise<void> {
+  const key = stateKey(dataDir, profile);
+  return queueOperation(key, async () => {
+    const state = await getState(dataDir, profile);
+    if (state) await optimizeState(state);
+    mutationCounts.set(key, 0);
+  });
+}
+
+/** Repair all persisted semantic tables without needing an active embedding provider. */
+export async function optimizeSemanticIndexes(dataDir: string): Promise<string[]> {
+  if (!existsSync(indexRoot(dataDir))) return [];
+  const lance = await loadLanceDb();
+  if (!lance) throw new Error('LanceDB is unavailable; install the optional @lancedb/lancedb package');
+  const connection = await lance.connect(indexRoot(dataDir));
+  try {
+    const names: string[] = typeof connection.tableNames === 'function'
+      ? await connection.tableNames()
+      : (await connection.listTables()).tables;
+    const optimized: string[] = [];
+    for (const name of names.filter((value) => value.startsWith(TABLE_PREFIX))) {
+      const table = await connection.openTable(name);
+      await table.optimize({
+        cleanupOlderThan: new Date(Date.now() - semanticVersionRetentionMs()),
+        deleteUnverified: false,
+      });
+      optimized.push(name);
+    }
+    return optimized;
+  } finally {
+    try { connection.close?.(); } catch { /* best effort */ }
+  }
 }
 
 export function deleteSemanticVector(
@@ -309,6 +446,8 @@ export async function searchSemanticVectors(options: {
 
 /** Close native connections and release this process's derived-index cache. */
 export async function closeSemanticIndexes(): Promise<void> {
+  await Promise.all([...pendingVectorBatches.keys()].map((key) => flushPendingVectorBatch(key)));
+  await Promise.all([...writeQueues.values()]);
   for (const statePromise of statePromises.values()) {
     const state = await statePromise.catch(() => null);
     try { state?.connection?.close?.(); } catch { /* best effort */ }
@@ -316,11 +455,14 @@ export async function closeSemanticIndexes(): Promise<void> {
   statePromises.clear();
   writeQueues.clear();
   indexBuilds.clear();
+  mutationCounts.clear();
 }
 
 /** Close only the semantic tables rooted in one Memorix data directory. */
 export async function closeSemanticIndex(dataDir: string): Promise<void> {
   const prefix = `${path.resolve(dataDir)}::`;
+  await Promise.all([...pendingVectorBatches.keys()].filter((key) => key.startsWith(prefix)).map(flushPendingVectorBatch));
+  await Promise.all([...writeQueues.entries()].filter(([key]) => key.startsWith(prefix)).map(([, queue]) => queue));
   for (const [key, statePromise] of statePromises.entries()) {
     if (!key.startsWith(prefix)) continue;
     const state = await statePromise.catch(() => null);
@@ -328,13 +470,19 @@ export async function closeSemanticIndex(dataDir: string): Promise<void> {
     statePromises.delete(key);
     writeQueues.delete(key);
     indexBuilds.delete(key);
+    mutationCounts.delete(key);
   }
 }
 
 /** @internal Reset state for isolated tests. */
 export function resetSemanticIndexRuntime(): void {
+  for (const pending of pendingVectorBatches.values()) {
+    if (pending.timer) clearTimeout(pending.timer);
+  }
+  pendingVectorBatches.clear();
   statePromises.clear();
   writeQueues.clear();
   indexBuilds.clear();
+  mutationCounts.clear();
   availability = undefined;
 }

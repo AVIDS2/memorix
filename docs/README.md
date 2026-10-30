@@ -127,8 +127,8 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The latest published product line is **1.10.1**; it includes derived-view
-receipts and the optional Cheaper Inference preset.
+The current product line is **1.10.2**; it includes the LanceDB semantic-index
+growth fix, derived-view receipts, and the optional Cheaper Inference preset.
 Multi-device store sync is opt-in and keeps local SQLite canonical; existing
 users do not upload anything until they configure a relay provider explicitly.
 The authoritative acceptance contract for the current implementation is

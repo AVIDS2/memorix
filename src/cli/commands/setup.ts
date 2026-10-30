@@ -27,6 +27,7 @@ import { GeminiCLIMCPAdapter } from '../../workspace/mcp-adapters/gemini-cli.js'
 import { OpenClawMCPAdapter } from '../../workspace/mcp-adapters/openclaw.js';
 import { HermesMCPAdapter, resolveHermesHome } from '../../workspace/mcp-adapters/hermes.js';
 import { OmpMCPAdapter } from '../../workspace/mcp-adapters/omp.js';
+import { PiMCPAdapter } from '../../workspace/mcp-adapters/pi.js';
 import { KiroMCPAdapter } from '../../workspace/mcp-adapters/kiro.js';
 import { OpenCodeMCPAdapter } from '../../workspace/mcp-adapters/opencode.js';
 import { TraeMCPAdapter } from '../../workspace/mcp-adapters/trae.js';
@@ -378,7 +379,7 @@ function relativePosix(from: string, to: string): string {
   return rel;
 }
 
-export type McpConfigAgent = Exclude<AgentName, 'pi' | 'qwen'>;
+export type McpConfigAgent = Exclude<AgentName, 'qwen'>;
 
 export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
   const adapters: Record<McpConfigAgent, MCPConfigAdapter> = {
@@ -393,6 +394,7 @@ export function getMcpAdapter(agent: McpConfigAgent): MCPConfigAdapter {
     openclaw: new OpenClawMCPAdapter(),
     hermes: new HermesMCPAdapter(),
     omp: new OmpMCPAdapter(),
+    pi: new PiMCPAdapter(),
     kiro: new KiroMCPAdapter(),
     opencode: new OpenCodeMCPAdapter(),
     trae: new TraeMCPAdapter(),
@@ -1487,7 +1489,6 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
   // project-local .codex/config.toml as an implicit fallback.
   // Grok MCP stays host-owned unless the caller passed --mcp http.
   const wantsMcpConfig = plan.mcp !== 'none'
-    && agent !== 'pi'
     && !(agent === 'codex' && !global)
     && !(agent === 'grok' && plan.mcp !== 'http');
   const bundledMcpRoots: string[] = [];
@@ -1681,9 +1682,11 @@ export async function installAgentSetup(agent: AgentName, plan: SetupPlan, globa
     p.log.info(`${agent}: MCP, skills, and hooks are bundled in the official CodeBuddy plugin package`);
   }
 
-  if (agent === 'pi') {
-    p.log.info('pi: Pi has no MCP config lane in the current CLI; use the installed package extension and skill.');
-  } else if (agent === 'grok') {
+  if (agent === 'pi' && plan.mcp !== 'none') {
+    p.log.info('pi: run `pi mcp list` to check connections, then `/reload` in Pi. Trust the project to load project-local MCP config.');
+  }
+
+  if (agent === 'grok') {
     if (plan.mcp === 'http') {
       p.log.info('grok: wrote [mcp_servers.memorix] HTTP URL in Grok config.toml. Start the control plane with `memorix background start`.');
     } else {
@@ -1800,7 +1803,7 @@ export default defineCommand({
           { value: 'openclaw', label: 'OpenClaw', hint: 'bundle + hook pack + skills + MCP' },
           { value: 'hermes', label: 'Hermes Agent', hint: 'plugin + hooks + commands + skills + MCP' },
           { value: 'omp', label: 'Oh-my-Pi', hint: 'package + extension + command + MCP' },
-          { value: 'pi', label: 'Pi coding agent', hint: 'package + extension + skill' },
+          { value: 'pi', label: 'Pi coding agent', hint: 'package + extension + skills + MCP (Pi 1.0+)' },
           { value: 'dsh', label: 'DeepSeek Harness', hint: 'MCP patch + AGENTS.md + skills' },
           { value: 'opencode', label: 'OpenCode', hint: 'local plugin + AGENTS.md + MCP' },
           { value: 'windsurf', label: 'Windsurf', hint: 'rules + hooks + MCP' },

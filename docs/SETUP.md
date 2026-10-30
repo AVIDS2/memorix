@@ -85,7 +85,7 @@ What this does:
 - Codex: installs a user-level Personal marketplace plugin under `~/plugins/memorix`, attempts `codex plugin add memorix@personal`, and keeps project-local `.codex` configuration untouched. The plugin owns its MCP server, skills, and optional hooks without changing your model, approval, or sandbox settings.
 - GitHub Copilot CLI: installs a local plugin package and attempts `copilot plugin install <local-path>`.
 - Cursor: writes Cursor MCP config, rules, skills, and hook guidance.
-- Pi: installs the user-level Memorix Pi package and attempts `pi install <path> --approve`.
+- Pi: installs the user-level Memorix Pi package, attempts `pi install <path> --approve`, and writes native MCP config to `~/.pi/agent/mcp.json` (Pi 1.0+). Project setup uses `.pi/packages/memorix` and `.pi/mcp.json`.
 - Gemini CLI: installs a local extension package under `~/.gemini/extensions/memorix` with MCP, `GEMINI.md`, hooks, commands, and skills. Antigravity CLI has an official Gemini CLI migration path, but Memorix keeps Gemini CLI as its own active standalone target.
 - OpenCode: installs a local plugin file, OpenCode skill, MCP config, and `AGENTS.md` guidance.
 - Antigravity: installs a native plugin under `~/.gemini/config/plugins/memorix` for global setup or `.agents/plugins/memorix` for workspace setup. The plugin bundles `plugin.json`, `mcp_config.json`, `hooks.json`, rules, and skills.
@@ -459,13 +459,13 @@ Project config: `.kiro/settings/mcp.json`
 
 ### Pi
 
-Pi uses its package system instead of a separate Memorix MCP config lane:
+Requires [Pi 1.0+](https://github.com/earendil-works/pi/blob/v1.0.0/packages/coding-agent/docs/mcp.md). Setup installs both the extension/skills package and a native MCP server entry:
 
 ```bash
 memorix setup --agent pi --global
 ```
 
-This writes the user-level Memorix Pi package and registers it with:
+This merges `mcpServers.memorix` into `~/.pi/agent/mcp.json`, preserving unrelated servers and settings. The default stdio entry runs `memorix serve --mode lite`. It also writes the user-level Memorix Pi package and registers it with:
 
 ```bash
 pi install ~/.pi/agent/packages/memorix --approve
@@ -477,7 +477,22 @@ Check the loaded package resources with:
 pi config --approve
 ```
 
-You should see the Memorix extension and the official Memorix skills listed under the Pi package.
+You should see the Memorix extension and the shared official Memorix skills listed under the Pi package. Setup generates the same skills used by other supported agents; Pi does not maintain a separate skill set. Native MCP supplies the tools, and lifecycle capture comes from the extension.
+
+For project-local setup, run `memorix setup --agent pi` from the project root. This writes `.pi/mcp.json` and installs `.pi/packages/memorix` with `pi install <path> -l --approve`. Pi must trust the project before it loads project-local MCP configuration.
+
+For an explicitly shared HTTP control plane:
+
+```bash
+memorix setup --agent pi --global --mcp http
+memorix background start
+```
+
+This writes `mcpServers.memorix.url = "http://localhost:3211/mcp"` instead of a stdio command. In HTTP mode, bind the active repository with `memorix_session_start(projectRoot=...)`.
+
+Use `--mcp none` to skip MCP configuration. Existing MCP configuration is left untouched.
+
+After setup, run `pi mcp list` to check connections, then `/reload` in Pi (or restart it). Use `/mcp` to inspect servers in a session. Pi exposes MCP tools through codemode by default; tool discovery is not evidence that the server is missing. Extensions such as `pi-mcp-adapter` that replace Pi's built-in `/mcp` also replace native config loading; use Pi's built-in MCP support for this setup.
 
 ### Gemini CLI, OpenCode, Antigravity, Trae, OpenClaw, Hermes Agent, Oh-my-Pi, and other MCP clients
 

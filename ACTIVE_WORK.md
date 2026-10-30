@@ -13,18 +13,21 @@ tests directly with Node/npm on the E: workspace. Do not start Docker or add
 local Docker data. The Dockerfile and image workflow remain deployment
 artifacts for the VPS/hosted build path only.
 
-## 1.10.2 Patch Candidate (2026-10-30)
+## 1.10.2 Patch and Pi Native MCP (2026-10-30)
 
 - Issue #365 identified unbounded LanceDB metadata growth from one-row commits,
   absent compaction, and cold-start re-embedding after cache eviction. The patch
   batches individual writes, optimizes periodically, checks persisted vector
   IDs before backfill, and adds `memorix repair index` for existing tables.
 - PR #366 (Hermes skill paths) and PR #368 (MCP structured results/card) are
-  merged into the patch baseline. PR #367 (Pi native MCP) remains under review
-  as a feature change outside the urgent patch.
+  merged into the patch baseline. PR #369 carries the 1.10.2 release; its seven
+  PR checks passed. Main-commit CI and publication are pending.
 - Local TypeScript checks and build pass. Full suite: 345 files passed,
-  3 skipped; 3,240 tests passed, 5 skipped. Remote CI and publication remain
-  pending for the patch candidate.
+  3 skipped; 3,240 tests passed, 5 skipped.
+- PR #367 adds native MCP setup for Pi 1.0+ at project `.pi/mcp.json` and user
+  `~/.pi/agent/mcp.json`, with stdio/HTTP/none modes. The extension lifecycle
+  capture and generated shared skills remain. Local typecheck and 104 focused
+  integration tests pass; this feature is staged after the patch release.
 
 ## Current Product State
 

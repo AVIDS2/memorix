@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { buildMemorixServer } from '../../src/cli/commands/setup.js';
+import { buildMemorixServer, installPiPackage } from '../../src/cli/commands/setup.js';
 import { installAgentGuidance } from '../../src/hooks/installers/index.js';
 import { TOOL_PROFILES, isToolInProfile, countToolsInProfile, describeProfile } from '../../src/server/tool-profile.js';
+import { OFFICIAL_MEMORIX_SKILLS } from '../../src/hooks/official-skills.js';
 
 /**
  * Profile-parity exam: the tools an agent is taught must exist in the profile
@@ -57,7 +58,7 @@ describe('profile parity exam', () => {
   });
 
   it('keeps packaged memory skills aware of the reachable lite surface', () => {
-    for (const agent of ['claude', 'codebuddy', 'codex', 'copilot', 'cursor', 'pi']) {
+    for (const agent of ['claude', 'codebuddy', 'codex', 'copilot', 'cursor']) {
       const content = readFileSync(
         path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../plugins/${agent}/memorix/skills/memorix-memory/SKILL.md`),
         'utf8',
@@ -65,6 +66,17 @@ describe('profile parity exam', () => {
       expect(content, `${agent} memory skill`).toContain('memorix_evidence');
       expect(content, `${agent} memory skill`).toContain('memorix_feedback');
       expect(content, `${agent} memory skill`).toContain('memorix_media');
+    }
+  });
+
+  it('Pi installs shared memory guidance for the reachable lite surface', async () => {
+    sandbox = mkdtempSync(path.join(tmpdir(), 'memorix-profile-parity-'));
+    const { packagePath } = await installPiPackage({ packageDir: path.join(sandbox, 'memorix') });
+    const content = readFileSync(path.join(packagePath, 'skills', 'memorix-memory', 'SKILL.md'), 'utf-8');
+    expect(content).toBe(OFFICIAL_MEMORIX_SKILLS.find(skill => skill.name === 'memorix-memory')?.content);
+    for (const tool of ['memorix_evidence', 'memorix_feedback', 'memorix_media']) {
+      expect(content).toContain(tool);
+      expect(isToolInProfile(tool, 'lite'), `${tool} must be reachable`).toBe(true);
     }
   });
 

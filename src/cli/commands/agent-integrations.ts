@@ -315,7 +315,7 @@ function capabilityParity(
 function isMcpConfigAgent(agent: AgentName): agent is McpConfigAgent {
   // Grok has a setup-only HTTP adapter. Doctor/repair skip it so a default
   // host-owned Grok MCP is not reported as missing.
-  return agent !== 'pi' && agent !== 'grok' && agent !== 'qwen';
+  return agent !== 'grok' && agent !== 'qwen';
 }
 
 function isActionableMcpRepairIssue(issue: string): boolean {

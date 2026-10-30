@@ -182,7 +182,6 @@ describe('OpenCode integration files', () => {
       path.resolve('plugins/claude/memorix/skills'),
       path.resolve('plugins/codex/memorix/skills'),
       path.resolve('plugins/copilot/memorix/skills'),
-      path.resolve('plugins/pi/memorix/skills'),
     ];
 
     for (const root of pluginRoots) {

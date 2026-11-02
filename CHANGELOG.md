@@ -7,6 +7,9 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Pi 1.0+ native MCP setup through project or user `mcp.json`, with stdio and
   HTTP transports alongside the existing extension and shared skills (#367).
+- **Runcrate memory preset** -- optional background memory LLM processing
+  through an OpenAI-compatible endpoint for open-weight models, with an isolated
+  `RUNCRATE_API_KEY`, CLI/TUI setup and bilingual configuration guidance.
 
 ## [1.10.2] - 2026-10-30
 

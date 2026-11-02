@@ -691,6 +691,9 @@ async function handleApi(
                     ...(resolved.memory.llm.provider === 'cheaperinference'
                         ? ['CHEAPER_INFERENCE_API_KEY']
                         : []),
+                    ...(resolved.memory.llm.provider === 'runcrate'
+                        ? ['RUNCRATE_API_KEY']
+                        : []),
                 ];
                 if (llmKey) {
                     const src = resolveDashboardKeySource({ value: llmKey, envKeys: memoryKeyEnv, configSource });

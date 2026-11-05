@@ -129,7 +129,8 @@ calls outside canonical SQLite transactions.
 
 The first P2 slice is implemented for vector work: observation writes register
 the deduplicated backfill job inside the SQLite transaction, foreground success
-resolves pending work, and maintenance rows persist real progress counters.
+leaves project-level work for the worker to verify, and maintenance rows persist
+real progress counters.
 
 **P3 - 1.11 retrieval/context plane:** move ranking, freshness, provenance,
 admission, and progressive disclosure into `RetrievalFacade`. Keep Orama,

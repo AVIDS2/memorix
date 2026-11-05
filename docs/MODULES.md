@@ -1,6 +1,6 @@
 # Memorix 模块详解
 
-> 最后更新: 2026-11-05（当前发布线 v1.10.3）
+> 最后更新: 2026-11-05（源码 v1.10.3；npm 已发布版本 v1.10.2）
 > 本文档记录当前模块边界、关键算法和兼容层，不把历史实现误写成运行时主路径。
 
 > 当前真实主路径先看下面的模块总览，再看各模块的细节。早期 JSON/Orama
@@ -17,6 +17,7 @@
 | --- | --- | --- |
 | `store/sqlite-db.ts`、`store/sqlite-store.ts` | 持久化观察、会话、图谱、知识、长期记忆、媒体和协作状态 | 是 |
 | `store/orama-store.ts` | 从 SQLite 数据重建的全文/向量检索索引 | 是，索引层 |
+| `core/retrieval-facade.ts`、`search/retrieval-facade.ts` | 规范化请求并将检索结果与本次执行收据绑定；排序仍由搜索适配器实现 | 是，逐步迁移中 |
 | `memory/graph.ts` | MCP 兼容的实体/关系操作外观，底层写入 SQLite | 是 |
 | `wiki/knowledge-graph.ts` | Dashboard 的证据化 Memory Map 投影，不是真实数据源 | 是，展示层 |
 | `dashboard/static/` | 只保留 ECharts Memory Map 这一套图谱界面 | 是 |

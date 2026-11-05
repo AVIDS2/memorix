@@ -11,14 +11,11 @@
 
 import type { SearchOptions, IndexEntry, TimelineContext, MemorixDocument, ObservationRef, MemoryRef, MiniSkill, SourceSnapshot, ObservationReader } from '../types.js';
 import {
-  searchObservations,
   getTimeline,
   getObservationsByIds,
   makeOramaObservationId,
-  getLastSearchMode,
-  getLastSearchDiagnostics,
-  getSearchDerivedViews,
 } from '../store/orama-store.js';
+import { retrievalFacade } from '../search/retrieval-facade.js';
 import { getObservation, getAllObservations } from '../memory/observations.js';
 import { ensureFreshIndex } from '../memory/freshness.js';
 import { formatIndexTable, formatTimeline, formatObservationDetail, type RetrievalSurface } from './index-format.js';
@@ -98,7 +95,8 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
   const startedAt = Date.now();
   await ensureFreshIndex({ loadCorpus: false });
   const searchOptions = { ...options, query: normalizeMemoryBrowseQuery(options.query) };
-  let entries = (await searchObservations(searchOptions)).map((entry) =>
+  const execution = await retrievalFacade.search(searchOptions);
+  let entries = execution.entries.map((entry) =>
     entry.projectId || !options.projectId ? entry : { ...entry, projectId: options.projectId },
   );
   if (options.projectId) {
@@ -157,8 +155,8 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
   }
 
   const totalTokens = countTextTokens(formatted);
-  const diagnostics = getLastSearchDiagnostics(options.projectId);
-  const derivedViews = getSearchDerivedViews();
+  const diagnostics = execution.receipt;
+  const derivedViews = execution.views;
   if (diagnostics?.fallbackUsed && diagnostics.fallbackReason) {
     derivedViews.embedding = {
       freshness: 'stale',
@@ -173,7 +171,7 @@ export async function compactSearch(options: SearchOptions, surface: RetrievalSu
     totalTokens,
     receipt: {
       version: '1',
-      mode: getLastSearchMode(options.projectId),
+      mode: diagnostics.mode,
       resultCount: entries.length,
       candidateCount: diagnostics?.candidateCount ?? entries.length,
       selectedCount: diagnostics?.selectedCount ?? entries.length,

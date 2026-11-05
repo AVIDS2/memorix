@@ -5,7 +5,6 @@ import type { ChatMessage, ToolDefinition, ToolCall } from '../../llm/provider.j
 import { initObservations, prepareSearchIndex, storeObservation, resolveObservations, getObservation, getAllObservations } from '../../memory/observations.js';
 import { canManageObservation, filterReadableObservations } from '../../memory/visibility.js';
 import type { ObservationReader, ObservationType } from '../../types.js';
-import { getLastSearchMode } from '../../store/orama-store.js';
 import type { MemorixDocument } from '../../types.js';
 import { getTuiOperatorContext } from './operator-context.js';
 
@@ -211,6 +210,7 @@ interface ToolExecutionContext {
   reader: ObservationReader;
   writerAgentId?: string;
   collectedSources: ChatSource[];
+  searchMode?: string;
 }
 
 async function resolveTuiContext() {
@@ -225,6 +225,7 @@ function executeSearchMemories(args: { query: string; limit?: number }, ctx: Too
   const limit = Math.min(args.limit ?? SEARCH_LIMIT, 10);
   return compactSearch({ query: args.query, limit, projectId: ctx.projectId, status: 'active', reader: ctx.reader })
     .then((result) => {
+      ctx.searchMode = normalizeSearchMode(result.receipt.mode);
       const entries = result.entries.slice(0, DETAIL_LIMIT);
       if (entries.length === 0) return 'No memories found for that query.';
 
@@ -460,8 +461,6 @@ export async function askMemoryQuestion(
 
   await prepareProjectSearch(project.id, dataDir);
 
-  const searchMode = normalizeSearchMode(getLastSearchMode(project.id) || 'fulltext');
-
   // LLM not configured — legacy fallback
   if (!isLLMEnabled()) {
     const searchResult = await compactSearch({
@@ -483,7 +482,7 @@ export async function askMemoryQuestion(
       answer: buildFallbackAnswer(trimmedQuestion, sources),
       sources,
       usedLLM: false,
-      searchMode,
+      searchMode: normalizeSearchMode(searchResult.receipt.mode),
       warning: sources.length === 0 ? 'No relevant memories found.' : 'LLM not configured.',
     };
   }
@@ -565,7 +564,7 @@ export async function askMemoryQuestion(
     sources,
     usedLLM: true,
     llmModel: getLLMConfig()?.model,
-    searchMode,
+    searchMode: ctx.searchMode ?? 'fulltext',
     toolCallsCount: totalToolCalls,
   };
 }
@@ -652,8 +651,6 @@ export async function askMemoryQuestionStream(
 
   await prepareProjectSearch(project.id, dataDir);
 
-  const searchMode = normalizeSearchMode(getLastSearchMode(project.id) || 'fulltext');
-
   // LLM not configured — legacy fallback (no streaming possible)
   if (!isLLMEnabled()) {
     const searchResult = await compactSearch({
@@ -675,7 +672,7 @@ export async function askMemoryQuestionStream(
       answer: buildFallbackAnswer(trimmedQuestion, sources),
       sources,
       usedLLM: false,
-      searchMode,
+      searchMode: normalizeSearchMode(searchResult.receipt.mode),
       warning: sources.length === 0 ? 'No relevant memories found.' : 'LLM not configured.',
     };
   }
@@ -757,7 +754,7 @@ export async function askMemoryQuestionStream(
     sources,
     usedLLM: true,
     llmModel: getLLMConfig()?.model,
-    searchMode,
+    searchMode: ctx.searchMode ?? 'fulltext',
     toolCallsCount: totalToolCalls,
   };
 }

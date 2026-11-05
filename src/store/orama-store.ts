@@ -67,6 +67,11 @@ export interface SearchDiagnostics extends RetrievalReceipt {
   rawCandidateCount: number;
 }
 const lastSearchDiagnosticsByProject = new Map<string, SearchDiagnostics>();
+export interface SearchExecution {
+  entries: IndexEntry[];
+  diagnostics: SearchDiagnostics;
+  derivedViews: RetrievalDerivedViews;
+}
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
 const MAX_SEARCH_MODE_KEYS = 4096;
 
@@ -949,7 +954,7 @@ export async function removeObservation(oramaId: string): Promise<void> {
  *
  * Progressive Disclosure Layer 1 — adopted from claude-mem.
  */
-export async function searchObservations(options: SearchOptions): Promise<IndexEntry[]> {
+export async function searchObservationsDetailed(options: SearchOptions): Promise<SearchExecution> {
   const retrievalPlan = createRetrievalPlan(options);
   options = { ...options, ...retrievalPlan } as SearchOptions;
   const searchStartedAt = Date.now();
@@ -959,10 +964,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
   const modeKey = options.projectId ?? SEARCH_MODE_DEFAULT_KEY;
   const quality = options.quality ?? 'balanced';
   const database = await getDb();
-  rememberSearchMode(
-    modeKey,
-    quality === 'fast' ? 'fulltext (fast profile)' : embeddingEnabled ? 'hybrid' : 'fulltext',
-  );
+  let requestMode = quality === 'fast' ? 'fulltext (fast profile)' : embeddingEnabled ? 'hybrid' : 'fulltext';
+  const setMode = (mode: string) => {
+    requestMode = mode;
+    rememberSearchMode(modeKey, mode);
+  };
+  setMode(requestMode);
 
   // Resolve project aliases — safety net for observations not yet migrated to canonical ID.
   // After migration, this is typically a single-element array matching options.projectId.
@@ -1078,10 +1085,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
           embeddingUnavailable = true;
           fallbackUsed = true;
           fallbackReason = 'embedding dimension mismatch; lexical search used';
-          rememberSearchMode(
-            modeKey,
-            `fulltext (embedding dimension mismatch: provider ${provider.dimensions}d vs index ${activeVectorDimensions}d)`,
-          );
+          setMode(`fulltext (embedding dimension mismatch: provider ${provider.dimensions}d vs index ${activeVectorDimensions}d)`);
           console.error(
             `[memorix] Embedding provider dimension mismatch (${provider.dimensions}d provider vs ${activeVectorDimensions}d index); using fulltext search`,
           );
@@ -1107,7 +1111,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
           // Detect CJK-heavy queries: BM25 can't tokenize Chinese/Japanese/Korean well
           const cjkRatio = (originalQuery!.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g) || []).length / originalQuery!.length;
           const isCJKHeavy = cjkRatio > 0.3;
-          rememberSearchMode(modeKey, 'hybrid');
+          setMode('hybrid');
           searchParams = {
             ...searchParams,
             mode: 'hybrid',
@@ -1133,7 +1137,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       embeddingUnavailable = true;
       fallbackUsed = true;
       fallbackReason = 'embedding failed or timed out; lexical search used';
-      rememberSearchMode(modeKey, 'fulltext (embedding unavailable)');
+      setMode('fulltext (embedding unavailable)');
       console.error('[memorix] Embedding failed or timed out, falling back to fulltext search');
     }
   }
@@ -1167,17 +1171,14 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     results = persistent;
     // Keep the public mode label compatible with existing integrations while
     // exposing the concrete accelerator through performance marks/status.
-    rememberSearchMode(
-      modeKey,
-      queryVector ? 'hybrid' : quality === 'fast' ? 'fulltext (fast profile)' : 'fulltext',
-    );
+    setMode(queryVector ? 'hybrid' : quality === 'fast' ? 'fulltext (fast profile)' : 'fulltext');
     mark(queryVector ? 'persistentHybridSearch' : 'sqliteFtsSearch');
   } else {
     try {
       results = await search(database, searchParams);
     } catch (error) {
       if (queryVector && isVectorDimensionMismatchError(error)) {
-        rememberSearchMode(modeKey, 'fulltext (embedding dimension mismatch)');
+        setMode('fulltext (embedding dimension mismatch)');
         console.error('[memorix] Vector search dimension mismatch detected, retrying without embeddings');
         results = await search(database, stripVectorSearchParams(searchParams));
       } else {
@@ -1202,7 +1203,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         },
         similarity: 0.25,
       };
-      rememberSearchMode(modeKey, 'vector-only (hybrid empty fallback)');
+      setMode('vector-only (hybrid empty fallback)');
       fallbackUsed = true;
       fallbackReason = 'hybrid search returned no results; vector-only fallback used';
       results = await search(database, vectorOnlyParams);
@@ -1565,7 +1566,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
             .filter((entry): entry is NonNullable<typeof entry> => entry != null);
           if (rerankedTop.length > 0) {
             intermediate = [...rerankedTop, ...intermediate.slice(RERANK_TOP_K)];
-            rememberSearchMode(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + neural rerank');
+            setMode(requestMode + ' + neural rerank');
             mark('rerank(usedNeural=true)');
           }
         }
@@ -1582,7 +1583,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
         );
         mark(`rerank(usedLLM=${usedLLM})`);
         if (usedLLM) {
-          rememberSearchMode(modeKey, (lastSearchModeByProject.get(modeKey) ?? 'fulltext') + ' + LLM rerank');
+          setMode(requestMode + ' + LLM rerank');
           const rerankedTop = reranked
             .map((row) => candidateMap.get(row.id))
             .filter((entry): entry is NonNullable<typeof entry> => entry != null);
@@ -1658,9 +1659,9 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     entries = applyTokenBudget(entries, options.maxTokens);
   }
 
-  rememberSearchDiagnostics(modeKey, {
+  const diagnostics: SearchDiagnostics = {
     version: '1',
-    mode: getLastSearchMode(options.projectId),
+    mode: requestMode,
     rawCandidateCount: results.hits.length,
     candidateCount,
     selectedCount: entries.length,
@@ -1669,7 +1670,8 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     fallbackUsed,
     ...(fallbackReason ? { fallbackReason } : {}),
     elapsedMs: Math.max(0, Date.now() - searchStartedAt),
-  });
+  };
+  rememberSearchDiagnostics(modeKey, diagnostics);
 
   // Record access for returned results (fire-and-forget, non-blocking).
   if (options.trackAccess !== false) {
@@ -1680,7 +1682,16 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     recordAccessBatch(hitDocs).catch(() => {});
   }
 
-  return entries;
+  const derivedViews = getSearchDerivedViews();
+  if (fallbackUsed && fallbackReason) {
+    derivedViews.embedding = { freshness: 'stale', rebuildStatus: 'failed', failureReason: fallbackReason };
+  }
+  return { entries, diagnostics, derivedViews };
+}
+
+/** Keep the historical array API for SDKs and integrations. */
+export async function searchObservations(options: SearchOptions): Promise<IndexEntry[]> {
+  return (await searchObservationsDetailed(options)).entries;
 }
 
 /**

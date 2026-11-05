@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 const getAllObservations = vi.hoisted(() => vi.fn());
 const ensureFreshObservations = vi.hoisted(() => vi.fn());
 const searchObservations = vi.hoisted(() => vi.fn());
+const searchObservationsDetailed = vi.hoisted(() => vi.fn());
 const getLastSearchMode = vi.hoisted(() => vi.fn(() => 'fulltext'));
 const getLastSearchDiagnostics = vi.hoisted(() => vi.fn());
 const getSearchDerivedViews = vi.hoisted(() => vi.fn(() => ({})));
@@ -16,6 +17,7 @@ vi.mock("../../src/memory/observations.js", () => ({
 
 vi.mock("../../src/store/orama-store.js", () => ({
 	searchObservations,
+	searchObservationsDetailed,
 	getLastSearchMode,
 	getLastSearchDiagnostics,
 	getSearchDerivedViews,
@@ -43,7 +45,14 @@ describe("compactSearch", () => {
 		ensureFreshObservations.mockResolvedValue(false);
 		formatIndexTable.mockReturnValue("index");
 		countTextTokens.mockReturnValue(1);
-		searchObservations.mockResolvedValue([]);
+		searchObservationsDetailed.mockResolvedValue({
+			entries: [],
+			diagnostics: {
+				version: '1', mode: 'fulltext', candidateCount: 0, selectedCount: 0,
+				omittedCount: 0, omittedByTokenBudget: 0, fallbackUsed: false, elapsedMs: 1,
+			},
+			derivedViews: {},
+		});
 	});
 
 	test("does not treat alias-backed memories as a fresh project", async () => {
@@ -76,5 +85,27 @@ describe("compactSearch", () => {
 		} as any);
 
 		expect(result.formatted).toContain("This project does not have any Memorix memories yet.");
+	});
+
+	test("uses the current search receipt even if the project cache belongs to another request", async () => {
+		resolveAliases.mockResolvedValue(["AVIDS2/memorix"]);
+		getAllObservations.mockReturnValue([]);
+		getLastSearchMode.mockReturnValue('wrong concurrent mode');
+		getLastSearchDiagnostics.mockReturnValue({ mode: 'wrong concurrent mode' });
+		searchObservationsDetailed.mockResolvedValue({
+			entries: [],
+			diagnostics: {
+				version: '1', mode: 'hybrid', candidateCount: 2, selectedCount: 0,
+				omittedCount: 2, omittedByTokenBudget: 0, fallbackUsed: true,
+				fallbackReason: 'embedding unavailable', elapsedMs: 3,
+			},
+			derivedViews: {},
+		});
+
+		const result = await compactSearch({ projectId: 'AVIDS2/memorix', query: 'anything' });
+		expect(result.receipt.mode).toBe('hybrid');
+		expect(result.receipt.candidateCount).toBe(2);
+		expect(result.receipt.fallbackReason).toBe('embedding unavailable');
+		expect(getLastSearchDiagnostics).not.toHaveBeenCalled();
 	});
 });

@@ -224,6 +224,14 @@ crash must be reconciled before a dangerous retry.
 
 ## Large-Store Release Gate
 
+2026-11-05 Windows/Node 22 offline run at 40,000 seeded records: seed and
+index 74.6s, steady write p50/p95 1.2/3.6ms, warm SDK search 33.6ms,
+HTTP MCP cold search 418.7ms, receipt assembly 10ms, peak RSS 411.8MB.
+SDK reopen, HTTP MCP store, hook store, and durable row-count checks passed.
+The 20-case context task matrix passed 20/20 when supplied this gate report.
+These measurements use disabled embeddings and one local machine; remote
+provider latency and unseen task quality are separate checks.
+
 `npm run gate:large-store -- --records 40000` builds Memorix and creates a
 temporary Git project with an isolated data directory. It runs with embeddings
 disabled, so it does not use provider credentials or make paid network calls.

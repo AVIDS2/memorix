@@ -46,6 +46,14 @@ describe('orama-store semantic hybrid search', () => {
     await resetDb();
   });
 
+  it('returns a request-scoped receipt beside search results', async () => {
+    const { searchObservationsDetailed } = await import('../../src/store/orama-store.js');
+    const result = await searchObservationsDetailed({ query: 'missing', projectId: 'org/repo', limit: 5 });
+    expect(result.diagnostics.selectedCount).toBe(result.entries.length);
+    expect(result.diagnostics.mode).toBeTruthy();
+    expect(result.derivedViews).toHaveProperty('orama');
+  });
+
   it('keeps a semantically correct english paraphrase result in hybrid mode', async () => {
     const {
       insertObservation,

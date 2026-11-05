@@ -19,7 +19,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { storeObservation, initObservations, getObservation, getObservationCount, suggestTopicKey } from '../../src/memory/observations.js';
 import { getObservationStore } from '../../src/store/obs-store.js';
-import { resetDb } from '../../src/store/orama-store.js';
+import * as oramaStore from '../../src/store/orama-store.js';
+import { resetDb, searchObservations } from '../../src/store/orama-store.js';
+import { getDatabase } from '../../src/store/sqlite-db.js';
 
 let testDir: string;
 const PROJECT_ID = 'test/topic-upsert';
@@ -91,6 +93,81 @@ describe('Topic Key Upsert', () => {
     expect(second.revisionCount).toBe(2);
     expect(second.updatedAt).toBeTruthy();
     expect(getObservationCount()).toBe(1); // no duplicate created
+  });
+
+  it('keeps the previous index entry when the canonical update fails', async () => {
+    await storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Original JWT decision',
+      narrative: 'Initial auth policy', topicKey: 'decision/jwt-auth', projectId: PROJECT_ID,
+    });
+    const db = getDatabase(testDir);
+    db.exec("CREATE TRIGGER reject_topic_update BEFORE UPDATE ON observations BEGIN SELECT RAISE(ABORT, 'blocked update'); END");
+
+    await expect(storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Revised JWT decision',
+      narrative: 'Changed auth policy', topicKey: 'decision/jwt-auth', projectId: PROJECT_ID,
+    })).rejects.toThrow('blocked update');
+
+    expect((await searchObservations({ query: 'Original JWT decision', projectId: PROJECT_ID })).map((entry) => entry.title))
+      .toContain('Original JWT decision');
+    expect((await searchObservations({ query: 'Revised JWT decision', projectId: PROJECT_ID })).map((entry) => entry.title))
+      .not.toContain('Revised JWT decision');
+  });
+
+  it('rolls back a topic update when its derived claim job cannot be queued', async () => {
+    const { observation } = await storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Original auth policy',
+      narrative: 'Use local verification', topicKey: 'decision/auth-policy', projectId: PROJECT_ID,
+    });
+    const db = getDatabase(testDir);
+    db.exec("CREATE TRIGGER reject_claim_job BEFORE INSERT ON maintenance_jobs WHEN NEW.kind = 'claim-derive' BEGIN SELECT RAISE(ABORT, 'blocked claim job'); END");
+
+    await expect(storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Changed auth policy',
+      narrative: 'Changed local verification', topicKey: 'decision/auth-policy',
+      projectId: PROJECT_ID, sourceDetail: 'explicit',
+    })).rejects.toThrow('blocked claim job');
+
+    expect((await getObservationStore().getById(observation.id))?.title).toBe('Original auth policy');
+    expect(getObservation(observation.id, PROJECT_ID)?.title).toBe('Original auth policy');
+    expect((await searchObservations({ query: 'Original auth policy', projectId: PROJECT_ID })).map((entry) => entry.title))
+      .toContain('Original auth policy');
+  });
+
+  it('rolls back a topic update when its linked persistence callback fails', async () => {
+    const { observation } = await storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Original linked policy',
+      narrative: 'Keep the existing link', topicKey: 'decision/linked-policy', projectId: PROJECT_ID,
+    });
+    await expect(storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Uncommitted linked policy',
+      narrative: 'Must not survive', topicKey: 'decision/linked-policy', projectId: PROJECT_ID,
+      onPersisted: () => { throw new Error('linked record failed'); },
+    })).rejects.toThrow('linked record failed');
+
+    expect((await getObservationStore().getById(observation.id))?.title).toBe('Original linked policy');
+    expect(getObservation(observation.id, PROJECT_ID)?.title).toBe('Original linked policy');
+    expect((await searchObservations({ query: 'Original linked policy', projectId: PROJECT_ID })).map((entry) => entry.title))
+      .toContain('Original linked policy');
+  });
+
+  it('repairs a transient projection failure after the canonical update commits', async () => {
+    await storeObservation({
+      entityName: 'auth', type: 'decision', title: 'Original indexed policy',
+      narrative: 'Initial index content', topicKey: 'decision/index-retry', projectId: PROJECT_ID,
+    });
+    const insert = vi.spyOn(oramaStore, 'insertObservation').mockRejectedValueOnce(new Error('transient index failure'));
+    try {
+      const { observation } = await storeObservation({
+        entityName: 'auth', type: 'decision', title: 'Revised indexed policy',
+        narrative: 'Updated index content', topicKey: 'decision/index-retry', projectId: PROJECT_ID,
+      });
+      expect((await getObservationStore().getById(observation.id))?.title).toBe('Revised indexed policy');
+      expect((await searchObservations({ query: 'Revised indexed policy', projectId: PROJECT_ID })).map((entry) => entry.title))
+        .toContain('Revised indexed policy');
+    } finally {
+      insert.mockRestore();
+    }
   });
 
   it('serializes concurrent writes for the same new topicKey', async () => {

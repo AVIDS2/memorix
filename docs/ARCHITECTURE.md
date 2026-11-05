@@ -120,7 +120,8 @@ directions and one store-to-search-to-detail integration fixture.
 The first P1 slice is implemented: `RuntimeContext` captures a verified project
 and immutable per-request config; CodeGraph uses it. Lance has a concrete
 `DerivedView` adapter used by vector writes. Other hosts and derived views still
-need migration, and maintenance progress has not yet become durable.
+need migration. A dependency test now rejects host, persistence, and adapter
+imports from `src/core/`; maintenance progress is durable in SQLite.
 
 **P2 - 1.11 durable write pipeline:** add a small canonical write service and
 an idempotent derived-work outbox. Observation capture, Git ingest, and
@@ -130,13 +131,25 @@ calls outside canonical SQLite transactions.
 The first P2 slice is implemented for vector work: observation writes register
 the deduplicated backfill job inside the SQLite transaction, foreground success
 leaves project-level work for the worker to verify, and maintenance rows persist
-real progress counters.
+real progress counters. The same transaction now also registers qualification
+and claim derivation for inserted observations and topic-key updates. Topic-key
+updates commit SQLite before refreshing Orama; a failed canonical write or
+linked-record callback leaves the prior search result in place. Other derived
+projections remain to migrate.
 
 **P3 - 1.11 retrieval/context plane:** move ranking, freshness, provenance,
 admission, and progressive disclosure into `RetrievalFacade`. Keep Orama,
 Lance, FTS, and CodeGraph adapters replaceable. Add a retrieval evaluation
 matrix based on real issue-resolution tasks, with recall, precision, latency,
 token cost, and abstention correctness.
+
+The first P3 slice is implemented: a host-independent facade normalizes the
+retrieval plan and returns entries with the diagnostics and derived-view status
+from that same execution. Compact search, TUI chat, and index probes no longer read a
+project-wide last-search value after another request can overwrite it. The
+existing 20-case offline task matrix passes with a fresh 40k local-store gate;
+ranking and admission policy still live in their current modules, and the
+matrix is not an unseen live-task benchmark.
 
 **P4 - 1.12 ecosystem boundary:** generate host capability manifests from one
 registry, validate setup/doctor/repair/uninstall from the same manifest, and

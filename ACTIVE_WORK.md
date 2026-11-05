@@ -31,16 +31,30 @@ artifacts for the VPS/hosted build path only.
   and the Orama bridge writes through that adapter. Non-finite retrieval
   numeric inputs are normalized before searching.
 - [ ] 1.11 P1 remainder: migrate other derived views and host binding paths,
-  then add architecture dependency tests and durable maintenance progress.
+  then finish enforceable host contracts. The `src/core` dependency direction
+  is now guarded by a test; maintenance progress is durable in SQLite.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
-  First slice complete: observation SQLite transactions now enqueue vector
-  backfill work atomically, and maintenance jobs persist
-  attempted/succeeded/failed/remaining progress. Project-level work is only
-  completed after the worker confirms that no missing vectors remain.
+  Observation inserts and topic-key updates now commit vector backfill,
+  qualification, and claim derivation jobs with the source row. Failed topic
+  updates or linked-record callback failures preserve the previous Orama result.
+  Maintenance jobs persist
+  attempted/succeeded/failed/remaining progress; project-level work completes
+  only after the worker confirms no missing vectors remain. CodeGraph/evidence
+  projections and other canonical write entrypoints still need the same audit.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
-  progressive disclosure into one RetrievalFacade and evaluate it on real
-  issue-resolution tasks.
+  progressive disclosure into one RetrievalFacade. The first facade slice
+  attaches each result to its own diagnostics and derived-view receipt; compact
+  search, search-index probes, and TUI chat consume that receipt. The existing 20-case
+  offline task matrix passes 20/20 with a fresh 40k store gate, but it does not
+  establish improvement on unseen live issue-resolution tasks or remote vectors.
+- [x] 2026-11-05 Windows/Node 22 offline 40k gate: 40,000 seeded records,
+  74.6s seed, 33.6ms warm SDK search, 418.7ms HTTP MCP cold search,
+  411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
+- [ ] Release blocker: GitHub Actions cannot start jobs while the repository
+  account is locked for billing; the local npm login also returns E401.
+  Repository source/tag/release are at 1.10.3, but npm and MCP Registry remain
+  at 1.10.2. Do not claim 1.10.3 is published until those external gates clear.
 
 
 ## 1.10.3 Patch and Runcrate (2026-11-05)

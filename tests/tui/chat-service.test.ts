@@ -92,6 +92,7 @@ describe('askMemoryQuestion (agentic harness)', () => {
       ],
       formatted: '',
       totalTokens: 0,
+      receipt: { mode: 'hybrid' },
     });
     mockCompactDetail.mockResolvedValue({
       documents: [
@@ -148,6 +149,18 @@ describe('askMemoryQuestion (agentic harness)', () => {
     expect(result.answer).toContain('[obs:11]');
   });
 
+  it('shows the mode from its own search instead of the previous project mode', async () => {
+    mockIsLLMEnabled.mockReturnValue(false);
+    mockGetLastSearchMode.mockReturnValue('fulltext');
+    mockCompactSearch.mockResolvedValue({
+      entries: [{ id: 11, score: 0.93 }], formatted: '', totalTokens: 0,
+      receipt: { mode: 'vector-only (hybrid empty fallback)' },
+    });
+    const { askMemoryQuestion } = await import('../../src/cli/tui/chat-service.js');
+    const result = await askMemoryQuestion('How does auth work?');
+    expect(result.searchMode).toBe('vector');
+  });
+
   it('prepares chat search through the non-blocking startup path', async () => {
     mockIsLLMEnabled.mockReturnValue(false);
     const { askMemoryQuestion } = await import('../../src/cli/tui/chat-service.js');
@@ -183,6 +196,7 @@ describe('askMemoryQuestion (agentic harness)', () => {
 
   it('uses search_memories tool when user asks about project details', async () => {
     mockIsLLMEnabled.mockReturnValue(true);
+    mockGetLastSearchMode.mockReturnValue('fulltext');
 
     // Round 1: LLM decides to call search_memories
     mockCallLLMWithTools.mockResolvedValueOnce({
@@ -206,6 +220,7 @@ describe('askMemoryQuestion (agentic harness)', () => {
     const result = await askMemoryQuestion('How does auth work?');
 
     expect(result.usedLLM).toBe(true);
+    expect(result.searchMode).toBe('hybrid');
     expect(result.llmModel).toBe('gpt-4.1-nano');
     expect(result.answer).toContain('[obs:11]');
     expect(result.toolCallsCount).toBe(1);
@@ -219,7 +234,10 @@ describe('askMemoryQuestion (agentic harness)', () => {
 
   it('normalizes raw searchMode labels for display', async () => {
     mockIsLLMEnabled.mockReturnValue(false);
-    mockGetLastSearchMode.mockReturnValue('vector-only (hybrid empty fallback)');
+    mockCompactSearch.mockResolvedValue({
+      entries: [{ id: 11, score: 0.93 }], formatted: '', totalTokens: 0,
+      receipt: { mode: 'vector-only (hybrid empty fallback)' },
+    });
 
     const { askMemoryQuestion } = await import('../../src/cli/tui/chat-service.js');
     const result = await askMemoryQuestion('How does auth work?');

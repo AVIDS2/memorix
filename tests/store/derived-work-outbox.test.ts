@@ -3,14 +3,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { SqliteBackend } from '../../src/store/sqlite-store.js';
-import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { closeAllDatabases, getDatabase } from '../../src/store/sqlite-db.js';
 import { MaintenanceJobStore, MaintenanceJobWorker } from '../../src/runtime/maintenance-jobs.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
+import { resetDb } from '../../src/store/orama-store.js';
 import { initObservations, resetObservationRuntime, storeObservation } from '../../src/memory/observations.js';
 
 describe('canonical write derived-work outbox', () => {
   let dataDir = '';
   afterEach(async () => {
+    await resetDb();
     resetObservationRuntime();
     resetObservationStore();
     closeAllDatabases();
@@ -32,6 +34,64 @@ describe('canonical write derived-work outbox', () => {
       expect(new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })).toEqual([
         expect.objectContaining({ kind: 'vector-backfill', status: 'pending' }),
       ]);
+    } finally {
+      if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
+      else process.env.MEMORIX_EMBEDDING = oldEmbedding;
+    }
+  });
+
+  it('commits claim and qualification jobs with their source observations', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-derived-observation-jobs-'));
+    const oldEmbedding = process.env.MEMORIX_EMBEDDING;
+    process.env.MEMORIX_EMBEDDING = 'off';
+    try {
+      await initObservations(dataDir);
+      const explicit = await storeObservation({
+        projectId: 'org/repo', entityName: 'auth', type: 'decision',
+        title: 'Keep explicit evidence', narrative: 'A durable source for claims.',
+        source: 'manual', sourceDetail: 'explicit',
+        onPersisted: (observation) => {
+          const db = getDatabase(dataDir);
+          expect(db.prepare('SELECT kind FROM maintenance_jobs WHERE dedupe_key = ?')
+            .get(`claim-derive:${observation.id}`)).toEqual({ kind: 'claim-derive' });
+        },
+      });
+      await storeObservation({
+        projectId: 'org/repo', entityName: 'capture', type: 'discovery',
+        title: 'Review this candidate', narrative: 'Automatic capture.',
+        admissionState: 'candidate', sourceDetail: 'hook',
+        onPersisted: () => {
+          const db = getDatabase(dataDir);
+          expect(db.prepare('SELECT kind FROM maintenance_jobs WHERE dedupe_key = ?')
+            .get('observation-qualify')).toEqual({ kind: 'observation-qualify' });
+        },
+      });
+      const jobs = new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' });
+      expect(jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'claim-derive', dedupeKey: `claim-derive:${explicit.observation.id}` }),
+        expect.objectContaining({ kind: 'observation-qualify', dedupeKey: 'observation-qualify' }),
+      ]));
+    } finally {
+      if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
+      else process.env.MEMORIX_EMBEDDING = oldEmbedding;
+    }
+  });
+
+  it('rolls back the source and derived jobs together when the write fails', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-derived-observation-rollback-'));
+    const oldEmbedding = process.env.MEMORIX_EMBEDDING;
+    process.env.MEMORIX_EMBEDDING = 'off';
+    try {
+      await initObservations(dataDir);
+      await expect(storeObservation({
+        projectId: 'org/repo', entityName: 'auth', type: 'decision',
+        title: 'Must roll back', narrative: 'No partial evidence.',
+        source: 'manual', sourceDetail: 'explicit', admissionState: 'candidate',
+        onPersisted: () => { throw new Error('abort write'); },
+      })).rejects.toThrow('abort write');
+      const db = (await import('../../src/store/sqlite-db.js')).getDatabase(dataDir);
+      expect(db.prepare('SELECT id FROM observations').all()).toEqual([]);
+      expect(new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })).toEqual([]);
     } finally {
       if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
       else process.env.MEMORIX_EMBEDDING = oldEmbedding;

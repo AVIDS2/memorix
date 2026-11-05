@@ -36,10 +36,10 @@ import {
   isEmbeddingEnabled,
   makeOramaObservationId,
   getLastSearchMode,
-  searchObservations,
+  searchObservationsDetailed,
   updateObservationMetadata,
 } from '../store/orama-store.js';
-import { getObservationStore, initObservationStore, type ObservationStore } from '../store/obs-store.js';
+import { getObservationStore, initObservationStore, type ObservationStore, type StoreTransaction } from '../store/obs-store.js';
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled, validateEmbeddingInput } from '../embedding/provider.js';
@@ -289,6 +289,38 @@ function queueObservationQualification(observation: Observation): void {
   } catch {
     // Candidate evidence remains available for a later qualification scan.
   }
+}
+
+async function enqueueObservationDerivedWork(tx: StoreTransaction, observation: Observation): Promise<boolean> {
+  if (!tx.enqueueMaintenanceJob) return false;
+  if (!isEmbeddingExplicitlyDisabled()) {
+    await tx.enqueueMaintenanceJob({
+      projectId: observation.projectId,
+      kind: 'vector-backfill',
+      dedupeKey: 'vector-backfill',
+      payload: { limit: 12 },
+    });
+  }
+  if (observation.admissionState === 'candidate') {
+    await tx.enqueueMaintenanceJob({
+      projectId: observation.projectId,
+      kind: 'observation-qualify',
+      dedupeKey: 'observation-qualify',
+      payload: { source: 'automatic-capture:' + observation.id, limit: 100 },
+    });
+  }
+  const claimSource = observation.sourceDetail === 'explicit'
+    || observation.source === 'git'
+    || observation.sourceDetail === 'git-ingest';
+  if (claimSource && resolveObservationVisibility(observation) === 'project') {
+    await tx.enqueueMaintenanceJob({
+      projectId: observation.projectId,
+      kind: 'claim-derive',
+      dedupeKey: 'claim-derive:' + observation.id,
+      payload: { observationId: observation.id },
+    });
+  }
+  return true;
 }
 
 function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
@@ -599,7 +631,6 @@ export async function storeObservation(input: {
         throw new Error('Cannot update a memory outside this session\'s write scope.');
       }
       const observation = await upsertObservation(existing, input, now);
-      await input.onPersisted?.(observation);
       return { observation, upserted: true };
     }
   }
@@ -630,6 +661,7 @@ export async function storeObservation(input: {
   let upsertedInsideLock = false;
   let reloadCacheAfterCommit = false;
   let persistedCallbackInvoked = false;
+  let derivedJobsCommitted = false;
   const assignAndPersist = async () => {
     if (projectDir) {
       const store = getObservationStore();
@@ -698,14 +730,7 @@ export async function storeObservation(input: {
         };
 
         await tx.insert(observation);
-        if (!isEmbeddingExplicitlyDisabled()) {
-          await tx.enqueueMaintenanceJob?.({
-            projectId: input.projectId,
-            kind: 'vector-backfill',
-            dedupeKey: 'vector-backfill',
-            payload: { limit: 12 },
-          });
-        }
+        derivedJobsCommitted = await enqueueObservationDerivedWork(tx, observation);
         await input.onPersisted?.(observation);
         persistedCallbackInvoked = true;
         await tx.saveIdCounter(id + 1);
@@ -828,7 +853,6 @@ export async function storeObservation(input: {
   // If the lock discovered a topicKey duplicate on disk, delegate to upsert
   if (upsertedInsideLock) {
     const updated = await upsertObservation(observation, input, now);
-    await input.onPersisted?.(updated);
     return { observation: updated, upserted: true };
   }
 
@@ -838,9 +862,11 @@ export async function storeObservation(input: {
 
   await bindObservationCodeRefsBestEffort(observation);
   await persistEvidenceCard(observation);
-  queueObservationQualification(observation);
-  if (resolveObservationVisibility(observation) === 'project') {
-    queueClaimDerivation(observation);
+  if (!derivedJobsCommitted) {
+    queueObservationQualification(observation);
+    if (resolveObservationVisibility(observation) === 'project') {
+      queueClaimDerivation(observation);
+    }
   }
 
   scheduleObservationEmbedding({
@@ -878,6 +904,7 @@ async function upsertObservation(
     admissionReason?: string;
     visibility?: ObservationVisibility;
     sharedWithAgentIds?: string[];
+    onPersisted?: (observation: Observation) => void | Promise<void>;
   },
   now: string,
 ): Promise<Observation> {
@@ -896,98 +923,115 @@ async function upsertObservation(
   const fullText = [input.title, input.narrative, ...(input.facts ?? []), ...enrichedFiles, ...enrichedConcepts].join(' ');
   const tokens = countTextTokens(fullText);
 
-  // Mark old observation as resolved (superseded by new version)
-  // Note: topicKey upsert replaces in-place, so we just bump revision
+  const applyUpdate = (current: Observation): Observation => ({
+    ...current,
+    entityName: input.entityName,
+    type: input.type,
+    title: input.title,
+    narrative: input.narrative,
+    facts: input.facts ?? [],
+    attachments: input.attachments,
+    filesModified: enrichedFiles,
+    concepts: enrichedConcepts,
+    tokens,
+    updatedAt: now,
+    hasCausalLanguage: extracted.hasCausalLanguage,
+    revisionCount: (current.revisionCount ?? 1) + 1,
+    status: 'active',
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.progress ? { progress: input.progress } : {}),
+    ...(input.sourceDetail !== undefined ? { sourceDetail: input.sourceDetail } : {}),
+    ...(input.valueCategory !== undefined ? { valueCategory: input.valueCategory } : {}),
+    ...(input.admissionState !== undefined ? { admissionState: input.admissionState } : {}),
+    ...(input.admissionReason !== undefined ? { admissionReason: sanitizeCredentials(input.admissionReason) } : {}),
+    ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+    ...(input.sharedWithAgentIds !== undefined ? { sharedWithAgentIds: input.sharedWithAgentIds } : {}),
+  });
 
-  // Update in-place
-  existing.entityName = input.entityName;
-  existing.type = input.type;
-  existing.title = input.title;
-  existing.narrative = input.narrative;
-  existing.facts = input.facts ?? [];
-  existing.attachments = input.attachments;
-  existing.filesModified = enrichedFiles;
-  existing.concepts = enrichedConcepts;
-  existing.tokens = tokens;
-  existing.updatedAt = now;
-  existing.hasCausalLanguage = extracted.hasCausalLanguage;
-  existing.revisionCount = (existing.revisionCount ?? 1) + 1;
-  existing.status = 'active';
-  if (input.sessionId) existing.sessionId = input.sessionId;
-  if (input.progress) existing.progress = input.progress;
-  if (input.sourceDetail !== undefined) existing.sourceDetail = input.sourceDetail;
-  if (input.valueCategory !== undefined) existing.valueCategory = input.valueCategory;
-  if (input.admissionState !== undefined) existing.admissionState = input.admissionState;
-  if (input.admissionReason !== undefined) existing.admissionReason = sanitizeCredentials(input.admissionReason);
-  if (input.visibility !== undefined) existing.visibility = input.visibility;
-  if (input.sharedWithAgentIds !== undefined) existing.sharedWithAgentIds = input.sharedWithAgentIds;
+  let updated = applyUpdate(existing);
+  let derivedJobsCommitted = false;
+  if (projectDir) {
+    const store = getObservationStore();
+    await store.atomic(async (tx) => {
+      const current = await tx.getById(existing.id);
+      if (!current || current.projectId !== existing.projectId) {
+        throw new Error('Topic observation changed before update');
+      }
+      updated = applyUpdate(current);
+      updated.writeGeneration = (await tx.getGeneration()) + 1;
+      await tx.update(updated);
+      derivedJobsCommitted = await enqueueObservationDerivedWork(tx, updated);
+      await input.onPersisted?.(updated);
+    });
+    updated.writeGeneration = store.getGeneration();
+  } else {
+    await input.onPersisted?.(updated);
+  }
+  if (corpusLoaded) {
+    const cacheIndex = observations.findIndex((observation) => observation.id === updated.id);
+    if (cacheIndex >= 0) observations[cacheIndex] = updated;
+  }
 
-  // Re-index in Orama WITHOUT embedding first (non-blocking)
+  // The durable update has committed; the index can now be repaired independently.
   const doc: MemorixDocument = {
-    id: makeOramaObservationId(existing.projectId, existing.id),
-    observationId: existing.id,
-    entityName: existing.entityName,
-    type: existing.type,
-    title: existing.title,
-    narrative: existing.narrative,
-    facts: existing.facts.join('\n'),
+    id: makeOramaObservationId(updated.projectId, updated.id),
+    observationId: updated.id,
+    entityName: updated.entityName,
+    type: updated.type,
+    title: updated.title,
+    narrative: updated.narrative,
+    facts: updated.facts.join('\n'),
     filesModified: enrichedFiles.join('\n'),
     concepts: enrichedConcepts.map(c => c.replace(/-/g, ' ')).join(', '),
-    attachments: formatAttachmentProvenance(existing.attachments),
+    attachments: formatAttachmentProvenance(updated.attachments),
     tokens,
-    createdAt: existing.createdAt,
-    projectId: existing.projectId,
+    createdAt: updated.createdAt,
+    projectId: updated.projectId,
     accessCount: 0,
     lastAccessedAt: '',
     status: 'active',
-    source: existing.source ?? 'agent',
-    sourceDetail: existing.sourceDetail ?? '',
-    valueCategory: existing.valueCategory ?? '',
-    admissionState: existing.admissionState ?? '',
-    admissionReason: existing.admissionReason ?? '',
-    visibility: existing.visibility ?? 'project',
-    createdByAgentId: existing.createdByAgentId ?? '',
-    sharedWithAgentIds: JSON.stringify(existing.sharedWithAgentIds ?? []),
+    source: updated.source ?? 'agent',
+    sourceDetail: updated.sourceDetail ?? '',
+    valueCategory: updated.valueCategory ?? '',
+    admissionState: updated.admissionState ?? '',
+    admissionReason: updated.admissionReason ?? '',
+    visibility: updated.visibility ?? 'project',
+    createdByAgentId: updated.createdByAgentId ?? '',
+    sharedWithAgentIds: JSON.stringify(updated.sharedWithAgentIds ?? []),
   };
 
-  // Remove old doc and insert updated one (with retry for concurrent upsert race)
-  const oramaId = makeOramaObservationId(existing.projectId, existing.id);
-  try {
-    const { removeObservation } = await import('../store/orama-store.js');
-    await removeObservation(oramaId);
-  } catch { /* may not exist in index */ }
-  try {
-    await insertObservation(doc);
-  } catch {
-    // Concurrent upsert may have already re-inserted — retry remove+insert once
+  if (corpusLoaded) {
+    const oramaId = makeOramaObservationId(updated.projectId, updated.id);
     try {
-      const { removeObservation: removeObs } = await import('../store/orama-store.js');
-      await removeObs(oramaId);
+      try { await removeObservation(oramaId); } catch { /* index row may be absent */ }
       await insertObservation(doc);
-    } catch { /* best effort — file persistence is the source of truth */ }
+    } catch {
+      try {
+        try { await removeObservation(oramaId); } catch { /* index row may be absent */ }
+        await insertObservation(doc);
+      } catch (error) {
+        console.error(`[memorix] Observation index projection failed for obs-${updated.id}: ${sanitizeCredentials(error instanceof Error ? error.message : String(error))}`);
+      }
+    }
   }
 
-  // Persist via ObservationStore
-  if (projectDir) {
-    const store = getObservationStore();
-    await store.update(existing);
-  }
-
-  await bindObservationCodeRefsBestEffort(existing);
-  await persistEvidenceCard(existing);
-  queueObservationQualification(existing);
-  if (resolveObservationVisibility(existing) === 'project') {
-    queueClaimDerivation(existing);
+  await bindObservationCodeRefsBestEffort(updated);
+  await persistEvidenceCard(updated);
+  if (!derivedJobsCommitted) {
+    queueObservationQualification(updated);
+    if (resolveObservationVisibility(updated) === 'project') {
+      queueClaimDerivation(updated);
+    }
   }
 
   scheduleObservationEmbedding({
-    observationId: existing.id,
-    projectId: existing.projectId,
+    observationId: updated.id,
+    projectId: updated.projectId,
     searchableText: [input.title, input.narrative, ...(input.facts ?? [])].join(' '),
     doc,
   });
 
-  return existing;
+  return updated;
 }
 
 /**
@@ -1506,7 +1550,7 @@ export function getSearchIndexStatus(projectId?: string): {
  * so status checks do not mutate retention/access metadata.
  */
 export async function probeSearchIndex(projectId: string): Promise<string> {
-  await searchObservations({
+  const result = await searchObservationsDetailed({
     query: 'semantic memory retrieval status',
     projectId,
     reader: { projectId },
@@ -1514,7 +1558,7 @@ export async function probeSearchIndex(projectId: string): Promise<string> {
     status: 'all',
     trackAccess: false,
   });
-  return getLastSearchMode(projectId);
+  return result.diagnostics.mode;
 }
 
 /**

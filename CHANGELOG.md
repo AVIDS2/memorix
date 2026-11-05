@@ -4,7 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-No unreleased changes.
+### Changed
+- Search execution now returns a request-scoped receipt to compact search,
+  index probes, and TUI chat, so concurrent requests cannot exchange diagnostics.
+- Observation inserts and topic-key updates commit canonical SQLite rows with
+  vector, qualification, and claim-derivation jobs in one transaction.
+- Topic-key updates publish their Orama projection only after the canonical
+  transaction commits; failed updates or linked-record callbacks leave the prior
+  searchable record intact.
+
+### Verification
+- The 20-case context task matrix and the 40,000-record local store gate pass
+  on Windows/Node 22 with embeddings disabled. This is offline fixture evidence,
+  not a claim about remote embedding quality.
 
 ## [1.10.3] - 2026-11-05
 

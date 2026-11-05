@@ -708,6 +708,10 @@ CREATE TABLE IF NOT EXISTS maintenance_jobs (
   lease_owner      TEXT,
   lease_expires_at INTEGER,
   last_error       TEXT,
+  attempted        INTEGER NOT NULL DEFAULT 0,
+  succeeded        INTEGER NOT NULL DEFAULT 0,
+  failed           INTEGER NOT NULL DEFAULT 0,
+  remaining        INTEGER NOT NULL DEFAULT 0,
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL,
   completed_at     INTEGER
@@ -1151,6 +1155,15 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_task_continuity_event_key
         ON task_continuity_events(project_id, task_id, event_key)
         WHERE event_key IS NOT NULL`);
+    },
+  },
+  {
+    id: '1.11-maintenance-progress',
+    apply: (db) => {
+      addColumnIfMissing(db, 'maintenance_jobs', 'attempted', 'attempted INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'succeeded', 'succeeded INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'failed', 'failed INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'remaining', 'remaining INTEGER NOT NULL DEFAULT 0');
     },
   },
 ];

@@ -107,7 +107,10 @@ describe('createProjectMaintenanceHandler', () => {
     const result = await createProjectMaintenanceHandler('project-a', 'C:/memorix-data')(makeJob());
 
     expect(backfillVectorEmbeddings).toHaveBeenCalledWith({ projectId: 'project-a', limit: 2 });
-    expect(result).toEqual({ action: 'reschedule', delayMs: 0, resetAttempts: true });
+    expect(result).toEqual({
+      action: 'reschedule', delayMs: 0, resetAttempts: true,
+      progress: { attempted: 2, succeeded: 2, failed: 0, remaining: 1 },
+    });
   });
 
   it('keeps a no-progress vector batch in durable cooldown with its real diagnostic', async () => {
@@ -129,6 +132,7 @@ describe('createProjectMaintenanceHandler', () => {
       delayMs: 60_000,
       resetAttempts: true,
       payload: { limit: 2, vectorBackfillFailureStreak: 1 },
+      progress: { attempted: 2, succeeded: 0, failed: 2, remaining: 3 },
       lastError: 'Embedding API timed out; using BM25 until embedding recovers',
     });
   });

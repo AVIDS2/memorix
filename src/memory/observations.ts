@@ -234,6 +234,15 @@ function queueVectorBackfill(
     });
 }
 
+function resolvePendingVectorBackfill(projectId: string): void {
+  if (!projectDir) return;
+  void import('../runtime/maintenance-jobs.js')
+    .then(({ MaintenanceJobStore }) => {
+      new MaintenanceJobStore(projectDir!).resolvePendingVectorBackfill(projectId);
+    })
+    .catch(() => undefined);
+}
+
 async function bindObservationCodeRefsBestEffort(observation: Observation): Promise<void> {
   if (!projectDir) return;
   try {
@@ -428,6 +437,7 @@ function scheduleObservationEmbedding(input: {
           });
         }
         clearVectorMissing(observationId);
+        resolvePendingVectorBackfill(projectId);
       } catch {
         console.error(`[memorix] Embedding index update failed for obs-${observationId} (kept in backfill queue)`);
         queueVectorBackfill(projectId);
@@ -698,6 +708,14 @@ export async function storeObservation(input: {
         };
 
         await tx.insert(observation);
+        if (!isEmbeddingExplicitlyDisabled()) {
+          await tx.enqueueMaintenanceJob?.({
+            projectId: input.projectId,
+            kind: 'vector-backfill',
+            dedupeKey: 'vector-backfill',
+            payload: { limit: 12 },
+          });
+        }
         await input.onPersisted?.(observation);
         persistedCallbackInvoked = true;
         await tx.saveIdCounter(id + 1);
@@ -1657,6 +1675,7 @@ export async function backfillVectorEmbeddings(options: {
             });
           }
           clearVectorMissing(id);
+          resolvePendingVectorBackfill(obs.projectId);
           succeeded++;
         } catch (error) {
           recordFailure(vectorBackfillError(error));

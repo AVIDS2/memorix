@@ -558,7 +558,15 @@ export function createProjectMaintenanceHandler(
     const after = getVectorStatus(projectId);
     if (after.missing === 0) {
       resolveSupersededVectorFailures(projectDir, projectId);
-      return { action: 'complete' };
+      return {
+        action: 'complete',
+        progress: {
+          attempted: result.attempted,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          remaining: 0,
+        },
+      };
     }
 
     if (result.failed > 0 && result.succeeded === 0) {
@@ -574,6 +582,12 @@ export function createProjectMaintenanceHandler(
           ...job.payload,
           vectorBackfillFailureStreak: streak,
         },
+        progress: {
+          attempted: result.attempted,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          remaining: after.missing,
+        },
         lastError: result.lastError ?? `vector backfill made no progress (${result.failed}/${result.attempted} failed)`,
       };
     }
@@ -584,6 +598,12 @@ export function createProjectMaintenanceHandler(
       action: 'reschedule',
       delayMs: result.attempted === 0 ? VECTOR_RETRY_DELAY_MS : 0,
       resetAttempts: result.succeeded > 0,
+      progress: {
+        attempted: result.attempted,
+        succeeded: result.succeeded,
+        failed: result.failed,
+        remaining: after.missing,
+      },
       ...(result.succeeded > 0 ? {
         ...(priorFailureStreak > 0 ? { payload } : {}),
         ...(result.failed > 0 && result.lastError

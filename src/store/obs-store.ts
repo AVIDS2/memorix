@@ -22,6 +22,13 @@ import { degradedReadError, degradedWriteError, formatSqliteFailure, isSqliteUna
  * The outer `atomic()` already holds the lock / transaction.
  */
 export interface StoreTransaction {
+  /** Register rebuildable derived work inside the canonical transaction. */
+  enqueueMaintenanceJob?(input: {
+    projectId: string;
+    kind: string;
+    dedupeKey: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void>;
   /** Load all observations (raw, no lock). */
   loadAll(): Promise<Observation[]>;
   /** Load one observation by its globally unique ID (raw, no lock). */

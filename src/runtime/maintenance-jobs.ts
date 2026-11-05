@@ -35,9 +35,17 @@ export interface MaintenanceJob {
   leaseOwner?: string;
   leaseExpiresAt?: number;
   lastError?: string;
+  progress?: MaintenanceProgress;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
+}
+
+export interface MaintenanceProgress {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  remaining: number;
 }
 
 export interface EnqueueMaintenanceJobInput {
@@ -69,7 +77,7 @@ export interface MaintenanceJobSummary {
 }
 
 export type MaintenanceJobRunResult =
-  | { action: 'complete' }
+  | { action: 'complete'; progress?: MaintenanceProgress }
   | {
     action: 'reschedule';
     delayMs: number;
@@ -81,6 +89,7 @@ export type MaintenanceJobRunResult =
     lastError?: string;
     /** Clear a stale transient diagnostic after the job makes progress. */
     clearLastError?: boolean;
+    progress?: MaintenanceProgress;
   };
 
 export type MaintenanceJobHandler = (
@@ -120,6 +129,14 @@ function rowToJob(row: any): MaintenanceJob {
     ...(row.lease_owner ? { leaseOwner: row.lease_owner } : {}),
     ...(row.lease_expires_at != null ? { leaseExpiresAt: Number(row.lease_expires_at) } : {}),
     ...(row.last_error ? { lastError: row.last_error } : {}),
+    ...([row.attempted, row.succeeded, row.failed, row.remaining].some((value) => Number(value) > 0)
+      ? { progress: {
+        attempted: Number(row.attempted ?? 0),
+        succeeded: Number(row.succeeded ?? 0),
+        failed: Number(row.failed ?? 0),
+        remaining: Number(row.remaining ?? 0),
+      } }
+      : {}),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     ...(row.completed_at != null ? { completedAt: Number(row.completed_at) } : {}),
@@ -398,13 +415,24 @@ export class MaintenanceJobStore {
     return Number(result.changes) > 0;
   }
 
-  complete(id: string, workerId: string, now = Date.now()): MaintenanceJob | undefined {
+  complete(id: string, workerId: string, now = Date.now(), progress?: MaintenanceProgress): MaintenanceJob | undefined {
     this.db.prepare(`
       UPDATE maintenance_jobs
       SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL,
+          attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
+          failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
           completed_at = ?, updated_at = ?
       WHERE id = ? AND status = 'running' AND lease_owner = ?
-    `).run(now, now, id, workerId);
+    `).run(
+      progress?.attempted ?? null,
+      progress?.succeeded ?? null,
+      progress?.failed ?? null,
+      progress?.remaining ?? null,
+      now,
+      now,
+      id,
+      workerId,
+    );
     return this.get(id);
   }
 
@@ -418,6 +446,7 @@ export class MaintenanceJobStore {
       status?: 'pending' | 'retry';
       lastError?: string;
       clearLastError?: boolean;
+      progress?: MaintenanceProgress;
       now?: number;
     },
   ): MaintenanceJob | undefined {
@@ -427,10 +456,13 @@ export class MaintenanceJobStore {
     const status = options.status === 'retry' ? 'retry' : 'pending';
     const hasLastError = options.lastError !== undefined;
     const lastError = hasLastError ? errorText(options.lastError) : null;
+    const progress = options.progress;
     this.db.prepare(`
       UPDATE maintenance_jobs
       SET status = ?, run_after = ?, attempts = CASE WHEN ? THEN 0 ELSE attempts END,
           payload_json = COALESCE(?, payload_json),
+          attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
+          failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
           last_error = CASE
             WHEN ? THEN NULL
             WHEN ? THEN ?
@@ -443,6 +475,10 @@ export class MaintenanceJobStore {
       now + delayMs,
       options.resetAttempts ? 1 : 0,
       payloadJson,
+      progress?.attempted ?? null,
+      progress?.succeeded ?? null,
+      progress?.failed ?? null,
+      progress?.remaining ?? null,
       options.clearLastError ? 1 : 0,
       hasLastError ? 1 : 0,
       lastError,
@@ -458,6 +494,17 @@ export class MaintenanceJobStore {
       UPDATE maintenance_jobs
       SET status = 'completed', completed_at = ?, updated_at = ?
       WHERE project_id = ? AND kind = 'vector-backfill' AND dedupe_key = ? AND status = 'failed'
+    `).run(now, now, projectId, dedupeKey);
+    return Number(result.changes ?? 0);
+  }
+
+  /** Mark only queued vector work complete after a foreground write succeeded. */
+  resolvePendingVectorBackfill(projectId: string, dedupeKey = 'vector-backfill', now = Date.now()): number {
+    const result = this.db.prepare(`
+      UPDATE maintenance_jobs
+      SET status = 'completed', completed_at = ?, updated_at = ?
+      WHERE project_id = ? AND kind = 'vector-backfill' AND dedupe_key = ?
+        AND status IN ('pending', 'retry')
     `).run(now, now, projectId, dedupeKey);
     return Number(result.changes ?? 0);
   }
@@ -575,11 +622,12 @@ export class MaintenanceJobWorker {
             status: result.status,
             lastError: result.lastError,
             clearLastError: result.clearLastError,
+            progress: result.progress,
             now,
           });
           return { state: 'rescheduled', job: updated };
         }
-        const updated = this.store.complete(job.id, this.workerId, now);
+        const updated = this.store.complete(job.id, this.workerId, now, result?.progress);
         return { state: 'completed', job: updated };
       } catch (error) {
         const updated = this.store.fail(job.id, this.workerId, error, now);

@@ -23,4 +23,10 @@ describe('retrieval kernel contract', () => {
       status: 'all',
     });
   });
+
+  it('keeps non-finite numeric inputs out of a plan', () => {
+    const plan = createRetrievalPlan({ query: 'query', limit: Infinity, maxTokens: Number.NaN });
+    expect(plan.limit).toBe(20);
+    expect(plan.maxTokens).toBe(0);
+  });
 });

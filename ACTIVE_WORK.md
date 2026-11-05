@@ -25,8 +25,13 @@ artifacts for the VPS/hosted build path only.
 - [x] Added the first executable kernel slice: `src/core/retrieval-contracts.ts`
   normalizes retrieval input before Orama/FTS/Lance selection. The focused
   contract and search regression tests pass.
-- [ ] 1.11 P1: extract ProjectBinding, immutable runtime config, derived-view
-  health/rebuild contracts, and architecture dependency tests.
+- [x] 1.11 P1 slice: `RuntimeContext` validates a resolved project and freezes a
+  per-request config snapshot; CodeGraph context uses it. Lance now has a
+  concrete `DerivedView` adapter with status/refresh/rebuild/compact/close,
+  and the Orama bridge writes through that adapter. Non-finite retrieval
+  numeric inputs are normalized before searching.
+- [ ] 1.11 P1 remainder: migrate other derived views and host binding paths,
+  then add architecture dependency tests and durable maintenance progress.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and

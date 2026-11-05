@@ -2,6 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { truncateToTokenBudget } from '../compact/token-budget.js';
 import { getResolvedConfig } from '../config/resolved-config.js';
+import { createRuntimeContext } from '../core/runtime-context.js';
 import {
   buildTaskWorkset,
   type TaskWorkset,
@@ -229,9 +230,15 @@ export async function buildAutoProjectContext(input: {
   const lens = resolveTaskLens(task);
   const continuationRequested = input.continuation === 'always'
     || (input.continuation !== 'never' && isContinuationTask(task));
-  const codegraphConfig = getResolvedConfig({ projectRoot: input.project.rootPath }).codegraph;
+  const runtime = createRuntimeContext({
+    projectId: input.project.id,
+    projectRoot: input.project.rootPath,
+    dataDir: input.dataDir,
+    config: getResolvedConfig({ projectRoot: input.project.rootPath }),
+  });
+  const codegraphConfig = runtime.config.codegraph;
   const refreshMode = input.refresh ?? codegraphConfig.autoRefresh ?? 'auto';
-  const exclude = input.exclude ?? codegraphConfig.excludePatterns;
+  const exclude = input.exclude ?? (codegraphConfig.excludePatterns ? [...codegraphConfig.excludePatterns] : undefined);
   const maxFileBytes = input.maxFileBytes ?? codegraphConfig.maxFileBytes;
   const store = new CodeGraphStore();
   await store.init(input.dataDir);

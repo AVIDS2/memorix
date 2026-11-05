@@ -114,6 +114,12 @@ the compatibility fallback.
 
 ### LanceDB semantic index maintenance
 
+The Lance write bridge implements the internal `DerivedView` contract: its
+status distinguishes a missing table from a ready table, refresh uses bounded
+single/vector-batch writes, and rebuild/compact/close operate on one profile.
+This is the first view migrated to the 1.11 Memory Kernel boundary; SQLite
+remains authoritative if the optional native index is unavailable.
+
 The persistent semantic index groups individual observation writes into batches
 of up to 100 vectors, flushing after 50 ms. It compacts fragments and prunes
 versions older than 24 hours after every 20 committed batches. Existing vectors

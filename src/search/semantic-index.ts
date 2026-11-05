@@ -474,6 +474,19 @@ export async function closeSemanticIndex(dataDir: string): Promise<void> {
   }
 }
 
+/** Close one profile without invalidating other semantic tables in this directory. */
+export async function closeSemanticIndexProfile(dataDir: string, profile: SemanticIndexProfile): Promise<void> {
+  const key = stateKey(dataDir, profile);
+  await flushPendingVectorBatch(key);
+  await writeQueues.get(key);
+  const state = await statePromises.get(key)?.catch(() => null);
+  try { state?.connection?.close?.(); } catch { /* best effort */ }
+  statePromises.delete(key);
+  writeQueues.delete(key);
+  indexBuilds.delete(key);
+  mutationCounts.delete(key);
+}
+
 /** @internal Reset state for isolated tests. */
 export function resetSemanticIndexRuntime(): void {
   for (const pending of pendingVectorBatches.values()) {

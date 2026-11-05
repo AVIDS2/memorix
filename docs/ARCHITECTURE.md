@@ -121,7 +121,9 @@ The first P1 slice is implemented: `RuntimeContext` captures a verified project
 and immutable per-request config; CodeGraph uses it. Lance has a concrete
 `DerivedView` adapter used by vector writes. Other hosts and derived views still
 need migration. A dependency test now rejects host, persistence, and adapter
-imports from `src/core/`; maintenance progress is durable in SQLite.
+imports from `src/core/`. `MaintenanceResult` is defined in the kernel; its
+progress counts are validated before a runner persists them. Maintenance
+progress is durable in SQLite.
 
 **P2 - 1.11 durable write pipeline:** add a small canonical write service and
 an idempotent derived-work outbox. Observation capture, Git ingest, and

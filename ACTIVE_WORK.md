@@ -32,7 +32,9 @@ artifacts for the VPS/hosted build path only.
   numeric inputs are normalized before searching.
 - [ ] 1.11 P1 remainder: migrate other derived views and host binding paths,
   then finish enforceable host contracts. The `src/core` dependency direction
-  is now guarded by a test; maintenance progress is durable in SQLite.
+  is now guarded by a test; `MaintenanceResult` is defined in the kernel and
+  rejects invalid progress before it reaches SQLite. Maintenance progress is
+  durable in SQLite.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
   Observation inserts and topic-key updates now commit vector backfill,

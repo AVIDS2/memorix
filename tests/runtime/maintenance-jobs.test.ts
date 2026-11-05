@@ -322,6 +322,37 @@ describe('MaintenanceJobStore', () => {
 });
 
 describe('MaintenanceJobWorker', () => {
+  it.each([
+    ['negative', { attempted: -1, succeeded: 0, failed: 0, remaining: 0 }],
+    ['fractional', { attempted: 1.5, succeeded: 1, failed: 0, remaining: 0 }],
+    ['non-finite', { attempted: 1, succeeded: 1, failed: 0, remaining: Number.NaN }],
+    ['inconsistent', { attempted: 1, succeeded: 2, failed: 0, remaining: 0 }],
+  ])('rejects %s progress before marking a job complete', async (_name, progress) => {
+    const store = new MaintenanceJobStore(dataDir);
+    const job = store.enqueue({ projectId: 'project-a', kind: 'vector-backfill', now: 1_000 });
+    const worker = new MaintenanceJobWorker(store, async () => ({
+      action: 'complete' as const,
+      progress,
+    }), { workerId: 'test-worker' });
+
+    expect((await worker.runOnce(1_000)).state).toBe('failed');
+    expect(store.get(job.id)).toMatchObject({ status: 'retry', lastError: expect.stringContaining('progress') });
+    expect(store.get(job.id)?.progress).toBeUndefined();
+  });
+
+  it('rejects incoherent progress on a rescheduled job', async () => {
+    const store = new MaintenanceJobStore(dataDir);
+    const job = store.enqueue({ projectId: 'project-a', kind: 'vector-backfill', now: 1_000 });
+    const worker = new MaintenanceJobWorker(store, async () => ({
+      action: 'reschedule' as const,
+      delayMs: 1_000,
+      progress: { attempted: 1, succeeded: 1, failed: 1, remaining: 0 },
+    }), { workerId: 'test-worker' });
+
+    expect((await worker.runOnce(1_000)).state).toBe('failed');
+    expect(store.get(job.id)?.progress).toBeUndefined();
+  });
+
   it('reschedules incremental work without treating successful progress as a failure', async () => {
     const store = new MaintenanceJobStore(dataDir);
     const job = store.enqueue({

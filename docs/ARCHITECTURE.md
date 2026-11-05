@@ -2,6 +2,165 @@
 
 Memorix is an open-source cross-agent memory layer for coding agents via MCP.
 
+> **Architecture audit: 2026-11-05**
+>
+> The current implementation is feature-rich but boundary-fragile. The largest
+> runtime files are `src/server.ts` (~5.5k lines), `src/store/orama-store.ts`
+> (~1.7k), `src/memory/observations.ts` (~1.6k), and
+> `src/cli/commands/setup.ts` (~1.9k). Around 139 direct environment/config
+> reads are spread across `src/`, and multiple hosts assemble the same project
+> context independently. This explains why fixes repeatedly appear in several
+> layers and why derived-index failures can look like successful empty state.
+>
+> The project is not suffering from one bad model or one bad dependency. It has
+> a missing kernel boundary: canonical records, derived views, retrieval policy,
+> runtime hosts, and maintenance jobs are implemented as cooperating conventions
+> rather than enforceable interfaces. New features therefore cross too many
+> mutable singletons and can regress lazy mode, search ranking, retention, or
+> cross-process behavior without a compiler error.
+>
+> The target architecture below is the refactor contract for 1.11. It preserves
+> SQLite local-first semantics and avoids a wholesale storage rewrite.
+
+## 0. Current Architecture Audit and Refactor Target
+
+### 0.1 What is going wrong
+
+1. **Canonical and derived state are mixed in control flow.** SQLite is the
+   documented source of truth, but Orama, Lance, CodeGraph, cache hydration,
+   and in-memory observation state each have their own readiness and repair
+   paths. A lazy corpus can be empty in memory while still being healthy in
+   SQLite, yet older callers interpret the empty array as "no missing work".
+2. **The write pipeline has too many owners.** Observation persistence,
+   embedding scheduling, CodeGraph binding, evidence projection, claims, and
+   maintenance enqueueing all happen from `memory/observations.ts`. A provider
+   or index failure can therefore affect unrelated write behavior and is hard to
+   test as an isolated contract.
+3. **Retrieval policy is distributed.** `server.ts`, `orama-store.ts`, CodeGraph
+   context assembly, compact formatting, and profile registration each shape
+   what the agent sees. There is no single retrieval plan object that records
+   candidate sources, freshness, cost, abstention, and final selection.
+4. **Background jobs report lifecycle, not truth.** A job can reach `completed`
+   while doing zero useful work in a lazy or unavailable state. Maintenance
+   needs progress counters and explicit `degraded`/`retry` outcomes.
+5. **Runtime hosts duplicate binding and policy.** stdio, HTTP, hooks, CLI, and
+   Dashboard call adjacent functions with different defaults. The codegraph
+   refresh policy and project binding must be resolved once and passed down.
+6. **The current graph is a derived cache without a full retention owner.**
+   Snapshot manifests and stale symbols were allowed to grow until #371. The
+   same failure pattern already appeared in Lance metadata in #365.
+
+### 0.2 Target layers
+
+```text
+Host adapters
+  stdio MCP | HTTP MCP | CLI | hooks | dashboard | SDK
+        |
+Runtime facade
+  ProjectBinding + ResolvedConfig + SessionScope + RetrievalRequest
+        |
+Memory kernel
+  WritePipeline | RetrievalFacade | MaintenanceCoordinator | EvidencePolicy
+        |
+Canonical record plane
+  SQLite records, scopes, provenance, lifecycle, optional append-only events
+        |
+Derived view plane
+  FTS | Orama | Lance | CodeGraph | receipts | caches
+```
+
+Host adapters may depend on the runtime facade. The runtime facade may depend on
+the memory kernel. Derived views may read canonical records and publish health,
+generation, and rebuild operations, but they may never decide that canonical
+storage is empty or successful. The kernel owns policy; views own mechanics.
+
+### 0.3 Non-negotiable contracts
+
+- **Canonical truth:** all durable records have a stable ID, project/scope,
+  provenance, lifecycle state, created/updated time, and source revision. An
+  index row is never the only copy of a fact.
+- **Derived view contract:** every view implements `status`, `refresh`,
+  `rebuild`, `compact`, and `close`; status distinguishes `ready`, `stale`,
+  `degraded`, `rebuilding`, and `unavailable`. No derived failure returns a
+  fake empty result without a receipt.
+- **Write contract:** the canonical write commits first. Derived work is an
+  idempotent outbox/maintenance action with `attempted`, `succeeded`, `failed`,
+  and `remaining` counts. A completed job with zero attempted work is not a
+  successful backfill.
+- **Retrieval contract:** one `RetrievalPlan` carries query intent, project
+  binding, allowed sources, freshness policy, token budget, and abstention
+  rules. One `RetrievalReceipt` records candidates, selected IDs, omitted IDs,
+  source generations, elapsed time, and degraded reasons.
+- **Freshness contract:** current truth and historical belief are separate.
+  Changing a fact supersedes or invalidates the old version; it does not erase
+  the audit record. Future temporal memory work should use valid-time and
+  transaction-time fields rather than another overwrite-only vector row.
+- **Context contract:** retrieval is progressive disclosure. Index/abstract
+  first, overview next, full detail only on demand. A search tool must never
+  return a large raw corpus as its default answer.
+- **Config contract:** providers, refresh policy, thresholds, and credentials
+  are resolved once into an immutable runtime config. Business modules do not
+  read `process.env` directly.
+- **Maintenance contract:** retention, compaction, backfill, and graph refresh
+  are resumable, observable, bounded, and safe when another process is active.
+
+### 0.4 Refactor sequence
+
+**P0 - contract extraction, current patch line:** complete the missing safety
+fixes, preserve local SQLite, and add regression tests for lazy vectors, CJK
+search, affinity ordering, CodeGraph growth, shell-free browser launch, and
+provider isolation.
+
+**P1 - 1.11 kernel extraction:** introduce `src/core/` contracts for
+`ProjectBinding`, `ResolvedRuntimeConfig`, `RetrievalPlan`, `RetrievalReceipt`,
+`DerivedView`, and `MaintenanceResult`. Move host code behind these interfaces;
+do not move data tables yet. Add architecture tests for allowed dependency
+directions and one store-to-search-to-detail integration fixture.
+
+**P2 - 1.11 durable write pipeline:** add a small canonical write service and
+an idempotent derived-work outbox. Observation capture, Git ingest, and
+explicit MCP store calls use the same pipeline. Keep formation and provider
+calls outside canonical SQLite transactions.
+
+**P3 - 1.11 retrieval/context plane:** move ranking, freshness, provenance,
+admission, and progressive disclosure into `RetrievalFacade`. Keep Orama,
+Lance, FTS, and CodeGraph adapters replaceable. Add a retrieval evaluation
+matrix based on real issue-resolution tasks, with recall, precision, latency,
+token cost, and abstention correctness.
+
+**P4 - 1.12 ecosystem boundary:** generate host capability manifests from one
+registry, validate setup/doctor/repair/uninstall from the same manifest, and
+keep provider and agent integrations outside the kernel. Add package smoke,
+provenance, SBOM, and support-matrix checks to release gates.
+
+**2.0 remains conditional.** A larger version is justified only if remote
+canonical storage, tenant authorization, or public MCP contracts require a
+breaking change. File size, accumulated integrations, or a desire to "start
+clean" are not reasons to rewrite the product.
+
+### 0.5 Research basis
+
+The refactor follows current agent-memory evidence rather than adding another
+database for fashion:
+
+- [PROJECTMEM](https://arxiv.org/html/2606.12329v1) uses typed append-only
+  events and deterministic projections for auditable coding-agent memory.
+- [Stratum](https://arxiv.org/html/2610.36153v1) separates structural,
+  historical, and experiential repository memory and treats retrieval as a
+  page-safe, costed operation.
+- [OpenViking](https://github.com/volcengine/OpenViking) uses hierarchical
+  L0/L1/L2 context loading so agents inspect summaries before full detail.
+- [Mem0](https://arxiv.org/html/2504.19413v1) makes consolidation an explicit
+  ADD/UPDATE/DELETE/NOOP decision rather than appending every observation.
+- [Zep/Graphiti](https://arxiv.org/abs/2501.13956) demonstrates why temporal
+  validity and transaction history matter when facts change.
+- Recent releases from [claude-mem v15.7.0](https://github.com/thedotmack/claude-mem/releases/tag/v15.7.0),
+  [Hindsight v1.1.0](https://github.com/vectorize-io/hindsight/releases/tag/v1.1.0),
+  and [Graphiti v0.31.2](https://github.com/getzep/graphiti/releases/tag/v0.31.2)
+  emphasize background-job coalescing, environment isolation, redaction,
+  retention, decision-model concurrency, and security defaults. These are
+  operational contracts, not optional polish.
+
 It combines three source-of-truth memory layers and a curated long-term memory layer:
 
 - **Observation Memory** for what changed and how things work

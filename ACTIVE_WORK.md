@@ -13,6 +13,27 @@ tests directly with Node/npm on the E: workspace. Do not start Docker or add
 local Docker data. The Dockerfile and image workflow remain deployment
 artifacts for the VPS/hosted build path only.
 
+## Architecture Audit and 1.11 Refactor Baseline (2026-11-05)
+
+- [x] Audited the current tree, runtime entrypoints, persistence/index paths,
+  recent issue history, npm download data, and current agent-memory ecosystem.
+  The dominant risk is boundary coupling between canonical SQLite records,
+  derived views, retrieval policy, host adapters, and maintenance jobs.
+- [x] Updated `docs/ARCHITECTURE.md` with the Memory Kernel, Runtime Facade,
+  Derived View, RetrievalPlan/Receipt, and MaintenanceResult target contracts.
+  Added ADR-017 and updated the module/roadmap documents.
+- [x] Added the first executable kernel slice: `src/core/retrieval-contracts.ts`
+  normalizes retrieval input before Orama/FTS/Lance selection. The focused
+  contract and search regression tests pass.
+- [ ] 1.11 P1: extract ProjectBinding, immutable runtime config, derived-view
+  health/rebuild contracts, and architecture dependency tests.
+- [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
+  canonical write pipeline with an idempotent derived-work outbox.
+- [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
+  progressive disclosure into one RetrievalFacade and evaluate it on real
+  issue-resolution tasks.
+
+
 ## 1.10.3 Patch and Runcrate (2026-11-05)
 
 - Issue #365 identified unbounded LanceDB metadata growth from one-row commits,

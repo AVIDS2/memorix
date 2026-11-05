@@ -5,6 +5,43 @@
 
 ---
 
+## ADR-017: Memory Kernel and Derived-View Boundary
+
+**状态**: 已采纳（1.11 重构基线）
+
+**背景**: 1.10.x 已经同时包含 SQLite、FTS、Orama、Lance、CodeGraph、
+hooks、MCP、HTTP、CLI 和 Dashboard。它们曾依靠约定共享状态，导致派生索引
+膨胀、lazy mode 无声降级、检索排序回归和后台任务“成功但没有工作”。
+
+**决策**: 保持 SQLite 为 canonical record plane，抽出一个 Memory Kernel，
+用统一的 Runtime Facade、RetrievalPlan/Receipt、DerivedView 和
+MaintenanceResult 契约连接所有宿主和派生视图。结构、历史和经验记忆可以有
+不同索引，但不能有多个互相竞争的真相源。
+
+**理由**:
+
+- 新功能只应依赖 kernel contract，不应直接穿透到另一个宿主的 singleton；
+- 派生视图必须能够报告 stale/degraded/rebuilding，并且可独立重建；
+- canonical write 与 embedding、graph、rerank、LLM 等副作用解耦；
+- 同一个 RetrievalPlan 让 MCP、CLI、HTTP 和 Dashboard 产生可比较的结果；
+- 事件/版本/来源保留审计能力，为未来 relay 和时间推理留下迁移路径。
+
+**不做**:
+
+- 不立即把 SQLite 换成云端数据库；
+- 不为了“架构重写”删除现有 MCP/CLI 兼容面；
+- 不把所有 observation 自动提升为长期记忆或图谱事实；
+- 不新增一个向量数据库来掩盖生命周期和检索策略问题。
+
+**影响**:
+
+- 1.11 先抽接口和门面，再逐个迁移宿主；
+- 每个派生视图必须有 rebuild/compact/status 测试；
+- 发布门槛增加检索质量、资源上限和降级语义测试；
+- 当前大模块可渐进拆分，避免一次性高风险迁移。
+
+---
+
 ## 决策编号规则
 - `ADR-XXX`: Architecture Decision Record (架构决策)
 - 按时间顺序编号

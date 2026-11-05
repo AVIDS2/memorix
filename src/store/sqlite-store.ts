@@ -15,6 +15,7 @@
  * mini-skills, and sessions all share one connection and one DB file.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Observation } from '../types.js';
 import type { ObservationStore, StoreTransaction } from './obs-store.js';
 import { getDatabase, closeDatabase } from './sqlite-db.js';
@@ -488,6 +489,23 @@ export class SqliteBackend implements ObservationStore {
         }, 'Observation atomic write');
         try {
           const tx: StoreTransaction = {
+            enqueueMaintenanceJob: async (input) => {
+              const payloadJson = JSON.stringify(input.payload ?? {});
+              const existing = this.db.prepare(`
+                SELECT id FROM maintenance_jobs
+                WHERE project_id = ? AND kind = ? AND dedupe_key = ?
+                  AND status IN ('pending', 'running', 'retry')
+                LIMIT 1
+              `).get(input.projectId, input.kind, input.dedupeKey);
+              if (existing) return;
+              const now = Date.now();
+              this.db.prepare(`
+                INSERT INTO maintenance_jobs (
+                  id, project_id, kind, dedupe_key, payload_json, status, attempts,
+                  max_attempts, run_after, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 8, ?, ?, ?)
+              `).run(randomUUID(), input.projectId, input.kind, input.dedupeKey, payloadJson, now, now, now);
+            },
             loadAll: async () => this.rawLoadAll(),
             getById: async (id) => this.rawGetById(id),
             findByTopicKey: async (projectId, topicKey) => this.rawFindByTopicKey(projectId, topicKey),

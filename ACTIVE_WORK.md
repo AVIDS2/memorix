@@ -35,8 +35,9 @@ artifacts for the VPS/hosted build path only.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
   First slice complete: observation SQLite transactions now enqueue vector
-  backfill work atomically, foreground embedding success resolves queued work,
-  and maintenance jobs persist attempted/succeeded/failed/remaining progress.
+  backfill work atomically, and maintenance jobs persist
+  attempted/succeeded/failed/remaining progress. Project-level work is only
+  completed after the worker confirms that no missing vectors remain.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
   progressive disclosure into one RetrievalFacade and evaluate it on real
   issue-resolution tasks.

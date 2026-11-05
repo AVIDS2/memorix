@@ -7,8 +7,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { enqueueVectorBackfill, launchDetachedVectorBackfill } = vi.hoisted(() => ({
+const { enqueueVectorBackfill, resolvePendingVectorBackfill, launchDetachedVectorBackfill } = vi.hoisted(() => ({
   enqueueVectorBackfill: vi.fn(),
+  resolvePendingVectorBackfill: vi.fn(),
   launchDetachedVectorBackfill: vi.fn(),
 }));
 
@@ -44,6 +45,9 @@ vi.mock('../../src/runtime/maintenance-jobs.js', () => ({
   MaintenanceJobStore: class {
     enqueue(input: unknown) {
       enqueueVectorBackfill(input);
+    }
+    resolvePendingVectorBackfill(projectId: string) {
+      resolvePendingVectorBackfill(projectId);
     }
   },
 }));
@@ -361,6 +365,8 @@ describe('Vector Stability', () => {
     ]);
     expect(result).toMatchObject({ attempted: 1, succeeded: 1, failed: 0 });
     expect(getVectorMissingIds()).not.toContain(observation.id);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(resolvePendingVectorBackfill).not.toHaveBeenCalled();
   });
 
   it('backfill keeps items queued when the generated embedding dimensions do not match the index', async () => {

@@ -129,7 +129,7 @@ function rowToJob(row: any): MaintenanceJob {
     ...(row.lease_owner ? { leaseOwner: row.lease_owner } : {}),
     ...(row.lease_expires_at != null ? { leaseExpiresAt: Number(row.lease_expires_at) } : {}),
     ...(row.last_error ? { lastError: row.last_error } : {}),
-    ...([row.attempted, row.succeeded, row.failed, row.remaining].some((value) => Number(value) > 0)
+    ...(Number(row.progress_recorded ?? 0) === 1
       ? { progress: {
         attempted: Number(row.attempted ?? 0),
         succeeded: Number(row.succeeded ?? 0),
@@ -421,6 +421,7 @@ export class MaintenanceJobStore {
       SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL,
           attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
           failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
+          progress_recorded = CASE WHEN ? THEN 1 ELSE progress_recorded END,
           completed_at = ?, updated_at = ?
       WHERE id = ? AND status = 'running' AND lease_owner = ?
     `).run(
@@ -428,6 +429,7 @@ export class MaintenanceJobStore {
       progress?.succeeded ?? null,
       progress?.failed ?? null,
       progress?.remaining ?? null,
+      progress ? 1 : 0,
       now,
       now,
       id,
@@ -463,6 +465,7 @@ export class MaintenanceJobStore {
           payload_json = COALESCE(?, payload_json),
           attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
           failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
+          progress_recorded = CASE WHEN ? THEN 1 ELSE progress_recorded END,
           last_error = CASE
             WHEN ? THEN NULL
             WHEN ? THEN ?
@@ -479,6 +482,7 @@ export class MaintenanceJobStore {
       progress?.succeeded ?? null,
       progress?.failed ?? null,
       progress?.remaining ?? null,
+      progress ? 1 : 0,
       options.clearLastError ? 1 : 0,
       hasLastError ? 1 : 0,
       lastError,
@@ -494,17 +498,6 @@ export class MaintenanceJobStore {
       UPDATE maintenance_jobs
       SET status = 'completed', completed_at = ?, updated_at = ?
       WHERE project_id = ? AND kind = 'vector-backfill' AND dedupe_key = ? AND status = 'failed'
-    `).run(now, now, projectId, dedupeKey);
-    return Number(result.changes ?? 0);
-  }
-
-  /** Mark only queued vector work complete after a foreground write succeeded. */
-  resolvePendingVectorBackfill(projectId: string, dedupeKey = 'vector-backfill', now = Date.now()): number {
-    const result = this.db.prepare(`
-      UPDATE maintenance_jobs
-      SET status = 'completed', completed_at = ?, updated_at = ?
-      WHERE project_id = ? AND kind = 'vector-backfill' AND dedupe_key = ?
-        AND status IN ('pending', 'retry')
     `).run(now, now, projectId, dedupeKey);
     return Number(result.changes ?? 0);
   }
@@ -626,6 +619,9 @@ export class MaintenanceJobWorker {
             now,
           });
           return { state: 'rescheduled', job: updated };
+        }
+        if (result?.progress && result.progress.remaining > 0) {
+          throw new Error('maintenance job reported completion with remaining work');
         }
         const updated = this.store.complete(job.id, this.workerId, now, result?.progress);
         return { state: 'completed', job: updated };

@@ -28,6 +28,7 @@ import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 import { parseRerankTimeoutMs, shouldAttemptHttpRerank, shouldAttemptLlmRerank } from '../rerank/policy.js';
 import { withTimeout, withTimeoutSignal } from '../timeout.js';
 import { getObservationStore } from './obs-store.js';
+import { createRetrievalPlan, type RetrievalReceipt } from '../core/retrieval-contracts.js';
 import {
   createSemanticIndexProfile,
   searchSemanticVectors,
@@ -63,17 +64,8 @@ export function resolveSearchFuzzyTolerance(query: string, quality: 'fast' | 'ba
   return query.length > 6 ? 2 : 1;
 }
 const lastSearchModeByProject = new Map<string, string>();
-export interface SearchDiagnostics {
-  version: '1';
-  mode: string;
+export interface SearchDiagnostics extends RetrievalReceipt {
   rawCandidateCount: number;
-  candidateCount: number;
-  selectedCount: number;
-  omittedCount: number;
-  omittedByTokenBudget: number;
-  fallbackUsed: boolean;
-  fallbackReason?: string;
-  elapsedMs: number;
 }
 const lastSearchDiagnosticsByProject = new Map<string, SearchDiagnostics>();
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
@@ -959,6 +951,8 @@ export async function removeObservation(oramaId: string): Promise<void> {
  * Progressive Disclosure Layer 1 — adopted from claude-mem.
  */
 export async function searchObservations(options: SearchOptions): Promise<IndexEntry[]> {
+  const retrievalPlan = createRetrievalPlan(options);
+  options = { ...options, ...retrievalPlan } as SearchOptions;
   const searchStartedAt = Date.now();
   const perf = !!process.env.MEMORIX_PERF;
   const t0 = perf ? performance.now() : 0;
@@ -997,7 +991,7 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
 
   // Determine search mode: hybrid (with vector) or fulltext (default)
   const hasQuery = options.query && options.query.trim().length > 0;
-  const originalQuery = options.query;
+  const originalQuery = retrievalPlan.query;
   // The fast profile is a bounded local probe, not a lower-quality spelling
   // corrector. Skip query classification and the expensive recall enrichments
   // it would otherwise inherit from the balanced path.

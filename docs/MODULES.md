@@ -1,10 +1,15 @@
 # Memorix 模块详解
 
-> 最后更新: 2026-09-01（当前发布线 v1.8.6）
+> 最后更新: 2026-11-05（当前发布线 v1.10.3）
 > 本文档记录当前模块边界、关键算法和兼容层，不把历史实现误写成运行时主路径。
 
 > 当前真实主路径先看下面的模块总览，再看各模块的细节。早期 JSON/Orama
 > 说明仍保留用于迁移和实现背景，但不代表 JSON 是运行时主存储。
+
+> 2026-11 架构审计结论：当前模块表描述了职责，但代码仍有多个宿主直接
+> 穿透业务模块。后续 1.11 以 [ARCHITECTURE.md § 0](ARCHITECTURE.md#0-current-architecture-audit-and-refactor-target)
+> 定义的 Memory Kernel、Runtime Facade、Derived View 和 MaintenanceResult
+> 契约为准；本文件不再把“模块存在”当成“边界已隔离”。
 
 ## 当前模块总览
 

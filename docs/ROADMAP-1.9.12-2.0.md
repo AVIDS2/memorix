@@ -432,8 +432,24 @@ CLI、Dashboard 和 doctor 要能回答：
 
 ## 4. 1.11：本地优先 relay 与协作预览
 
-1.11 才开始验证 hosted/relay 需求。它必须是 opt-in preview，不能改变默认本地
+1.11 先完成 Memory Kernel 和 derived-view 边界收敛，再开始验证 hosted/relay
+需求。它必须是 opt-in preview，不能改变默认本地
 产品。
+
+### 4.0 结构前置条件
+
+relay 不能建立在当前多宿主直接访问 store/singleton 的结构上。进入 relay
+实现前必须完成：
+
+- `ProjectBinding`、`ResolvedRuntimeConfig`、`RetrievalPlan`、
+  `RetrievalReceipt`、`DerivedView`、`MaintenanceResult` 的内部契约；
+- canonical write 与派生 embedding/CodeGraph/FTS/Lance 工作解耦；
+- 所有宿主使用同一个 RetrievalFacade 和 refresh policy；
+- backfill、snapshot retention、compaction 的完成条件包含实际进度；
+- 1k/10k/40k/100k 规模下记录检索召回、token、RSS、延迟和降级行为。
+
+否则 relay 只会把本地的边界问题复制到远程系统，推迟而不是解决数据一致性、
+权限、删除、重试和审计问题。
 
 ### 4.1 Relay 目标
 

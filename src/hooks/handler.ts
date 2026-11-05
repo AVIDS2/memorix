@@ -342,7 +342,6 @@ async function buildHookProjectContext(
       dataDir,
       observations: activeObservations,
       task,
-      refresh: 'auto',
       reader: { projectId: canonicalId },
       continuation: 'always',
       ...(input.sessionId

@@ -1039,6 +1039,7 @@ export class CodeGraphStore {
   recordCodeStateSnapshot(input: CodeStateSnapshotInput): CodeStateSnapshot {
     const id = randomUUID();
     let snapshot: CodeStateSnapshot | undefined;
+    let compactNeeded = false;
     const tx = this.db.transaction(() => {
       const previous = this.db.prepare(
         'SELECT id, sourceEpoch FROM code_state_snapshots WHERE projectId = ? ORDER BY sourceEpoch DESC LIMIT 1',
@@ -1082,6 +1083,29 @@ export class CodeGraphStore {
       for (const file of snapshotFileRows) {
         insertSnapshotFile.run(id, file.projectId, file.id, file.path, file.contentHash);
       }
+      // Codegraph facts are derived and the readers already ignore stale
+      // symbols. Retain the latest two manifests, then remove dead symbols
+      // and edges so repeated refreshes cannot grow the canonical SQLite file.
+      const staleSymbolIds = this.db.prepare(
+        'SELECT id FROM code_symbols WHERE projectId = ? AND stale = 1',
+      ).all(input.projectId).map((row: { id: string }) => row.id);
+      if (staleSymbolIds.length > 0) {
+        const placeholders = staleSymbolIds.map(() => '?').join(', ');
+        this.db.prepare(
+          `DELETE FROM code_edges WHERE projectId = ? AND (fromSymbolId IN (${placeholders}) OR toSymbolId IN (${placeholders}))`,
+        ).run(input.projectId, ...staleSymbolIds, ...staleSymbolIds);
+        this.db.prepare('DELETE FROM code_symbols WHERE projectId = ? AND stale = 1').run(input.projectId);
+        compactNeeded = true;
+      }
+      const oldSnapshots = this.db.prepare(
+        'SELECT id FROM code_state_snapshots WHERE projectId = ? ORDER BY sourceEpoch DESC LIMIT -1 OFFSET 2',
+      ).all(input.projectId).map((row: { id: string }) => row.id);
+      if (oldSnapshots.length > 0) {
+        const placeholders = oldSnapshots.map(() => '?').join(', ');
+        this.db.prepare(`DELETE FROM code_state_snapshot_files WHERE snapshotId IN (${placeholders})`).run(...oldSnapshots);
+        this.db.prepare(`DELETE FROM code_state_snapshots WHERE id IN (${placeholders})`).run(...oldSnapshots);
+        compactNeeded = true;
+      }
       snapshot = {
         ...input,
         id,
@@ -1090,12 +1114,20 @@ export class CodeGraphStore {
       };
     });
     tx();
+    if (compactNeeded) this.compactStorage();
     return snapshot!;
+  }
+
+  /** Reclaim WAL/free pages after a derived codegraph sweep. */
+  compactStorage(): void {
+    try { this.db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* best effort */ }
+    try { this.db.exec('VACUUM'); } catch { /* another reader may be active */ }
   }
 
   status(projectId: string): CodeGraphStatus {
     const files = this.db.prepare(`SELECT COUNT(*) AS count FROM code_files WHERE projectId = ?`).get(projectId).count;
     const symbols = this.db.prepare(`SELECT COUNT(*) AS count FROM code_symbols WHERE projectId = ? AND stale = 0`).get(projectId).count;
+    const staleSymbols = this.db.prepare(`SELECT COUNT(*) AS count FROM code_symbols WHERE projectId = ? AND stale = 1`).get(projectId).count;
     const edges = this.db.prepare(`SELECT COUNT(*) AS count FROM code_edges WHERE projectId = ?`).get(projectId).count;
     const refs = this.db.prepare(`SELECT COUNT(*) AS count FROM observation_code_refs WHERE projectId = ?`).get(projectId).count;
     const semanticSymbols = this.db.prepare(`SELECT COUNT(*) AS count FROM code_symbols WHERE projectId = ? AND stale = 0 AND source = 'typescript-compiler'`).get(projectId).count;
@@ -1103,6 +1135,8 @@ export class CodeGraphStore {
     const parserErrors = this.db.prepare(`SELECT COUNT(*) AS count FROM code_files WHERE projectId = ? AND parserError IS NOT NULL`).get(projectId).count;
     const latest = this.db.prepare(`SELECT MAX(indexedAt) AS indexedAt FROM code_files WHERE projectId = ?`).get(projectId);
     const latestSnapshot = this.latestSnapshot(projectId);
+    const snapshots = this.db.prepare(`SELECT COUNT(*) AS count FROM code_state_snapshots WHERE projectId = ?`).get(projectId).count;
+    const snapshotFiles = this.db.prepare(`SELECT COUNT(*) AS count FROM code_state_snapshot_files WHERE projectId = ?`).get(projectId).count;
     return {
       provider: 'lite',
       files,
@@ -1112,6 +1146,9 @@ export class CodeGraphStore {
       semanticSymbols,
       semanticEdges,
       parserErrors,
+      staleSymbols,
+      snapshots,
+      snapshotFiles,
       ...(latest?.indexedAt ? { indexedAt: latest.indexedAt } : {}),
       ...(latestSnapshot ? { latestSnapshot } : {}),
     };

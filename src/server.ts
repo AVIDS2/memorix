@@ -1642,7 +1642,7 @@ export async function createMemorixServer(
       inputSchema: {
         task: z.string().optional().describe('Current coding task or question'),
         taskId: z.string().max(120).optional().describe('Optional task continuity ledger id to include in the brief'),
-        refresh: z.enum(['auto', 'always', 'never']).optional().default('auto').describe(
+        refresh: z.enum(['auto', 'always', 'never']).optional().describe(
           'Code Memory refresh policy. auto refreshes only when missing or stale.',
         ),
         format: z.enum(['prompt', 'summary', 'json', 'receipt']).optional().default('prompt').describe(
@@ -1688,7 +1688,7 @@ export async function createMemorixServer(
         task,
         taskId,
         agent,
-        refresh: refresh ?? 'auto',
+        ...(refresh ? { refresh } : {}),
         reader: getObservationReader(),
         enqueueRefresh: () => {
           enqueueCodegraphRefresh({

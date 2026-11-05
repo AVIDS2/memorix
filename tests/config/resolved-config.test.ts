@@ -74,6 +74,11 @@ describe('resolved config', () => {
     expect(getResolvedMemoryLane({ projectRoot: null, homeDir: HOME }).llm.apiKey).toBe('explicit-test-key');
   });
 
+  it('resolves the built-in CodeGraph refresh policy from TOML', () => {
+    writeFileSync(join(PROJECT, 'memorix.toml'), '[codegraph]\nauto_refresh = "never"\n', 'utf8');
+    expect(getResolvedConfig({ projectRoot: PROJECT, homeDir: HOME }).codegraph.autoRefresh).toBe('never');
+  });
+
   it('does not borrow other provider keys for Atlas memory', () => {
     process.env.MEMORIX_LLM_PROVIDER = 'atlascloud';
     process.env.OPENAI_API_KEY = 'openai-test-key';

@@ -78,6 +78,8 @@ export interface MemorixYamlConfig {
     excludePatterns?: string[];
     /** Maximum source file size to parse into CodeGraph Memory */
     maxFileBytes?: number;
+    /** Automatic built-in CodeGraph refresh policy. */
+    autoRefresh?: 'auto' | 'always' | 'never';
     /** Use a healthy pre-existing local CodeGraph index when present (default: auto). */
     externalContext?: 'auto' | 'off';
     /** Optional CodeGraph executable path when it is not available on PATH. */

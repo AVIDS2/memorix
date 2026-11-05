@@ -96,7 +96,7 @@ export function resetObservationRuntime(): void {
   loadedObservationStore = null;
   embeddingWriteMode = 'background';
   embeddingWorkerProjectRoot = undefined;
-  vectorMissingIds.clear();
+  clearVectorMissingIds();
   vectorSchemaUpgradePromise = null;
   embeddingFailureLogTimestamps.clear();
 }
@@ -105,6 +105,22 @@ export function resetObservationRuntime(): void {
 // Tracks observation IDs whose async embedding write failed or was skipped.
 // Enables observability ("how many memories lack vectors?") and backfill.
 const vectorMissingIds = new Set<number>();
+const vectorMissingProjectIds = new Map<number, string>();
+
+function markVectorMissing(observationId: number, projectId: string): void {
+  vectorMissingIds.add(observationId);
+  vectorMissingProjectIds.set(observationId, projectId);
+}
+
+function clearVectorMissing(observationId: number): void {
+  vectorMissingIds.delete(observationId);
+  vectorMissingProjectIds.delete(observationId);
+}
+
+function clearVectorMissingIds(): void {
+  vectorMissingIds.clear();
+  vectorMissingProjectIds.clear();
+}
 let vectorBackfillRunning = false;
 let vectorSchemaUpgradePromise: Promise<boolean> | null = null;
 let lastVectorBackfill: {
@@ -290,12 +306,18 @@ function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean
  */
 async function upgradeVectorSchemaAfterFirstEmbedding(embedding: number[]): Promise<boolean> {
   if (isVectorCompatibleWithCurrentIndex(embedding)) return true;
-  if (getVectorDimensions() !== null || !embedding.every(Number.isFinite)) return false;
+  if (!embedding.every(Number.isFinite)) return false;
 
   const targetProjectDir = projectDir;
   if (!vectorSchemaUpgradePromise) {
-    vectorSchemaUpgradePromise = reindexObservations()
-      .then(() => projectDir === targetProjectDir && isVectorCompatibleWithCurrentIndex(embedding))
+    vectorSchemaUpgradePromise = getDb()
+      .then(async () => {
+        // Lazy corpus mode intentionally has no in-memory observations. The
+        // provider dimensions are enough to create the Orama schema; a full
+        // corpus rebuild would be both unnecessary and impossible here.
+        if (getVectorDimensions() === null && observations.length > 0) await reindexObservations();
+        return projectDir === targetProjectDir && isVectorCompatibleWithCurrentIndex(embedding);
+      })
       .catch(() => false)
       .finally(() => {
         vectorSchemaUpgradePromise = null;
@@ -359,13 +381,13 @@ function scheduleObservationEmbedding(input: {
   doc: MemorixDocument;
 }): void {
   const { observationId, projectId, searchableText, doc } = input;
-  vectorMissingIds.add(observationId);
+  markVectorMissing(observationId, projectId);
 
   // Ordinary store must not pay embedding-provider or cache I/O when vectors
   // are disabled. Check before generateEmbedding() so MEMORIX_EMBEDDING=off
   // stays on the lexical write path.
   if (isEmbeddingExplicitlyDisabled()) {
-    vectorMissingIds.delete(observationId);
+    clearVectorMissing(observationId);
     return;
   }
 
@@ -405,13 +427,13 @@ function scheduleObservationEmbedding(input: {
             vector: embedding,
           });
         }
-        vectorMissingIds.delete(observationId);
+        clearVectorMissing(observationId);
       } catch {
         console.error(`[memorix] Embedding index update failed for obs-${observationId} (kept in backfill queue)`);
         queueVectorBackfill(projectId);
       }
     } else if (isEmbeddingExplicitlyDisabled()) {
-      vectorMissingIds.delete(observationId);
+        clearVectorMissing(observationId);
     } else {
       queueVectorBackfill(projectId);
       logEmbeddingFailureOnce(
@@ -1246,7 +1268,7 @@ export async function reindexObservations(): Promise<number> {
   // Reset the Orama index to ensure clean reindex (idempotent)
   await resetDb();
   searchIndexPrepared = false;
-  vectorMissingIds.clear();
+  clearVectorMissingIds();
 
   // Prefer already-persisted vectors for remote providers. This restores semantic
   // recall after a restart without waiting on the network; cache misses remain
@@ -1327,7 +1349,7 @@ export async function reindexObservations(): Promise<number> {
       };
       await insertObservation(doc);
       if (!compatibleEmbedding && !isEmbeddingExplicitlyDisabled()) {
-        vectorMissingIds.add(obs.id);
+        markVectorMissing(obs.id, obs.projectId);
       }
       count++;
     } catch (err) {
@@ -1356,7 +1378,21 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
     if (!isEmbeddingExplicitlyDisabled()) {
       const store = getObservationStore();
       const projects = await store.listProjectIds?.() ?? [];
-      for (const projectId of projects) queueVectorBackfill(projectId);
+      // Initialize the lightweight vector schema without hydrating the corpus.
+      // The persistent Lance ID set is the source of truth in lazy mode.
+      await getDb({ allowNetworkProbe: false }).catch(() => undefined);
+      const persistedIds = projectDir
+        ? await getPersistentSemanticVectorIds(projectDir).catch(() => null)
+        : null;
+      for (const projectId of projects) {
+        const projectObservations = await store.loadByProject(projectId);
+        for (const observation of projectObservations) {
+          if (!persistedIds?.has(observation.id)) markVectorMissing(observation.id, observation.projectId);
+        }
+        if (projectObservations.some((observation) => !persistedIds?.has(observation.id))) {
+          queueVectorBackfill(projectId);
+        }
+      }
     }
     return 0;
   }
@@ -1372,7 +1408,7 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
   const hydratedProjectDir = projectDir;
   const queueMissingVectors = async () => {
     if (!hydratedProjectDir || projectDir !== hydratedProjectDir) return;
-    vectorMissingIds.clear();
+    clearVectorMissingIds();
     if (!isEmbeddingExplicitlyDisabled()) {
       const persistedSemanticIds = await getPersistentSemanticVectorIds(hydratedProjectDir).catch(() => null);
       const projectsWithMissingVectors = new Set<string>();
@@ -1381,7 +1417,7 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
         // not at index time. Omitting non-active observations here would permanently
         // exclude resolved/archived memories from hybrid search after restart.
         if (!hasObservationVector(obs.projectId, obs.id) && !persistedSemanticIds?.has(obs.id)) {
-          vectorMissingIds.add(obs.id);
+          markVectorMissing(obs.id, obs.projectId);
           projectsWithMissingVectors.add(obs.projectId);
         }
       }
@@ -1410,6 +1446,9 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
  */
 export function getVectorMissingIds(projectId?: string): number[] {
   if (!projectId) return [...vectorMissingIds];
+  if (!corpusLoaded) {
+    return [...vectorMissingIds].filter((id) => vectorMissingProjectIds.get(id) === projectId);
+  }
   const observationById = new Map(observations.map((observation) => [observation.id, observation]));
   return [...vectorMissingIds].filter((id) => observationById.get(id)?.projectId === projectId);
 }
@@ -1491,7 +1530,12 @@ export async function backfillVectorEmbeddings(options: {
   }
   vectorBackfillRunning = true;
 
-  const observationById = new Map(observations.map((observation) => [observation.id, observation]));
+  const sourceObservations = corpusLoaded
+    ? observations
+    : options.projectId
+      ? await getObservationStore().loadByProject(options.projectId, { status: 'active' })
+      : await getObservationStore().loadAll();
+  const observationById = new Map(sourceObservations.map((observation) => [observation.id, observation]));
   const limit = Number.isFinite(options.limit)
     ? Math.max(1, Math.floor(options.limit!))
     : Number.POSITIVE_INFINITY;
@@ -1512,7 +1556,7 @@ export async function backfillVectorEmbeddings(options: {
   for (const id of ids) {
     const observation = observationById.get(id);
     if (!observation) {
-      vectorMissingIds.delete(id);
+      clearVectorMissing(id);
       continue;
     }
     candidates.push({
@@ -1532,7 +1576,7 @@ export async function backfillVectorEmbeddings(options: {
       const provider = await getEmbeddingProvider();
       if (!provider) {
         if (isEmbeddingExplicitlyDisabled()) {
-          for (const candidate of candidates) vectorMissingIds.delete(candidate.id);
+          for (const candidate of candidates) clearVectorMissing(candidate.id);
         } else {
           recordFailure('embedding provider unavailable');
           failed += candidates.length;
@@ -1612,7 +1656,7 @@ export async function backfillVectorEmbeddings(options: {
               vector: embedding,
             });
           }
-          vectorMissingIds.delete(id);
+          clearVectorMissing(id);
           succeeded++;
         } catch (error) {
           recordFailure(vectorBackfillError(error));

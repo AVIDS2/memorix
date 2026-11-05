@@ -224,13 +224,13 @@ export async function buildAutoProjectContext(input: {
   /** The caller surface is recorded in the Workset receipt, not its prompt. */
   deliveryTarget?: ContextDeliveryTarget;
 }): Promise<AutoProjectContext> {
-  const refreshMode = input.refresh ?? 'auto';
   const now = input.now ?? new Date();
   const task = input.task?.trim();
   const lens = resolveTaskLens(task);
   const continuationRequested = input.continuation === 'always'
     || (input.continuation !== 'never' && isContinuationTask(task));
   const codegraphConfig = getResolvedConfig({ projectRoot: input.project.rootPath }).codegraph;
+  const refreshMode = input.refresh ?? codegraphConfig.autoRefresh ?? 'auto';
   const exclude = input.exclude ?? codegraphConfig.excludePatterns;
   const maxFileBytes = input.maxFileBytes ?? codegraphConfig.maxFileBytes;
   const store = new CodeGraphStore();

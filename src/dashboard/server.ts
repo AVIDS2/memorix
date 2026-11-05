@@ -11,7 +11,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { exec } from 'node:child_process';
+import { openLocalBrowser } from '../runtime/open-browser.js';
 
 import { getBaseDataDir } from '../store/persistence.js';
 import { getObservationStore, initObservationStore } from '../store/obs-store.js';
@@ -960,11 +960,7 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, staticDir:
 
 /** Cross-platform open URL in default browser */
 function openBrowser(url: string) {
-    const cmd =
-        process.platform === 'win32' ? `start "" "${url}"` :
-            process.platform === 'darwin' ? `open "${url}"` :
-                `xdg-open "${url}"`;
-    exec(cmd, { windowsHide: true }, () => { /* ignore errors */ });
+    try { openLocalBrowser(url); } catch { /* best effort */ }
 }
 
 /** Mutable dashboard state — updated at runtime when project changes */

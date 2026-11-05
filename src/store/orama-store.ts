@@ -52,6 +52,16 @@ let indexEmbeddingProvider: EmbeddingProvider | null = null;
 let deferredCachedVectorHydration: Promise<void> | null = null;
 const NON_CJK_HYBRID_SIMILARITY = 0.45;
 const CJK_RUN = /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+/gu;
+
+/** CJK tokenization already emits character and bigram tokens. Fuzzy matching
+ * those expanded tokens grows superlinearly on large Orama indexes. */
+export function resolveSearchFuzzyTolerance(query: string, quality: 'fast' | 'balanced' | 'thorough'): number | undefined {
+  if (quality === 'fast') return undefined;
+  const characters = [...query];
+  const cjkCount = characters.filter((char) => /[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(char)).length;
+  if (characters.length > 0 && cjkCount / characters.length > 0.3) return undefined;
+  return query.length > 6 ? 2 : 1;
+}
 const lastSearchModeByProject = new Map<string, string>();
 export interface SearchDiagnostics {
   version: '1';
@@ -1046,7 +1056,12 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
     // Fuzzy tolerance: allow 1-char typos for short queries, 2 for longer
     // Fuzzy matching is useful for ordinary recall, but grows sharply with
     // corpus size. The fast profile deliberately uses exact lexical matching.
-    ...(hasQuery && quality !== 'fast' ? { tolerance: originalQuery!.length > 6 ? 2 : 1 } : {}),
+    ...(hasQuery
+      ? (() => {
+        const tolerance = resolveSearchFuzzyTolerance(originalQuery!, quality);
+        return tolerance === undefined ? {} : { tolerance };
+      })()
+      : {}),
   };
 
   // If embedding provider is available and query tier warrants it, use hybrid search
@@ -1371,15 +1386,24 @@ export async function searchObservations(options: SearchOptions): Promise<IndexE
       });
     }
 
-    // Apply affinity scoring to each result
+    // Affinity is a tie-breaker, not a second relevance model. RRF scores are
+    // intentionally flat; multiplying every result by 0.65 can demote a rank-1
+    // exact lexical match below rank-30 noise. Only close candidates receive a
+    // bounded affinity adjustment, while the primary retrieval score remains
+    // the ordering authority.
+    const topScore = Math.max(...intermediate.map((entry) => entry.score));
+    const affinityTieWindow = topScore * 0.92;
+
+    // Apply affinity scoring only to close candidates.
     intermediate = intermediate.map(entry => {
       const memory = memoryContentMap.get(entry.id);
       if (!memory) return entry;
 
       const { score: affinityScore } = calculateProjectAffinity(memory, affinityContext);
+      if (entry.score < affinityTieWindow) return entry;
       return {
         ...entry,
-        score: entry.score * affinityScore, // Apply affinity as multiplier
+        score: entry.score * (0.98 + (affinityScore * 0.02)),
       };
     });
 

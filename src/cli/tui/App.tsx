@@ -43,6 +43,7 @@ import { ChatView } from './ChatView.js';
 import type { ChatTranscriptMessage, ChatViewRef } from './ChatView.js';
 import { ContextRail } from './ContextRail.js';
 import { askMemoryQuestionStream } from './chat-service.js';
+import { openLocalBrowser } from '../../runtime/open-browser.js';
 import type { ChatAnswer } from './chat-service.js';
 import type {
   ProjectInfo,
@@ -821,24 +822,20 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const handleBackgroundAction = useCallback(async (action: string) => {
     setStatusMsg(null);
     try {
-      const { execSync } = await import('node:child_process');
+      const { doStart, doStop, doRestart } = await import('../commands/background.js');
       if (background.running) {
         switch (action) {
           case 'w': if (background.dashboard) {
-            try { execSync(`start "" "${background.dashboard}"`, { stdio: 'pipe', windowsHide: true }); } catch {
-              try { execSync(`open "${background.dashboard}"`, { stdio: 'pipe', windowsHide: true }); } catch {
-                try { execSync(`xdg-open "${background.dashboard}"`, { stdio: 'pipe', windowsHide: true }); } catch { /* */ }
-              }
-            }
+            try { openLocalBrowser(background.dashboard); } catch { /* */ }
             setStatusMsg({ text: `Opening ${background.dashboard}`, type: 'success' });
           } break;
-          case '1': try { execSync('memorix background restart', { stdio: 'pipe', timeout: 15000, windowsHide: true }); setStatusMsg({ text: 'Restarted.', type: 'success' }); } catch (e) { setStatusMsg({ text: `Restart failed: ${e}`, type: 'error' }); } break;
-          case '2': try { execSync('memorix background stop', { stdio: 'pipe', timeout: 10000, windowsHide: true }); setStatusMsg({ text: 'Stopped.', type: 'success' }); } catch (e) { setStatusMsg({ text: `Stop failed: ${e}`, type: 'error' }); } break;
+          case '1': try { await doRestart(background.port ?? 3211); setStatusMsg({ text: 'Restarted.', type: 'success' }); } catch (e) { setStatusMsg({ text: `Restart failed: ${e}`, type: 'error' }); } break;
+          case '2': try { await doStop(); setStatusMsg({ text: 'Stopped.', type: 'success' }); } catch (e) { setStatusMsg({ text: `Stop failed: ${e}`, type: 'error' }); } break;
           case '3': setStatusMsg({ text: 'Run: memorix background logs (separate terminal)', type: 'info' }); break;
         }
       } else {
         switch (action) {
-          case '1': try { execSync('memorix background start', { stdio: 'pipe', timeout: 15000, windowsHide: true }); setStatusMsg({ text: 'Started.', type: 'success' }); } catch (e) { setStatusMsg({ text: `Start failed: ${e}`, type: 'error' }); } break;
+          case '1': try { await doStart(background.port ?? 3211); setStatusMsg({ text: 'Started.', type: 'success' }); } catch (e) { setStatusMsg({ text: `Start failed: ${e}`, type: 'error' }); } break;
           case '2': setStatusMsg({ text: 'Run: memorix dashboard (separate terminal)', type: 'info' }); break;
         }
       }
@@ -849,18 +846,14 @@ export function WorkbenchApp({ version, onExitForInteractive }: AppProps): React
   const handleDashboardAction = useCallback(async (action: string) => {
     setStatusMsg(null);
     try {
-      const { execSync } = await import('node:child_process');
+      const { doStart } = await import('../commands/background.js');
       if (background.healthy && background.dashboard) {
         if (action === '1') {
-          try { execSync(`start "" "${background.dashboard}"`, { stdio: 'pipe', windowsHide: true }); } catch {
-            try { execSync(`open "${background.dashboard}"`, { stdio: 'pipe', windowsHide: true }); } catch {
-              try { execSync(`xdg-open "${background.dashboard}"`, { stdio: 'pipe', windowsHide: true }); } catch { /* */ }
-            }
-          }
+          try { openLocalBrowser(background.dashboard); } catch { /* */ }
           setStatusMsg({ text: `Opening ${background.dashboard}`, type: 'success' });
         } else if (action === '2') { setStatusMsg({ text: 'Run: memorix dashboard (separate terminal)', type: 'info' }); }
       } else {
-        if (action === '1') { try { execSync('memorix background start', { stdio: 'pipe', timeout: 15000, windowsHide: true }); setStatusMsg({ text: 'Started.', type: 'success' }); setBackground(await getBackgroundStatus()); } catch (e) { setStatusMsg({ text: `Start failed: ${e}`, type: 'error' }); } }
+        if (action === '1') { try { await doStart(background.port ?? 3211); setStatusMsg({ text: 'Started.', type: 'success' }); setBackground(await getBackgroundStatus()); } catch (e) { setStatusMsg({ text: `Start failed: ${e}`, type: 'error' }); } }
         else if (action === '2') { setStatusMsg({ text: 'Run: memorix dashboard (separate terminal)', type: 'info' }); }
       }
     } catch (err) { setStatusMsg({ text: `Error: ${err instanceof Error ? err.message : String(err)}`, type: 'error' }); }

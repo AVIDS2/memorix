@@ -176,6 +176,9 @@ export interface CodeGraphStatus {
   semanticSymbols: number;
   semanticEdges: number;
   parserErrors: number;
+  staleSymbols?: number;
+  snapshots?: number;
+  snapshotFiles?: number;
   indexedAt?: string;
   latestSnapshot?: CodeStateSnapshot;
 }

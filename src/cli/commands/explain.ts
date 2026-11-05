@@ -6,8 +6,9 @@ import { getAllObservations } from '../../memory/observations.js';
 import { filterReadableObservations } from '../../memory/visibility.js';
 import { emitError, emitResult, getCliProjectContext } from './operator-shared.js';
 
-function coerceRefreshMode(input?: string): AutoContextRefreshMode {
-  const value = (input ?? 'auto').trim().toLowerCase();
+function coerceRefreshMode(input?: string): AutoContextRefreshMode | undefined {
+  if (!input?.trim()) return undefined;
+  const value = input.trim().toLowerCase();
   if (value === 'always' || value === 'never' || value === 'auto') return value;
   throw new Error('refresh must be one of: auto, always, never');
 }

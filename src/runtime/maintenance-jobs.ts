@@ -198,6 +198,16 @@ export class MaintenanceJobStore {
           this.commit();
           return rowToJob(existing);
         }
+        if (existing.status === 'running') {
+          this.db.prepare(`
+            UPDATE maintenance_jobs
+            SET rerun_requested = 1, payload_json = ?, updated_at = ?
+            WHERE id = ?
+          `).run(payloadJson, now, existing.id);
+          const updated = this.getRow(existing.id)!;
+          this.commit();
+          return rowToJob(updated);
+        }
         const nextRunAfter = Math.min(Number(existing.run_after), runAfter);
         this.db.prepare(`
           UPDATE maintenance_jobs
@@ -344,8 +354,10 @@ export class MaintenanceJobStore {
       this.db.prepare(`
         UPDATE maintenance_jobs
         SET
-          status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'retry' END,
-          run_after = CASE WHEN attempts >= max_attempts THEN run_after ELSE ? END,
+          status = CASE WHEN attempts >= max_attempts AND rerun_requested = 0 THEN 'failed' ELSE 'retry' END,
+          run_after = CASE WHEN attempts >= max_attempts AND rerun_requested = 0 THEN run_after ELSE ? END,
+          attempts = CASE WHEN rerun_requested = 1 AND attempts >= max_attempts THEN 0 ELSE attempts END,
+          rerun_requested = 0,
           lease_owner = NULL,
           lease_expires_at = NULL,
           last_error = COALESCE(last_error, 'worker lease expired'),
@@ -416,26 +428,53 @@ export class MaintenanceJobStore {
   }
 
   complete(id: string, workerId: string, now = Date.now(), progress?: MaintenanceProgress): MaintenanceJob | undefined {
-    this.db.prepare(`
-      UPDATE maintenance_jobs
-      SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL,
-          attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
-          failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
-          progress_recorded = CASE WHEN ? THEN 1 ELSE progress_recorded END,
-          completed_at = ?, updated_at = ?
-      WHERE id = ? AND status = 'running' AND lease_owner = ?
-    `).run(
-      progress?.attempted ?? null,
-      progress?.succeeded ?? null,
-      progress?.failed ?? null,
-      progress?.remaining ?? null,
-      progress ? 1 : 0,
-      now,
-      now,
-      id,
-      workerId,
-    );
-    return this.get(id);
+    this.begin();
+    try {
+      const current = this.db.prepare(`
+        SELECT rerun_requested FROM maintenance_jobs
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+      `).get(id, workerId);
+      if (!current) {
+        this.commit();
+        return undefined;
+      }
+      if (Number(current.rerun_requested) === 1) {
+        this.db.prepare(`
+          UPDATE maintenance_jobs
+          SET status = 'pending', attempts = 0, run_after = ?,
+              rerun_requested = 0, lease_owner = NULL, lease_expires_at = NULL,
+              attempted = 0, succeeded = 0, failed = 0, remaining = 0,
+              progress_recorded = 0, last_error = NULL, completed_at = NULL,
+              updated_at = ?
+          WHERE id = ?
+        `).run(now, now, id);
+      } else {
+        this.db.prepare(`
+          UPDATE maintenance_jobs
+          SET status = 'completed', lease_owner = NULL, lease_expires_at = NULL,
+              attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
+              failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
+              progress_recorded = CASE WHEN ? THEN 1 ELSE progress_recorded END,
+              completed_at = ?, updated_at = ?
+          WHERE id = ?
+        `).run(
+          progress?.attempted ?? null,
+          progress?.succeeded ?? null,
+          progress?.failed ?? null,
+          progress?.remaining ?? null,
+          progress ? 1 : 0,
+          now,
+          now,
+          id,
+        );
+      }
+      const updated = this.get(id);
+      this.commit();
+      return updated;
+    } catch (error) {
+      this.rollback();
+      throw error;
+    }
   }
 
   reschedule(
@@ -461,8 +500,10 @@ export class MaintenanceJobStore {
     const progress = options.progress;
     this.db.prepare(`
       UPDATE maintenance_jobs
-      SET status = ?, run_after = ?, attempts = CASE WHEN ? THEN 0 ELSE attempts END,
-          payload_json = COALESCE(?, payload_json),
+      SET status = ?,
+          run_after = CASE WHEN rerun_requested = 1 AND ? = 0 THEN ? ELSE ? END,
+          attempts = CASE WHEN rerun_requested = 1 AND ? = 0 THEN 0 WHEN ? THEN 0 ELSE attempts END,
+          payload_json = CASE WHEN rerun_requested = 1 THEN payload_json ELSE COALESCE(?, payload_json) END,
           attempted = COALESCE(?, attempted), succeeded = COALESCE(?, succeeded),
           failed = COALESCE(?, failed), remaining = COALESCE(?, remaining),
           progress_recorded = CASE WHEN ? THEN 1 ELSE progress_recorded END,
@@ -471,11 +512,14 @@ export class MaintenanceJobStore {
             WHEN ? THEN ?
             ELSE last_error
           END,
-          lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+          rerun_requested = 0, lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
       WHERE id = ? AND status = 'running' AND lease_owner = ?
     `).run(
       status,
+      status === 'retry' ? 1 : 0,
+      now,
       now + delayMs,
+      status === 'retry' ? 1 : 0,
       options.resetAttempts ? 1 : 0,
       payloadJson,
       progress?.attempted ?? null,
@@ -515,15 +559,18 @@ export class MaintenanceJobStore {
       }
 
       const attempts = Number(current.attempts);
-      const exhausted = attempts >= Number(current.max_attempts);
+      const rerunRequested = Number(current.rerun_requested) === 1;
+      const exhausted = attempts >= Number(current.max_attempts) && !rerunRequested;
       const status: MaintenanceJobStatus = exhausted ? 'failed' : 'retry';
       const runAfter = exhausted ? Number(current.run_after) : now + getMaintenanceRetryDelayMs(attempts);
+      const nextAttempts = rerunRequested && attempts >= Number(current.max_attempts) ? 0 : attempts;
       this.db.prepare(`
         UPDATE maintenance_jobs
-        SET status = ?, run_after = ?, lease_owner = NULL, lease_expires_at = NULL,
+        SET status = ?, run_after = ?, attempts = ?, rerun_requested = 0,
+            lease_owner = NULL, lease_expires_at = NULL,
             last_error = ?, updated_at = ?
         WHERE id = ?
-      `).run(status, runAfter, errorText(error), now, id);
+      `).run(status, runAfter, nextAttempts, errorText(error), now, id);
       const updated = this.getRow(id)!;
       this.commit();
       return rowToJob(updated);
@@ -624,7 +671,7 @@ export class MaintenanceJobWorker {
           throw new Error('maintenance job reported completion with remaining work');
         }
         const updated = this.store.complete(job.id, this.workerId, now, result?.progress);
-        return { state: 'completed', job: updated };
+        return { state: updated?.status === 'pending' ? 'rescheduled' : 'completed', job: updated };
       } catch (error) {
         const updated = this.store.fail(job.id, this.workerId, error, now);
         return { state: 'failed', job: updated };

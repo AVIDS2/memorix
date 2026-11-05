@@ -42,6 +42,11 @@ artifacts for the VPS/hosted build path only.
   attempted/succeeded/failed/remaining progress; project-level work completes
   only after the worker confirms no missing vectors remain. CodeGraph/evidence
   projections and other canonical write entrypoints still need the same audit.
+- [x] 1.11 P2 active-job race: a write arriving while a deduplicated job runs
+  now requests one follow-up pass in the same SQLite row. Completion, retry
+  exhaustion, lease recovery, and recurring-job reschedule preserve that work;
+  provider cooldown remains bounded. Existing maintenance rows migrate by
+  adding a defaulted `rerun_requested` column.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
   progressive disclosure into one RetrievalFacade. The first facade slice
   attaches each result to its own diagnostics and derived-view receipt; compact

@@ -492,12 +492,21 @@ export class SqliteBackend implements ObservationStore {
             enqueueMaintenanceJob: async (input) => {
               const payloadJson = JSON.stringify(input.payload ?? {});
               const existing = this.db.prepare(`
-                SELECT id FROM maintenance_jobs
+                SELECT id, status FROM maintenance_jobs
                 WHERE project_id = ? AND kind = ? AND dedupe_key = ?
                   AND status IN ('pending', 'running', 'retry')
                 LIMIT 1
               `).get(input.projectId, input.kind, input.dedupeKey);
-              if (existing) return;
+              if (existing) {
+                if (existing.status === 'running') {
+                  this.db.prepare(`
+                    UPDATE maintenance_jobs
+                    SET rerun_requested = 1, payload_json = ?, updated_at = ?
+                    WHERE id = ?
+                  `).run(payloadJson, Date.now(), existing.id);
+                }
+                return;
+              }
               const now = Date.now();
               this.db.prepare(`
                 INSERT INTO maintenance_jobs (

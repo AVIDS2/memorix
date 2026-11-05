@@ -157,4 +157,90 @@ describe('canonical write derived-work outbox', () => {
     expect((await worker.runOnce()).state).toBe('failed');
     expect(store.get(job.id)?.status).toBe('retry');
   });
+
+  it('runs again when a canonical write arrives during an active job', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-rerun-atomic-'));
+    const observations = new SqliteBackend();
+    await observations.init(dataDir);
+    const jobs = new MaintenanceJobStore(dataDir);
+    const job = jobs.enqueue({ projectId: 'org/repo', kind: 'vector-backfill' });
+    let runs = 0;
+    const worker = new MaintenanceJobWorker(jobs, async () => {
+      runs++;
+      if (runs === 1) {
+        await observations.atomic(async (tx) => {
+          await tx.enqueueMaintenanceJob!({
+            projectId: 'org/repo', kind: 'vector-backfill',
+            dedupeKey: 'vector-backfill', payload: { limit: 12 },
+          });
+        });
+      }
+      return { action: 'complete' as const, progress: { attempted: 1, succeeded: 1, failed: 0, remaining: 0 } };
+    }, { workerId: 'test-worker' });
+
+    expect((await worker.runOnce()).state).toBe('rescheduled');
+    expect(jobs.get(job.id)?.status).toBe('pending');
+    expect((await worker.runOnce()).state).toBe('completed');
+    expect(runs).toBe(2);
+    observations.close();
+  });
+
+  it('runs again when an ordinary enqueue arrives during an active job', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-rerun-queue-'));
+    const jobs = new MaintenanceJobStore(dataDir);
+    const job = jobs.enqueue({ projectId: 'org/repo', kind: 'claim-derive', dedupeKey: 'claim-derive:1' });
+    let runs = 0;
+    const worker = new MaintenanceJobWorker(jobs, async () => {
+      if (++runs === 1) jobs.enqueue({ projectId: 'org/repo', kind: 'claim-derive', dedupeKey: 'claim-derive:1' });
+      return { action: 'complete' as const };
+    }, { workerId: 'test-worker' });
+
+    expect((await worker.runOnce()).state).toBe('rescheduled');
+    expect(jobs.get(job.id)?.status).toBe('pending');
+    expect((await worker.runOnce()).state).toBe('completed');
+    expect(runs).toBe(2);
+  });
+
+  it('preserves a new write when the running attempt reaches its retry limit', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-rerun-failed-'));
+    const jobs = new MaintenanceJobStore(dataDir);
+    const job = jobs.enqueue({ projectId: 'org/repo', kind: 'claim-derive', dedupeKey: 'claim-derive:1', maxAttempts: 1, now: 1_000 });
+    const claimed = jobs.claimNext({ workerId: 'test-worker', now: 1_000 });
+    expect(claimed?.id).toBe(job.id);
+    jobs.enqueue({ projectId: 'org/repo', kind: 'claim-derive', dedupeKey: 'claim-derive:1', now: 1_001 });
+
+    const failed = jobs.fail(job.id, 'test-worker', new Error('transient failure'), 1_002);
+    expect(failed?.status).toBe('retry');
+    expect(failed?.attempts).toBe(0);
+    expect(jobs.claimNext({ workerId: 'next-worker', now: 10_000 })?.id).toBe(job.id);
+  });
+
+  it('preserves a new write when its running worker lease expires', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-rerun-lease-'));
+    const jobs = new MaintenanceJobStore(dataDir);
+    const job = jobs.enqueue({ projectId: 'org/repo', kind: 'claim-derive', dedupeKey: 'claim-derive:1', maxAttempts: 1, now: 1_000 });
+    expect(jobs.claimNext({ workerId: 'lost-worker', now: 1_000, leaseMs: 10 })?.id).toBe(job.id);
+    jobs.enqueue({ projectId: 'org/repo', kind: 'claim-derive', dedupeKey: 'claim-derive:1', now: 1_001 });
+
+    const recovered = jobs.claimNext({ workerId: 'next-worker', now: 1_100 });
+    expect(recovered?.id).toBe(job.id);
+    expect(recovered?.status).toBe('running');
+    expect(recovered?.attempts).toBe(1);
+  });
+
+  it('processes a fresh event before a recurring job enters its long delay', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-rerun-recurring-'));
+    const jobs = new MaintenanceJobStore(dataDir);
+    const job = jobs.enqueue({ projectId: 'org/repo', kind: 'long-term-maintenance', now: 1_000 });
+    let runs = 0;
+    const worker = new MaintenanceJobWorker(jobs, async () => {
+      if (++runs === 1) jobs.enqueue({ projectId: 'org/repo', kind: 'long-term-maintenance', now: 1_001 });
+      return { action: 'reschedule' as const, delayMs: 24 * 60 * 60 * 1_000, resetAttempts: true };
+    }, { workerId: 'test-worker' });
+
+    expect((await worker.runOnce(1_000)).state).toBe('rescheduled');
+    expect(jobs.get(job.id)?.runAfter).toBeLessThanOrEqual(1_001);
+    expect((await worker.runOnce(1_001)).state).toBe('rescheduled');
+    expect(runs).toBe(2);
+  });
 });

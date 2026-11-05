@@ -713,6 +713,7 @@ CREATE TABLE IF NOT EXISTS maintenance_jobs (
   failed           INTEGER NOT NULL DEFAULT 0,
   remaining        INTEGER NOT NULL DEFAULT 0,
   progress_recorded INTEGER NOT NULL DEFAULT 0,
+  rerun_requested INTEGER NOT NULL DEFAULT 0,
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL,
   completed_at     INTEGER
@@ -1166,6 +1167,12 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       addColumnIfMissing(db, 'maintenance_jobs', 'failed', 'failed INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'maintenance_jobs', 'remaining', 'remaining INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'maintenance_jobs', 'progress_recorded', 'progress_recorded INTEGER NOT NULL DEFAULT 0');
+    },
+  },
+  {
+    id: '1.11-maintenance-rerun',
+    apply: (db) => {
+      addColumnIfMissing(db, 'maintenance_jobs', 'rerun_requested', 'rerun_requested INTEGER NOT NULL DEFAULT 0');
     },
   },
 ];

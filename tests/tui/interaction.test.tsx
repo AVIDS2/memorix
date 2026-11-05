@@ -908,6 +908,7 @@ describe('ConfigureView', () => {
     expect(frame).toContain('Requesty');
     expect(frame).toContain('API Route');
     expect(frame).toContain('Cheaper Inference');
+    expect(frame).toContain('Runcrate');
     expect(frame).toContain('Atlas Cloud');
     expect(frame).toContain('Disable LLM');
     unmount();

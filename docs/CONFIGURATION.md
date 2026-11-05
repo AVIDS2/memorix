@@ -244,6 +244,33 @@ background memory processing. Embeddings and memcode's model registry are
 unchanged. Image analysis requires explicitly selecting a vision-capable model;
 the default is for text memory.
 
+### Runcrate memory preset
+
+[Runcrate](https://runcrate.ai) serves open-weight models through an
+OpenAI-compatible API and is available in `memorix init` and the configuration
+TUI as an optional memory LLM preset:
+
+```toml
+[memory.llm]
+provider = "runcrate"
+model = "deepseek-ai/DeepSeek-V4.1-Flash"
+```
+
+The preset uses `https://api.runcrate.ai/v1` and the existing
+OpenAI-compatible chat completion transport. Set `RUNCRATE_API_KEY` or
+`MEMORIX_LLM_API_KEY`, or store `api_key` in your private global config. Keep
+credentials out of project TOML. Explicit `model` and `base_url` overrides
+still apply; model IDs use the `vendor/model` form from the endpoint's
+`/v1/models` catalog, for example `zai-org/GLM-5.3` or `Qwen/Qwen3.6-35B-A3B`.
+Get a key at https://runcrate.ai/dashboard/api-keys.
+
+`RUNCRATE_API_KEY` is used only when this memory preset is selected, and the
+preset does not borrow OpenAI, Anthropic, OpenRouter, Requesty, API Route,
+Cheaper Inference, or Atlas Cloud keys. Setting the key alone does not enable
+paid background memory processing. Embeddings and memcode's model registry are
+unchanged. Image analysis requires explicitly selecting a vision-capable model
+such as `moonshotai/Kimi-K3`; the default is for text memory.
+
 ### OrcaRouter custom endpoint
 
 OrcaRouter works through the generic OpenAI-compatible gateway path. Keep the

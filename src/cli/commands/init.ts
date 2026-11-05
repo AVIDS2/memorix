@@ -21,7 +21,7 @@ import {
   type InitScope,
 } from './init-shared.js';
 
-type InitLlmProvider = 'none' | 'openai' | 'anthropic' | 'openrouter' | 'requesty' | 'apiroute' | 'cheaperinference' | 'atlascloud' | 'custom';
+type InitLlmProvider = 'none' | 'openai' | 'anthropic' | 'openrouter' | 'requesty' | 'apiroute' | 'cheaperinference' | 'runcrate' | 'atlascloud' | 'custom';
 type InitEmbeddingProvider = 'off' | 'api' | 'fastembed';
 type InitInjectMode = 'minimal' | 'full' | 'silent';
 
@@ -106,6 +106,7 @@ export default defineCommand({
         { value: 'requesty', label: 'Requesty', hint: 'multi-provider' },
         { value: 'apiroute', label: 'API Route', hint: 'multi-provider' },
         { value: 'cheaperinference', label: 'Cheaper Inference', hint: 'multi-provider' },
+        { value: 'runcrate', label: 'Runcrate', hint: 'open-weight models' },
         { value: 'atlascloud', label: 'Atlas Cloud', hint: 'DeepSeek V3.2' },
         { value: 'custom', label: 'Custom', hint: 'OpenAI-compatible endpoint' },
       ],
@@ -166,7 +167,7 @@ export default defineCommand({
 
     if (llmProvider !== 'none') {
       envLines.push('# LLM API key');
-      if (llmProvider === 'openai' || llmProvider === 'custom' || llmProvider === 'atlascloud' || llmProvider === 'apiroute' || llmProvider === 'cheaperinference') {
+      if (llmProvider === 'openai' || llmProvider === 'custom' || llmProvider === 'atlascloud' || llmProvider === 'apiroute' || llmProvider === 'cheaperinference' || llmProvider === 'runcrate') {
         envLines.push('MEMORIX_LLM_API_KEY=sk-your-key-here');
       } else if (llmProvider === 'anthropic') {
         envLines.push('MEMORIX_LLM_API_KEY=sk-ant-your-key-here');
@@ -205,6 +206,7 @@ export default defineCommand({
     envLines.push('# REQUESTY_API_KEY=rqsty-...');
     envLines.push('# API_ROUTE_API_KEY=sk-...');
     envLines.push('# CHEAPER_INFERENCE_API_KEY=ci_live_...');
+    envLines.push('# RUNCRATE_API_KEY=...');
     envLines.push('');
 
     mkdirSync(targetDir, { recursive: true });
@@ -307,6 +309,8 @@ export function buildInitTomlConfig(options: {
       lines.push('model = "deepseek-v4.1-flash"');
     } else if (options.llmProvider === 'cheaperinference') {
       lines.push('model = "gpt-5.4-mini"');
+    } else if (options.llmProvider === 'runcrate') {
+      lines.push('model = "deepseek-ai/DeepSeek-V4.1-Flash"');
     } else if (options.llmProvider === 'atlascloud') {
       lines.push('model = "deepseek-ai/deepseek-v3.2"');
     }

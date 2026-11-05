@@ -35,6 +35,7 @@ export interface RetrievalReceipt {
 
 export function createRetrievalPlan(options: SearchOptions): RetrievalPlan {
   const requestedLimit = Number.isFinite(options.limit) ? Math.floor(options.limit ?? 20) : 20;
+  const requestedTokens = Number.isFinite(options.maxTokens) ? Math.floor(options.maxTokens ?? 0) : 0;
   return {
     query: options.query.trim(),
     quality: options.quality ?? 'balanced',
@@ -45,7 +46,7 @@ export function createRetrievalPlan(options: SearchOptions): RetrievalPlan {
     ...(options.type ? { type: options.type } : {}),
     ...(options.since ? { since: options.since } : {}),
     ...(options.until ? { until: options.until } : {}),
-    maxTokens: Math.max(0, Math.floor(options.maxTokens ?? 0)),
+    maxTokens: Math.max(0, requestedTokens),
     trackAccess: options.trackAccess !== false,
     reader: options.reader,
     surfacedIds: [...(options.surfacedIds ?? [])],

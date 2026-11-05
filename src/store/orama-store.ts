@@ -28,13 +28,12 @@ import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 import { parseRerankTimeoutMs, shouldAttemptHttpRerank, shouldAttemptLlmRerank } from '../rerank/policy.js';
 import { withTimeout, withTimeoutSignal } from '../timeout.js';
 import { getObservationStore } from './obs-store.js';
+import { createSemanticDerivedView } from '../search/semantic-view.js';
 import { createRetrievalPlan, type RetrievalReceipt } from '../core/retrieval-contracts.js';
 import {
   createSemanticIndexProfile,
   searchSemanticVectors,
   listSemanticVectorIds,
-  upsertSemanticVector,
-  upsertSemanticVectors,
   type SemanticIndexProfile,
   type SemanticVectorRecord,
 } from '../search/semantic-index.js';
@@ -637,7 +636,7 @@ export async function queueSemanticVector(
   const profile = provider ? createSemanticIndexProfile(provider) : null;
   if (!profile) return;
   try {
-    await upsertSemanticVector(dataDir, profile, record);
+    await createSemanticDerivedView(dataDir, profile).refresh([record]);
   } catch {
     // The vector index is rebuildable; lexical memory remains authoritative.
   }
@@ -781,7 +780,7 @@ async function attachCachedVectors(
       }
     }
     if (semanticDataDir && semanticProfile && semanticRecords.length > 0) {
-      void upsertSemanticVectors(semanticDataDir, semanticProfile, semanticRecords).catch(() => {
+      void createSemanticDerivedView(semanticDataDir, semanticProfile).refresh(semanticRecords).catch(() => {
         // A rebuildable semantic index must never make startup hydration fail.
       });
     }

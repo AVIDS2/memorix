@@ -117,6 +117,11 @@ provider isolation.
 do not move data tables yet. Add architecture tests for allowed dependency
 directions and one store-to-search-to-detail integration fixture.
 
+The first P1 slice is implemented: `RuntimeContext` captures a verified project
+and immutable per-request config; CodeGraph uses it. Lance has a concrete
+`DerivedView` adapter used by vector writes. Other hosts and derived views still
+need migration, and maintenance progress has not yet become durable.
+
 **P2 - 1.11 durable write pipeline:** add a small canonical write service and
 an idempotent derived-work outbox. Observation capture, Git ingest, and
 explicit MCP store calls use the same pipeline. Keep formation and provider

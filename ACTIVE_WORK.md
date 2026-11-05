@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-10-30
+**Last updated:** 2026-11-05
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -13,7 +13,7 @@ tests directly with Node/npm on the E: workspace. Do not start Docker or add
 local Docker data. The Dockerfile and image workflow remain deployment
 artifacts for the VPS/hosted build path only.
 
-## 1.10.2 Patch and Pi Native MCP (2026-10-30)
+## 1.10.3 Patch and Runcrate (2026-11-05)
 
 - Issue #365 identified unbounded LanceDB metadata growth from one-row commits,
   absent compaction, and cold-start re-embedding after cache eviction. The patch
@@ -32,10 +32,18 @@ artifacts for the VPS/hosted build path only.
   passed seven CI checks; local typecheck and 104 focused tests also passed.
   One local full-suite run hit a Windows Vitest temporary SSR-cache `ENOENT`
   after 2,577 passing tests; representative files passed on an isolated rerun.
+- PR #372 adds the opt-in Runcrate memory LLM preset with isolated key
+  resolution and OpenAI-compatible routing. It was locally verified with 185
+  focused tests and merged before this release.
+- Issues #371, #373, #374, and #375 are fixed in the current release candidate.
+  Local build, typecheck, and full suite pass: 348 files passed, 3 skipped;
+  3,283 tests passed, 5 skipped. GitHub Actions currently fails before any job
+  step starts, so the remote runner outage is recorded separately from code
+  verification.
 
 ## Current Product State
 
-- `1.10.2` is the published patch release on the 1.10 line. It addresses
+- `1.10.3` is the prepared patch release on the 1.10 line. It addresses
   LanceDB semantic-index growth and two agent integration defects.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves

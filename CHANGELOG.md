@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Pi 1.0+ native MCP setup through project or user `mcp.json`, with stdio and
   HTTP transports alongside the existing extension and shared skills (#367).
+
+### Fixed
+- CodeGraph now retains two snapshots, sweeps stale derived symbols and edges,
+  compacts SQLite after cleanup, and supports `codegraph.auto_refresh`.
+- Lazy large-corpus mode now initializes vector schema and backfills missing
+  vectors from durable SQLite/Lance state (#374).
+- CJK-heavy search avoids fuzzy traversal over character and bigram tokens;
+  project affinity is bounded to a tie-break so strong lexical matches stay on
+  top (#373, #375).
+- Dashboard and TUI browser launches no longer interpolate URLs into shell
+  commands; release workflows retain the existing tested action references.
 - **Runcrate memory preset** -- optional background memory LLM processing
   through an OpenAI-compatible endpoint for open-weight models, with an isolated
   `RUNCRATE_API_KEY`, CLI/TUI setup and bilingual configuration guidance.

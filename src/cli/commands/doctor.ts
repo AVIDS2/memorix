@@ -448,6 +448,12 @@ export default defineCommand({
         lines.push(info(
           `Code provider: ${effectiveProviderQuality.semantic.state} semantic layer (${codeStatus.semanticSymbols} symbols, ${codeStatus.semanticEdges} edges); external graph ${providerQuality.health.state}`,
         ));
+        if ((codeStatus.staleSymbols ?? 0) > 0) {
+          lines.push(warn(`CodeGraph derived storage: ${codeStatus.staleSymbols} stale symbols remain`));
+        }
+        if ((codeStatus.snapshots ?? 0) > 2) {
+          lines.push(warn(`CodeGraph snapshots: ${codeStatus.snapshots} retained; maintenance cleanup is pending`));
+        }
         if (codeStatus.parserErrors > 0) {
           lines.push(warn(`CodeGraph parser errors: ${codeStatus.parserErrors}; semantic context is partial until refresh succeeds.`));
         }
@@ -478,6 +484,9 @@ export default defineCommand({
           semanticSymbols: codeStatus.semanticSymbols,
           semanticEdges: codeStatus.semanticEdges,
           parserErrors: codeStatus.parserErrors,
+          ...(codeStatus.staleSymbols !== undefined ? { staleSymbols: codeStatus.staleSymbols } : {}),
+          ...(codeStatus.snapshots !== undefined ? { snapshots: codeStatus.snapshots } : {}),
+          ...(codeStatus.snapshotFiles !== undefined ? { snapshotFiles: codeStatus.snapshotFiles } : {}),
           providerQuality: effectiveProviderQuality,
           ...(overview.code.indexedAt ? { indexedAt: overview.code.indexedAt } : {}),
         };

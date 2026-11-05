@@ -824,7 +824,7 @@ async function doStatus(asJson = false): Promise<void> {
   console.log('');
 }
 
-async function doRestart(port: number): Promise<void> {
+export async function doRestart(port: number): Promise<void> {
   console.log('Restarting control plane...');
   await doStop();
   // Brief pause to let port release

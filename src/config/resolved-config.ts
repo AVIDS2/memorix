@@ -63,6 +63,7 @@ export interface ResolvedMemorixConfig {
   codegraph: {
     excludePatterns?: string[];
     maxFileBytes?: number;
+    autoRefresh: 'auto' | 'always' | 'never';
     externalContext: 'auto' | 'off';
     externalCommand?: string;
     externalTimeoutMs?: number;
@@ -207,6 +208,7 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
     codegraph: {
       excludePatterns: firstArray(toml.codegraph?.exclude_patterns, yaml.codegraph?.excludePatterns),
       maxFileBytes: firstNumber(toml.codegraph?.max_file_bytes, yaml.codegraph?.maxFileBytes),
+      autoRefresh: first(toml.codegraph?.auto_refresh, yaml.codegraph?.autoRefresh, 'auto')!,
       externalContext: first(
         normalizeExternalContext(process.env.MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT),
         toml.codegraph?.external_context,

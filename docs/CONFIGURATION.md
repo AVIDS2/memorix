@@ -506,6 +506,7 @@ Common keys:
 
 - `exclude_patterns = ["vendor/**", "third_party/**", "generated/**"]`
 - `max_file_bytes = 2097152` (2 MiB per source file by default)
+- `auto_refresh = "auto"` (`"always"` or `"never"` can force or disable built-in Code Memory scans)
 - `external_context = "auto"` (`"off"` keeps the built-in Lite provider only)
 - `external_command = "C:\\tools\\codegraph.cmd"` (optional path when CodeGraph is not on `PATH`)
 - `external_timeout_ms = 3000` (bounded local semantic-query timeout; values are clamped to 5 seconds)
@@ -520,6 +521,12 @@ skipped during CodeGraph indexing and hidden from Project Context / Context Pack
 suggested reads. Files larger than `max_file_bytes` are also skipped so a
 generated or minified source file cannot monopolize an incremental scan. Raise
 the limit only for a repository where that file is intentional source.
+
+Built-in CodeGraph keeps the latest two completed snapshots, removes stale
+symbols and dependent edges after a successful refresh, and reclaims SQLite WAL
+and free pages when derived data was removed. `auto_refresh = "never"` is useful
+for large BM25-only stores that do not need code indexing; `memorix codegraph`
+refresh remains available for an explicit scan.
 
 `external_context = "auto"` is deliberately conservative. Memorix checks for
 an already-initialized local `.codegraph` index and uses it only when its status

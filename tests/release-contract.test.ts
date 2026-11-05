@@ -31,6 +31,12 @@ describe('release contract', () => {
     expect(workflow).not.toContain('npm publish --workspace @memorix/');
   });
 
+  it('keeps CI actions on the tested release tags', async () => {
+    const workflow = await readFile(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf-8');
+    expect(workflow).toContain('actions/checkout@v7');
+    expect(workflow).toContain('actions/setup-node@v7');
+  });
+
   it('does not mutate release metadata during npm publish', async () => {
     const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf-8')) as {
       scripts?: { prepublishOnly?: string };

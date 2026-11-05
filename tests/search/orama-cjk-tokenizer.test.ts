@@ -1,6 +1,6 @@
 import { create, insert, search } from '@orama/orama';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSearchTokenizer } from '../../src/store/orama-store.js';
+import { createSearchTokenizer, resolveSearchFuzzyTolerance } from '../../src/store/orama-store.js';
 
 vi.mock('../../src/embedding/provider.js', () => ({
   getEmbeddingProvider: vi.fn(async () => null),
@@ -9,6 +9,13 @@ vi.mock('../../src/embedding/provider.js', () => ({
 }));
 
 describe('Orama CJK tokenizer', () => {
+  it('does not enable fuzzy traversal for CJK-expanded queries', () => {
+    expect(resolveSearchFuzzyTolerance('向量提供者为什么', 'balanced')).toBeUndefined();
+    expect(resolveSearchFuzzyTolerance('cache timeout', 'balanced')).toBe(2);
+    expect(resolveSearchFuzzyTolerance('缓存', 'balanced')).toBeUndefined();
+    expect(resolveSearchFuzzyTolerance('缓存', 'fast')).toBeUndefined();
+  });
+
   beforeEach(async () => {
     const { resetDb } = await import('../../src/store/orama-store.js');
     await resetDb();

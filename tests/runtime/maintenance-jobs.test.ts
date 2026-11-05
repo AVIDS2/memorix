@@ -7,7 +7,7 @@ import {
   MaintenanceJobStore,
   MaintenanceJobWorker,
 } from '../../src/runtime/maintenance-jobs.js';
-import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { closeAllDatabases, getDatabase, loadBetterSqlite3 } from '../../src/store/sqlite-db.js';
 
 let dataDir: string;
 
@@ -21,6 +21,32 @@ afterEach(async () => {
 });
 
 describe('MaintenanceJobStore', () => {
+  it('migrates pre-rerun maintenance rows without losing their queued work', () => {
+    const Sqlite = loadBetterSqlite3();
+    const legacy = new Sqlite(path.join(dataDir, 'memorix.db'));
+    legacy.exec(`
+      CREATE TABLE maintenance_jobs (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, kind TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 8, run_after INTEGER NOT NULL,
+        lease_owner TEXT, lease_expires_at INTEGER, last_error TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER
+      );
+      INSERT INTO maintenance_jobs
+        (id, project_id, kind, dedupe_key, run_after, created_at, updated_at)
+      VALUES ('legacy-job', 'project-a', 'vector-backfill', 'vector-backfill', 1000, 1000, 1000);
+    `);
+    legacy.close();
+
+    const store = new MaintenanceJobStore(dataDir);
+    expect(store.get('legacy-job')).toMatchObject({ status: 'pending', attempts: 0 });
+    const db = getDatabase(dataDir);
+    expect(db.prepare('PRAGMA table_info(maintenance_jobs)').all().map((column: any) => column.name))
+      .toContain('rerun_requested');
+    expect(store.claimNext({ workerId: 'worker-a', now: 1_000 })?.id).toBe('legacy-job');
+  });
+
   it('deduplicates active work for the same project and key', () => {
     const store = new MaintenanceJobStore(dataDir);
     const first = store.enqueue({

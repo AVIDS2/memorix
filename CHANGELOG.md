@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
   index probes, and TUI chat, so concurrent requests cannot exchange diagnostics.
 - Observation inserts and topic-key updates commit canonical SQLite rows with
   vector, qualification, and claim-derivation jobs in one transaction.
+- A deduplicated maintenance job records writes received while it is running
+  and schedules a follow-up pass, including after worker failure or lease loss.
 - Topic-key updates publish their Orama projection only after the canonical
   transaction commits; failed updates or linked-record callbacks leave the prior
   searchable record intact.

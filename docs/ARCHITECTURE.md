@@ -137,6 +137,12 @@ updates commit SQLite before refreshing Orama; a failed canonical write or
 linked-record callback leaves the prior search result in place. Other derived
 projections remain to migrate.
 
+The outbox also records writes that arrive during a running deduplicated job.
+The worker either performs a follow-up pass after completion, or preserves the
+new work through retry exhaustion and lease recovery. Recurring jobs process a
+new event before returning to their long schedule; provider retry cooldowns
+remain in force. The new SQLite flag defaults to false for pre-1.11 rows.
+
 **P3 - 1.11 retrieval/context plane:** move ranking, freshness, provenance,
 admission, and progressive disclosure into `RetrievalFacade`. Keep Orama,
 Lance, FTS, and CodeGraph adapters replaceable. Add a retrieval evaluation

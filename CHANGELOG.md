@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
   vector, qualification, and claim-derivation jobs in one transaction.
 - A deduplicated maintenance job records writes received while it is running
   and schedules a follow-up pass, including after worker failure or lease loss.
+- Maintenance progress now has one kernel result contract; negative, fractional,
+  non-finite, and inconsistent counts cannot be persisted as successful work.
 - Topic-key updates publish their Orama projection only after the canonical
   transaction commits; failed updates or linked-record callbacks leave the prior
   searchable record intact.

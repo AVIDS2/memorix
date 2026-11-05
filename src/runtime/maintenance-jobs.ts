@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
+import { assertMaintenanceProgress, type MaintenanceProgress, type MaintenanceResult } from '../core/maintenance-result.js';
 import { getDatabase } from '../store/sqlite-db.js';
 import { sanitizeCredentials } from '../memory/secret-filter.js';
+
+export type { MaintenanceProgress } from '../core/maintenance-result.js';
 
 export const MAINTENANCE_JOB_KINDS = [
   'vector-backfill',
@@ -41,13 +44,6 @@ export interface MaintenanceJob {
   completedAt?: number;
 }
 
-export interface MaintenanceProgress {
-  attempted: number;
-  succeeded: number;
-  failed: number;
-  remaining: number;
-}
-
 export interface EnqueueMaintenanceJobInput {
   projectId: string;
   kind: MaintenanceJobKind;
@@ -76,21 +72,7 @@ export interface MaintenanceJobSummary {
   failed: number;
 }
 
-export type MaintenanceJobRunResult =
-  | { action: 'complete'; progress?: MaintenanceProgress }
-  | {
-    action: 'reschedule';
-    delayMs: number;
-    resetAttempts?: boolean;
-    payload?: Record<string, unknown>;
-    /** Keep recoverable work out of the immediate pending queue during a cooldown. */
-    status?: 'pending' | 'retry';
-    /** Persist a sanitized diagnostic without consuming the job's retry budget. */
-    lastError?: string;
-    /** Clear a stale transient diagnostic after the job makes progress. */
-    clearLastError?: boolean;
-    progress?: MaintenanceProgress;
-  };
+export type MaintenanceJobRunResult = MaintenanceResult;
 
 export type MaintenanceJobHandler = (
   job: MaintenanceJob,
@@ -428,6 +410,7 @@ export class MaintenanceJobStore {
   }
 
   complete(id: string, workerId: string, now = Date.now(), progress?: MaintenanceProgress): MaintenanceJob | undefined {
+    assertMaintenanceProgress(progress);
     this.begin();
     try {
       const current = this.db.prepare(`
@@ -498,6 +481,7 @@ export class MaintenanceJobStore {
     const hasLastError = options.lastError !== undefined;
     const lastError = hasLastError ? errorText(options.lastError) : null;
     const progress = options.progress;
+    assertMaintenanceProgress(progress);
     this.db.prepare(`
       UPDATE maintenance_jobs
       SET status = ?,

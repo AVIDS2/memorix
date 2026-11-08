@@ -147,6 +147,11 @@ new work through retry exhaustion and lease recovery. Recurring jobs process a
 new event before returning to their long schedule; provider retry cooldowns
 remain in force. The new SQLite flag defaults to false for pre-1.11 rows.
 
+Automatic cleanup jobs re-check the resolved behavior configuration when they
+execute. Disabling `memory.autoCleanup` therefore neutralizes already queued
+retention, consolidation, and long-term maintenance work without affecting
+explicit user-requested cleanup actions.
+
 **P3 - 1.11 retrieval/context plane:** move ranking, freshness, provenance,
 admission, and progressive disclosure into `RetrievalFacade`. Keep Orama,
 Lance, FTS, and CodeGraph adapters replaceable. Add a retrieval evaluation

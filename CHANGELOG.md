@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+- Fixed consolidation false positives for Korean and punctuation-only records;
+  queued automatic cleanup jobs now honor `auto_cleanup = false` at execution
+  time (#385).
+
 ### Changed
 - Search execution now returns a request-scoped receipt to compact search,
   index probes, and TUI chat, so concurrent requests cannot exchange diagnostics.

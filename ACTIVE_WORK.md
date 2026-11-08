@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-11-05
+**Last updated:** 2026-11-08
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -64,6 +64,11 @@ artifacts for the VPS/hosted build path only.
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
 - [ ] Release blocker: GitHub Actions cannot start jobs while the repository
   account is locked for billing; the local npm login also returns E401.
+- [x] Issue #385 safety fix: consolidation now tokenizes Unicode letters and
+  numbers, treats two empty fingerprints as unrelated, and retains exact
+  Korean duplicate consolidation. Automatic retention, consolidation, and
+  long-term maintenance re-check `memory.autoCleanup` at execution time and
+  complete without mutation when it is disabled.
   Repository source/tag/release are at 1.10.3, but npm and MCP Registry remain
   at 1.10.2. Do not claim 1.10.3 is published until those external gates clear.
 

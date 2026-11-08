@@ -125,6 +125,45 @@ describe('Memory Consolidation', () => {
       expect(clusters).toHaveLength(0);
     });
 
+    it('does not merge unrelated Korean observations or punctuation-only records', async () => {
+      await storeObservation({
+        entityName: 'korean-memory', type: 'decision', topicKey: 'apple',
+        title: '사과 구매', narrative: '사용자는 매주 월요일에 사과를 구매한다.',
+        projectId: PROJECT_ID,
+      });
+      await storeObservation({
+        entityName: 'korean-memory', type: 'decision', topicKey: 'mountain',
+        title: '등산 계획', narrative: '사용자는 매달 토요일에 산을 오른다.',
+        projectId: PROJECT_ID,
+      });
+      await storeObservation({
+        entityName: 'punctuation', type: 'discovery', topicKey: 'punctuation-a',
+        title: '!!!', narrative: '???', projectId: PROJECT_ID,
+      });
+      await storeObservation({
+        entityName: 'punctuation', type: 'discovery', topicKey: 'punctuation-b',
+        title: '...', narrative: '---', projectId: PROJECT_ID,
+      });
+
+      const clusters = await findConsolidationCandidates(testDir, PROJECT_ID, { threshold: 0.1 });
+      expect(clusters).toHaveLength(0);
+      expect((await executeConsolidation(testDir, PROJECT_ID, { threshold: 0.1 })).observationsMerged).toBe(0);
+      expect(await getObservationCount()).toBe(4);
+    });
+
+    it('still merges exact Korean duplicates after Unicode tokenization', async () => {
+      for (const title of ['인증 토큰 정책', '인증 토큰 정책']) {
+        await storeObservation({
+          entityName: 'korean-memory', type: 'discovery', title,
+          narrative: '사용자는 만료된 인증 토큰을 갱신한다.', projectId: PROJECT_ID,
+        });
+      }
+
+      const clusters = await findConsolidationCandidates(testDir, PROJECT_ID, { threshold: 0.9 });
+      expect(clusters).toHaveLength(1);
+      expect(clusters[0].similarity).toBe(1);
+    });
+
     it('should respect similarity threshold', async () => {
       await storeObservation({
         entityName: 'config', type: 'gotcha', title: 'Port 3000 conflict',

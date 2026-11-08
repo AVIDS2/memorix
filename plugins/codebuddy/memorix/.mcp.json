@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "memorix": {
-      "type": "stdio",
-      "command": "memorix",
-      "args": ["serve", "--mode", "lite"]
-    }
-  }
-}

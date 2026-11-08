@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 - Fixed consolidation false positives for Korean and punctuation-only records;
   queued automatic cleanup jobs now honor `auto_cleanup = false` at execution
   time (#385).
+- Observation writes now persist an idempotent CodeGraph/evidence projection
+  job in the same SQLite transaction; successful foreground projections
+  acknowledge it, while failures remain recoverable by maintenance.
 
 ### Changed
 - Search execution now returns a request-scoped receipt to compact search,

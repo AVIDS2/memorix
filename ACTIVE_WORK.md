@@ -45,7 +45,9 @@ artifacts for the VPS/hosted build path only.
   Maintenance jobs persist
   attempted/succeeded/failed/remaining progress; project-level work completes
   only after the worker confirms no missing vectors remain. CodeGraph/evidence
-  projections and other canonical write entrypoints still need the same audit.
+  projections now have an idempotent `observation-project` outbox job with
+  immediate-success acknowledgement and isolated retry; other canonical write
+  entrypoints still need the same audit.
 - [x] 1.11 P2 active-job race: a write arriving while a deduplicated job runs
   now requests one follow-up pass in the same SQLite row. Completion, retry
   exhaustion, lease recovery, and recurring-job reschedule preserve that work;

@@ -31,9 +31,10 @@ describe('canonical write derived-work outbox', () => {
       });
       const db = (await import('../../src/store/sqlite-db.js')).getDatabase(dataDir);
       expect(db.prepare('SELECT id FROM observations WHERE id = ?').get(result.observation.id)).toBeDefined();
-      expect(new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })).toEqual([
+      expect(new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'vector-backfill', status: 'pending' }),
-      ]);
+        expect.objectContaining({ kind: 'observation-project', status: 'completed' }),
+      ]));
     } finally {
       if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
       else process.env.MEMORIX_EMBEDDING = oldEmbedding;
@@ -70,6 +71,31 @@ describe('canonical write derived-work outbox', () => {
       expect(jobs).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'claim-derive', dedupeKey: `claim-derive:${explicit.observation.id}` }),
         expect.objectContaining({ kind: 'observation-qualify', dedupeKey: 'observation-qualify' }),
+      ]));
+    } finally {
+      if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
+      else process.env.MEMORIX_EMBEDDING = oldEmbedding;
+    }
+  });
+
+  it('keeps the projection job pending when the immediate evidence projection fails', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-derived-projection-retry-'));
+    const oldEmbedding = process.env.MEMORIX_EMBEDDING;
+    process.env.MEMORIX_EMBEDDING = 'off';
+    try {
+      await initObservations(dataDir);
+      const db = getDatabase(dataDir);
+      db.exec("CREATE TRIGGER reject_evidence_projection BEFORE INSERT ON evidence_cards BEGIN SELECT RAISE(ABORT, 'projection unavailable'); END");
+      const result = await storeObservation({
+        projectId: 'org/repo', entityName: 'auth', type: 'decision',
+        title: 'Recoverable evidence projection', narrative: 'The canonical row must outlive a projection failure.',
+      });
+      expect(new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'observation-project',
+          dedupeKey: `observation-project:${result.observation.id}`,
+          status: 'pending',
+        }),
       ]));
     } finally {
       if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;

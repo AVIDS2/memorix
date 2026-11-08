@@ -193,6 +193,14 @@ export function getObservationStore(): ObservationStore {
   return _store;
 }
 
+/** Return the data directory bound to the active canonical store. */
+export function getObservationStoreDataDir(): string {
+  if (!_store || !_storeDataDir) {
+    throw new Error('[memorix] ObservationStore data directory is not bound');
+  }
+  return _storeDataDir;
+}
+
 /** Set the active ObservationStore singleton (called once during startup). */
 export function setObservationStore(store: ObservationStore): void {
   _store = store;

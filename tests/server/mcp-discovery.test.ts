@@ -23,6 +23,8 @@ let previousUserProfile: string | undefined;
 let previousDataDir: string | undefined;
 let server: Awaited<ReturnType<typeof createMemorixServer>>['server'] | undefined;
 let handleTransportClose: (() => void) | undefined;
+let getRequestContext: Awaited<ReturnType<typeof createMemorixServer>>['getRequestContext'] | undefined;
+let switchProject: Awaited<ReturnType<typeof createMemorixServer>>['switchProject'] | undefined;
 let transport: StdioServerTransport | undefined;
 
 function readMessage(output: PassThrough): Promise<JsonRpcMessage> {
@@ -74,6 +76,8 @@ beforeEach(async () => {
   });
   server = created.server;
   handleTransportClose = created.handleTransportClose;
+  getRequestContext = created.getRequestContext;
+  switchProject = created.switchProject;
 });
 
 afterEach(async () => {
@@ -94,6 +98,19 @@ afterEach(async () => {
 });
 
 describe('MCP discovery compatibility at the production server entry', () => {
+  it('keeps the public project binding current when the project changes', async () => {
+    const original = getRequestContext!();
+    expect(original.projectRoot).toBe(projectRoot);
+
+    const nextRoot = path.join(tempRoot, 'next-project');
+    await createFakeGitRepo(nextRoot);
+    expect(await switchProject!(nextRoot, 'explicit-project-root')).toBe(true);
+
+    const current = getRequestContext!();
+    expect(current.projectRoot).toBe(nextRoot);
+    expect(current.projectId).not.toBe(original.projectId);
+    expect(original.projectRoot).toBe(projectRoot);
+  });
   it('handles discover before initialize, then serves versionless tools/list and tools/call', async () => {
     const input = new PassThrough();
     const output = new PassThrough();

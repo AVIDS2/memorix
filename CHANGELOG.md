@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
   and schedules a follow-up pass, including after worker failure or lease loss.
 - Maintenance progress now has one kernel result contract; negative, fractional,
   non-finite, and inconsistent counts cannot be persisted as successful work.
+- SDK, TUI, compact search, and MCP retrieval now share the RetrievalFacade;
+  feedback state is read from the active canonical store and reported separately
+  from embedding fallback.
 - Topic-key updates publish their Orama projection only after the canonical
   transaction commits; failed updates or linked-record callbacks leave the prior
   searchable record intact.

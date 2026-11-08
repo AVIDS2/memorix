@@ -34,7 +34,9 @@ artifacts for the VPS/hosted build path only.
   then finish enforceable host contracts. The `src/core` dependency direction
   is now guarded by a test; `MaintenanceResult` is defined in the kernel and
   rejects invalid progress before it reaches SQLite. Maintenance progress is
-  durable in SQLite.
+  durable in SQLite. The main MCP server captures an immutable `RuntimeContext`
+  at bind/activation/switch boundaries and CodeGraph host paths consume its
+  frozen config snapshot.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
   Observation inserts and topic-key updates now commit vector backfill,
@@ -52,7 +54,9 @@ artifacts for the VPS/hosted build path only.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
   progressive disclosure into one RetrievalFacade. The first facade slice
   attaches each result to its own diagnostics and derived-view receipt; compact
-  search, search-index probes, and TUI chat consume that receipt. The existing 20-case
+  search, SDK, TUI search, search-index probes, and TUI chat consume that receipt.
+  Feedback policy now uses the active canonical data directory and reports
+  feedback omissions separately from embedding fallback. The existing 20-case
   offline task matrix passes 20/20 with a fresh 40k store gate, but it does not
   establish improvement on unseen live issue-resolution tasks or remote vectors.
 - [x] 2026-11-05 Windows/Node 22 offline 40k gate: 40,000 seeded records,

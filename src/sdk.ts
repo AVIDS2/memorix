@@ -34,6 +34,7 @@ import {
   canReadObservation,
   filterReadableObservations,
 } from './memory/visibility.js';
+import { retrievalFacade } from './search/retrieval-facade.js';
 
 // ── Re-exports for convenience ──────────────────────────────────────
 
@@ -236,12 +237,12 @@ export class MemoryClient {
       limit: options.limit ?? 20,
       type: options.type,
       source: options.source,
-      status: options.status === 'all' ? undefined : (options.status ?? 'active'),
+      status: options.status ?? 'active',
       quality: options.quality,
       reader: this._reader,
     };
 
-    return this._oramaStore.searchObservations(searchOpts);
+    return (await retrievalFacade.search(searchOpts)).entries;
   }
 
   /**

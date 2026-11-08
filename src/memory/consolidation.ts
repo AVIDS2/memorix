@@ -41,8 +41,9 @@ const MAX_BATCH_SIZE = 500;
 function tokenize(text: string): Set<string> {
   return new Set(
     text
+      .normalize('NFKC')
       .toLowerCase()
-      .replace(/[^a-z0-9\u4e00-\u9fff\s-]/g, ' ')
+      .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
       .split(/\s+/)
       .filter(t => t.length > 1),
   );
@@ -52,7 +53,7 @@ function tokenize(text: string): Set<string> {
  * Compute Jaccard similarity between two sets of tokens.
  */
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1;
+  if (a.size === 0 && b.size === 0) return 0;
   let intersection = 0;
   for (const token of a) {
     if (b.has(token)) intersection++;

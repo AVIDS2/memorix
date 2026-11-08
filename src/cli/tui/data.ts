@@ -241,14 +241,14 @@ export async function getRecentMemories(limit = 8, projectId?: string): Promise<
 
 export async function searchMemories(query: string, limit = 10): Promise<SearchResult[]> {
   try {
-    const { searchObservations } = await import('../../store/orama-store.js');
+    const { retrievalFacade } = await import('../../search/retrieval-facade.js');
     const { initObservations, prepareSearchIndex } = await import('../../memory/observations.js');
     const { project: proj, dataDir, reader } = await getTuiOperatorContext();
 
     await initObservations(dataDir);
     await prepareSearchIndex();
 
-    const results = await searchObservations({ query, limit, projectId: proj.id, reader });
+    const results = (await retrievalFacade.search({ query, limit, projectId: proj.id, reader })).entries;
 
     const typeIcons: Record<string, string> = {
       gotcha: '!',

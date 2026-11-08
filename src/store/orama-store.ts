@@ -71,6 +71,7 @@ export interface SearchExecution {
   entries: IndexEntry[];
   diagnostics: SearchDiagnostics;
   derivedViews: RetrievalDerivedViews;
+  recordAccess?: (selected: IndexEntry[]) => void;
 }
 const SEARCH_MODE_DEFAULT_KEY = '__global__';
 const MAX_SEARCH_MODE_KEYS = 4096;
@@ -1673,25 +1674,27 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
   };
   rememberSearchDiagnostics(modeKey, diagnostics);
 
-  // Record access for returned results (fire-and-forget, non-blocking).
-  if (options.trackAccess !== false) {
-    const returnedKeys = new Set(entries.map((entry) => makeEntryKey(entry.projectId, entry.id)));
+  const recordAccess = (selected: IndexEntry[]): void => {
+    if (options.trackAccess === false || selected.length === 0) return;
+    const returnedKeys = new Set(selected.map((entry) => makeEntryKey(entry.projectId, entry.id)));
     const hitDocs = results.hits
       .map((hit) => ({ id: hit.id, doc: hit.document as unknown as MemorixDocument }))
       .filter(({ doc }) => returnedKeys.has(makeEntryKey(doc.projectId, doc.observationId)));
     recordAccessBatch(hitDocs).catch(() => {});
-  }
+  };
 
   const derivedViews = getSearchDerivedViews();
   if (fallbackUsed && fallbackReason) {
     derivedViews.embedding = { freshness: 'stale', rebuildStatus: 'failed', failureReason: fallbackReason };
   }
-  return { entries, diagnostics, derivedViews };
+  return { entries, diagnostics, derivedViews, recordAccess };
 }
 
 /** Keep the historical array API for SDKs and integrations. */
 export async function searchObservations(options: SearchOptions): Promise<IndexEntry[]> {
-  return (await searchObservationsDetailed(options)).entries;
+  const result = await searchObservationsDetailed(options);
+  result.recordAccess?.(result.entries);
+  return result.entries;
 }
 
 /**

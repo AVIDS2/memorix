@@ -121,6 +121,17 @@ function observationId(payload: Record<string, unknown>): number | undefined {
     : undefined;
 }
 
+async function automaticCleanupEnabled(projectRoot: string | undefined): Promise<boolean> {
+  if (!projectRoot) return true;
+  try {
+    const { getResolvedConfig } = await import('../config/resolved-config.js');
+    return getResolvedConfig({ projectRoot }).memory.autoCleanup !== false;
+  } catch {
+    // Keep existing behavior when configuration is malformed or unavailable.
+    return true;
+  }
+}
+
 function workspaceMode(payload: Record<string, unknown>): 'local' | 'versioned' | undefined {
   return payload.workspaceMode === 'local' || payload.workspaceMode === 'versioned'
     ? payload.workspaceMode
@@ -232,6 +243,15 @@ export function createProjectMaintenanceHandler(
   return async (job): Promise<MaintenanceJobRunResult> => {
     if (job.projectId !== projectId) {
       return { action: 'reschedule', delayMs: VECTOR_RETRY_DELAY_MS };
+    }
+
+    if (
+      (job.kind === 'retention-archive'
+        || job.kind === 'consolidation'
+        || job.kind === 'long-term-maintenance')
+      && !(await automaticCleanupEnabled(projectRoot))
+    ) {
+      return { action: 'complete' };
     }
 
     if (job.kind === 'media-video-generation') {

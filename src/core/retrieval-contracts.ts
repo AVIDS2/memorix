@@ -28,6 +28,8 @@ export interface RetrievalReceipt {
   selectedCount: number;
   omittedCount: number;
   omittedByTokenBudget: number;
+  omittedByFeedback?: number;
+  degradedReasons?: string[];
   fallbackUsed: boolean;
   fallbackReason?: string;
   elapsedMs: number;

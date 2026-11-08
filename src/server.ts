@@ -66,6 +66,8 @@ import {
   type ProjectBindingTransport,
 } from './server/request-context.js';
 import { getMcpServerInfo, registerMcpDiscovery } from './server/mcp-compat.js';
+import { createRuntimeContext, type RuntimeContext } from './core/runtime-context.js';
+import { getResolvedConfig } from './config/resolved-config.js';
 
 // ── Timeout budgets for LLM-heavy paths ──────────────────────────
 const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
@@ -337,6 +339,16 @@ export async function createMemorixServer(
     writeLastProjectRoot(project.rootPath);
   }
 
+  let runtimeContext: RuntimeContext;
+  const refreshRuntimeContext = (): void => {
+    runtimeContext = createRuntimeContext({
+      projectId: project.id,
+      projectRoot: project.rootPath,
+      dataDir: projectDir,
+      config: getResolvedConfig({ projectRoot: project.rootPath }),
+    });
+  };
+
   const registerMaintenanceTarget = async (): Promise<void> => {
     if (!projectResolved) return;
     try {
@@ -362,6 +374,7 @@ export async function createMemorixServer(
     const { loadDotenv } = await import('./config/dotenv-loader.js');
     loadDotenv(project.rootPath);
   } catch { /* config init is best-effort */ }
+  refreshRuntimeContext();
 
   // Initialize lightweight components. Full observation/graph indexing can be
   // deferred for stdio so MCP initialize/tools/list are not blocked by a large
@@ -532,6 +545,7 @@ export async function createMemorixServer(
     } catch {
       // Config activation is best-effort; durable project scoping remains explicit.
     }
+    refreshRuntimeContext();
     initLLM({ projectRoot: project.rootPath });
   };
 
@@ -1739,15 +1753,14 @@ export async function createMemorixServer(
       const unresolved = requireResolvedProject('show CodeGraph Memory status for the current project');
       if (unresolved) return unresolved;
 
-      const [{ CodeGraphStore }, { getResolvedConfig }, { inspectExternalCodeGraph }] = await Promise.all([
+      const [{ CodeGraphStore }, { inspectExternalCodeGraph }] = await Promise.all([
         import('./codegraph/store.js'),
-        import('./config/resolved-config.js'),
         import('./codegraph/external-provider.js'),
       ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
       const status = store.status(project.id);
-      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
+      const codegraphConfig = runtimeContext.config.codegraph;
       const providerQuality = await inspectExternalCodeGraph({
         projectRoot: project.rootPath,
         mode: codegraphConfig.externalContext,
@@ -1789,7 +1802,6 @@ export async function createMemorixServer(
       const [
         { CodeGraphStore },
         { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt },
-        { getResolvedConfig },
         { getExternalCodeGraphContext },
         { getObservationStore },
         { collectCurrentProjectFacts, formatGitFact },
@@ -1797,7 +1809,6 @@ export async function createMemorixServer(
       ] = await Promise.all([
         import('./codegraph/store.js'),
         import('./codegraph/context-pack.js'),
-        import('./config/resolved-config.js'),
         import('./codegraph/external-provider.js'),
         import('./store/obs-store.js'),
         import('./codegraph/current-facts.js'),
@@ -1805,8 +1816,8 @@ export async function createMemorixServer(
       ]);
       const store = new CodeGraphStore();
       await store.init(projectDir);
-      const codegraphConfig = getResolvedConfig({ projectRoot: project.rootPath }).codegraph;
-      const exclude = codegraphConfig.excludePatterns;
+      const codegraphConfig = runtimeContext.config.codegraph;
+      const exclude = codegraphConfig.excludePatterns ? [...codegraphConfig.excludePatterns] : undefined;
       const observations = filterReadableObservations(
         await getObservationStore().loadByProject(project.id, { status: 'active' }),
         getObservationReader(),
@@ -5829,6 +5840,7 @@ export async function createMemorixServer(
       resetDotenv();
       loadDotenv(project.rootPath);
     } catch { /* best-effort */ }
+    refreshRuntimeContext();
 
     // Reinitialize TeamStore for the new project (per-project isolation)
     // In HTTP mode, the shared TeamStore from serve-http is replaced with

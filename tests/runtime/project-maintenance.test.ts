@@ -113,6 +113,20 @@ describe('createProjectMaintenanceHandler', () => {
     });
   });
 
+  it('skips automatic cleanup jobs when auto_cleanup is disabled at execution time', async () => {
+    getResolvedConfig.mockReturnValue({
+      codegraph: { excludePatterns: ['generated/**'] },
+      memory: { autoCleanup: false },
+    });
+    const handler = createProjectMaintenanceHandler('project-a', 'C:/memorix-data', 'C:/workspace/project-a');
+
+    for (const kind of ['retention-archive', 'consolidation', 'long-term-maintenance'] as const) {
+      const result = await handler(makeJob({ kind }));
+      expect(result).toEqual({ action: 'complete' });
+    }
+    expect(archiveExpiredBatch).not.toHaveBeenCalled();
+  });
+
   it('keeps a no-progress vector batch in durable cooldown with its real diagnostic', async () => {
     getVectorStatus
       .mockReturnValueOnce({ missing: 3 })

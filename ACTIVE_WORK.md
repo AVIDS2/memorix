@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-11-05
+**Last updated:** 2026-11-08
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -34,7 +34,9 @@ artifacts for the VPS/hosted build path only.
   then finish enforceable host contracts. The `src/core` dependency direction
   is now guarded by a test; `MaintenanceResult` is defined in the kernel and
   rejects invalid progress before it reaches SQLite. Maintenance progress is
-  durable in SQLite.
+  durable in SQLite. The main MCP server captures an immutable `RuntimeContext`
+  at bind/activation/switch boundaries and CodeGraph host paths consume its
+  frozen config snapshot.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
   Observation inserts and topic-key updates now commit vector backfill,
@@ -52,7 +54,9 @@ artifacts for the VPS/hosted build path only.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
   progressive disclosure into one RetrievalFacade. The first facade slice
   attaches each result to its own diagnostics and derived-view receipt; compact
-  search, search-index probes, and TUI chat consume that receipt. The existing 20-case
+  search, SDK, TUI search, search-index probes, and TUI chat consume that receipt.
+  Feedback policy now uses the active canonical data directory and reports
+  feedback omissions separately from embedding fallback. The existing 20-case
   offline task matrix passes 20/20 with a fresh 40k store gate, but it does not
   establish improvement on unseen live issue-resolution tasks or remote vectors.
 - [x] 2026-11-05 Windows/Node 22 offline 40k gate: 40,000 seeded records,
@@ -60,6 +64,11 @@ artifacts for the VPS/hosted build path only.
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
 - [ ] Release blocker: GitHub Actions cannot start jobs while the repository
   account is locked for billing; the local npm login also returns E401.
+- [x] Issue #385 safety fix: consolidation now tokenizes Unicode letters and
+  numbers, treats two empty fingerprints as unrelated, and retains exact
+  Korean duplicate consolidation. Automatic retention, consolidation, and
+  long-term maintenance re-check `memory.autoCleanup` at execution time and
+  complete without mutation when it is disabled.
   Repository source/tag/release are at 1.10.3, but npm and MCP Registry remain
   at 1.10.2. Do not claim 1.10.3 is published until those external gates clear.
 

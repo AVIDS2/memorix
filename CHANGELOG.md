@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+- Fixed consolidation false positives for Korean and punctuation-only records;
+  queued automatic cleanup jobs now honor `auto_cleanup = false` at execution
+  time (#385).
+
 ### Changed
 - Search execution now returns a request-scoped receipt to compact search,
   index probes, and TUI chat, so concurrent requests cannot exchange diagnostics.
@@ -13,6 +18,9 @@ All notable changes to this project will be documented in this file.
   and schedules a follow-up pass, including after worker failure or lease loss.
 - Maintenance progress now has one kernel result contract; negative, fractional,
   non-finite, and inconsistent counts cannot be persisted as successful work.
+- SDK, TUI, compact search, and MCP retrieval now share the RetrievalFacade;
+  feedback state is read from the active canonical store and reported separately
+  from embedding fallback.
 - Topic-key updates publish their Orama projection only after the canonical
   transaction commits; failed updates or linked-record callbacks leave the prior
   searchable record intact.

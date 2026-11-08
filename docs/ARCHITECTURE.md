@@ -123,7 +123,9 @@ and immutable per-request config; CodeGraph uses it. Lance has a concrete
 need migration. A dependency test now rejects host, persistence, and adapter
 imports from `src/core/`. `MaintenanceResult` is defined in the kernel; its
 progress counts are validated before a runner persists them. Maintenance
-progress is durable in SQLite.
+progress is durable in SQLite. The MCP server captures a `RuntimeContext` after
+project binding and refreshes it on runtime activation and project switch;
+CodeGraph host operations consume that immutable configuration snapshot.
 
 **P2 - 1.11 durable write pipeline:** add a small canonical write service and
 an idempotent derived-work outbox. Observation capture, Git ingest, and
@@ -145,6 +147,11 @@ new work through retry exhaustion and lease recovery. Recurring jobs process a
 new event before returning to their long schedule; provider retry cooldowns
 remain in force. The new SQLite flag defaults to false for pre-1.11 rows.
 
+Automatic cleanup jobs re-check the resolved behavior configuration when they
+execute. Disabling `memory.autoCleanup` therefore neutralizes already queued
+retention, consolidation, and long-term maintenance work without affecting
+explicit user-requested cleanup actions.
+
 **P3 - 1.11 retrieval/context plane:** move ranking, freshness, provenance,
 admission, and progressive disclosure into `RetrievalFacade`. Keep Orama,
 Lance, FTS, and CodeGraph adapters replaceable. Add a retrieval evaluation
@@ -153,8 +160,10 @@ token cost, and abstention correctness.
 
 The first P3 slice is implemented: a host-independent facade normalizes the
 retrieval plan and returns entries with the diagnostics and derived-view status
-from that same execution. Compact search, TUI chat, and index probes no longer read a
+from that same execution. Compact search, SDK, TUI search, TUI chat, and index probes no longer read a
 project-wide last-search value after another request can overwrite it. The
+facade applies feedback from the active canonical data directory and records
+feedback omissions separately from embedding fallback. The
 existing 20-case offline task matrix passes with a fresh 40k local-store gate;
 ranking and admission policy still live in their current modules, and the
 matrix is not an unseen live-task benchmark.

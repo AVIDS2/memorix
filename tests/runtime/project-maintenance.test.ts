@@ -31,6 +31,11 @@ const requalifyClaimsForCodeState = vi.fn();
 const updateObservationAdmission = vi.fn();
 const qualifyCandidateFromCurrentCode = vi.fn();
 const queueEnqueue = vi.fn();
+const evidenceInit = vi.fn();
+const evidenceUpsertObservation = vi.fn();
+const EvidenceCardStore = vi.fn(function EvidenceCardStoreMock() {
+  return { init: evidenceInit, upsertObservation: evidenceUpsertObservation };
+});
 
 vi.mock('../../src/embedding/provider.js', () => ({
   isEmbeddingExplicitlyDisabled,
@@ -57,6 +62,7 @@ vi.mock('../../src/codegraph/binder.js', () => ({
   bindObservationToCode,
 }));
 vi.mock('../../src/store/obs-store.js', () => ({ getObservationStore }));
+vi.mock('../../src/store/evidence-store.js', () => ({ EvidenceCardStore }));
 vi.mock('../../src/config/resolved-config.js', () => ({ getResolvedConfig }));
 vi.mock('../../src/runtime/isolated-maintenance.js', () => ({ runMaintenanceInChildProcess }));
 vi.mock('../../src/knowledge/claim-store.js', () => ({ ClaimStore }));
@@ -256,6 +262,32 @@ describe('createProjectMaintenanceHandler', () => {
       expect.anything(),
     );
     expect(queueEnqueue).toHaveBeenCalledWith(expect.objectContaining({ kind: 'knowledge-compile' }));
+    expect(result).toEqual({ action: 'complete' });
+  });
+
+  it('rebuilds a failed CodeGraph/evidence observation projection from the outbox', async () => {
+    const observation = {
+      id: 44,
+      projectId: 'project-a',
+      entityName: 'auth',
+      type: 'decision',
+      title: 'Recover projection',
+      narrative: 'Rebuild derived views from the canonical row.',
+      filesModified: ['src/auth.ts'],
+      status: 'active',
+    };
+    getById.mockResolvedValue(observation);
+    bindObservationToCode.mockResolvedValue([]);
+    evidenceInit.mockResolvedValue(undefined);
+
+    const result = await createProjectMaintenanceHandler(
+      'project-a', 'C:/memorix-data', 'C:/workspace/project-a',
+    )(makeJob({ kind: 'observation-project' as any, payload: { observationId: 44 } }));
+
+    expect(codeStoreInit).toHaveBeenCalledWith('C:/memorix-data');
+    expect(bindObservationToCode).toHaveBeenCalledWith(expect.anything(), observation);
+    expect(evidenceInit).toHaveBeenCalledWith('C:/memorix-data');
+    expect(evidenceUpsertObservation).toHaveBeenCalledWith(observation);
     expect(result).toEqual({ action: 'complete' });
   });
 

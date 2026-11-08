@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "memorix": {
-      "command": "memorix",
-      "args": ["serve", "--mode", "lite"],
-      "alwaysLoad": true
-    }
-  }
-}

@@ -234,30 +234,48 @@ function queueVectorBackfill(
     });
 }
 
-async function bindObservationCodeRefsBestEffort(observation: Observation): Promise<void> {
-  if (!projectDir) return;
+async function bindObservationCodeRefsBestEffort(observation: Observation): Promise<boolean> {
+  if (!projectDir) return true;
   try {
     const { CodeGraphStore } = await import('../codegraph/store.js');
     const { bindObservationToCode } = await import('../codegraph/binder.js');
     const codeStore = new CodeGraphStore();
     await codeStore.init(projectDir);
     await bindObservationToCode(codeStore, observation);
+    return true;
   } catch {
     // Code refs enrich memory retrieval, but memory writes must remain durable without them.
+    return false;
   }
 }
 
-async function persistEvidenceCard(observation: Observation): Promise<void> {
-  if (!projectDir) return;
+async function persistEvidenceCard(observation: Observation): Promise<boolean> {
+  if (!projectDir) return true;
   try {
     const evidence = new EvidenceCardStore();
     await evidence.init(projectDir);
     evidence.upsertObservation(observation);
+    return true;
   } catch (error) {
     // Evidence is a derived control-plane projection. A failed projection must
     // never roll back the canonical observation, but it must be visible for a
     // later repair/sync pass.
     console.error(`[memorix] Evidence card projection failed for obs-${observation.id}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
+}
+
+async function acknowledgeObservationProjection(observation: Observation): Promise<void> {
+  if (!projectDir) return;
+  try {
+    const { MaintenanceJobStore } = await import('../runtime/maintenance-jobs.js');
+    new MaintenanceJobStore(projectDir).acknowledgePending(
+      observation.projectId,
+      'observation-project',
+      'observation-project:' + observation.id,
+    );
+  } catch {
+    // The pending outbox row remains recoverable by the maintenance worker.
   }
 }
 
@@ -320,6 +338,12 @@ async function enqueueObservationDerivedWork(tx: StoreTransaction, observation: 
       payload: { observationId: observation.id },
     });
   }
+  await tx.enqueueMaintenanceJob({
+    projectId: observation.projectId,
+    kind: 'observation-project',
+    dedupeKey: 'observation-project:' + observation.id,
+    payload: { observationId: observation.id },
+  });
   return true;
 }
 
@@ -860,8 +884,9 @@ export async function storeObservation(input: {
   // transaction. Keep the in-memory fallback defensively covered too.
   if (!persistedCallbackInvoked) await input.onPersisted?.(observation);
 
-  await bindObservationCodeRefsBestEffort(observation);
-  await persistEvidenceCard(observation);
+  const codeRefsProjected = await bindObservationCodeRefsBestEffort(observation);
+  const evidenceProjected = await persistEvidenceCard(observation);
+  if (codeRefsProjected && evidenceProjected) await acknowledgeObservationProjection(observation);
   if (!derivedJobsCommitted) {
     queueObservationQualification(observation);
     if (resolveObservationVisibility(observation) === 'project') {
@@ -1015,8 +1040,9 @@ async function upsertObservation(
     }
   }
 
-  await bindObservationCodeRefsBestEffort(updated);
-  await persistEvidenceCard(updated);
+  const codeRefsProjected = await bindObservationCodeRefsBestEffort(updated);
+  const evidenceProjected = await persistEvidenceCard(updated);
+  if (codeRefsProjected && evidenceProjected) await acknowledgeObservationProjection(updated);
   if (!derivedJobsCommitted) {
     queueObservationQualification(updated);
     if (resolveObservationVisibility(updated) === 'project') {

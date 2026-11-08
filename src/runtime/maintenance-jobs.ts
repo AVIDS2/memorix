@@ -14,6 +14,7 @@ export const MAINTENANCE_JOB_KINDS = [
   'consolidation',
   'codegraph-refresh',
   'observation-qualify',
+  'observation-project',
   'claim-derive',
   'claim-requalification',
   'knowledge-compile',
@@ -527,6 +528,21 @@ export class MaintenanceJobStore {
       SET status = 'completed', completed_at = ?, updated_at = ?
       WHERE project_id = ? AND kind = 'vector-backfill' AND dedupe_key = ? AND status = 'failed'
     `).run(now, now, projectId, dedupeKey);
+    return Number(result.changes ?? 0);
+  }
+
+  /** A successful foreground projection can acknowledge its pending outbox row. */
+  acknowledgePending(
+    projectId: string,
+    kind: MaintenanceJobKind,
+    dedupeKey: string,
+    now = Date.now(),
+  ): number {
+    const result = this.db.prepare(`
+      UPDATE maintenance_jobs
+      SET status = 'completed', completed_at = ?, updated_at = ?
+      WHERE project_id = ? AND kind = ? AND dedupe_key = ? AND status = 'pending'
+    `).run(now, now, projectId, kind, dedupeKey);
     return Number(result.changes ?? 0);
   }
 

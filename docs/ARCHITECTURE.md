@@ -139,7 +139,10 @@ real progress counters. The same transaction now also registers qualification
 and claim derivation for inserted observations and topic-key updates. Topic-key
 updates commit SQLite before refreshing Orama; a failed canonical write or
 linked-record callback leaves the prior search result in place. Other derived
-projections remain to migrate.
+projections now use an `observation-project` outbox item. The foreground path
+tries CodeGraph and evidence immediately and acknowledges the item only when
+both succeed; a crash or failure leaves the item for an isolated idempotent
+retry.
 
 The outbox also records writes that arrive during a running deduplicated job.
 The worker either performs a follow-up pass after completion, or preserves the

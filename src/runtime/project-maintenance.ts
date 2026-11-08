@@ -354,6 +354,34 @@ export function createProjectMaintenanceHandler(
       return { action: 'complete' };
     }
 
+    if (job.kind === 'observation-project') {
+      if (!projectRoot) {
+        throw new Error(`Observation projection requires a project root for ${projectId}`);
+      }
+      const id = observationId(job.payload);
+      if (!id) return { action: 'complete' };
+      const [
+        { CodeGraphStore },
+        { bindObservationToCode },
+        { EvidenceCardStore },
+        { getObservationStore },
+      ] = await Promise.all([
+        import('../codegraph/store.js'),
+        import('../codegraph/binder.js'),
+        import('../store/evidence-store.js'),
+        import('../store/obs-store.js'),
+      ]);
+      const observation = await getObservationStore().getById(id);
+      if (!observation || observation.projectId !== projectId) return { action: 'complete' };
+      const codeStore = new CodeGraphStore();
+      await codeStore.init(projectDir);
+      await bindObservationToCode(codeStore, observation);
+      const evidence = new EvidenceCardStore();
+      await evidence.init(projectDir);
+      evidence.upsertObservation(observation);
+      return { action: 'complete' };
+    }
+
     if (job.kind === 'observation-qualify') {
       const [
         { CodeGraphStore },

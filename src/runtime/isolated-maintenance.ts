@@ -16,6 +16,7 @@ export const ISOLATED_MAINTENANCE_JOB_KINDS: readonly MaintenanceJobKind[] = [
   'consolidation',
   'codegraph-refresh',
   'observation-qualify',
+  'observation-project',
   'claim-derive',
   'claim-requalification',
   'knowledge-compile',

@@ -7,58 +7,83 @@ import {
 
 afterEach(() => {
   clearOllamaOriginCache();
+  vi.restoreAllMocks();
 });
 
 function versionFetch(payload: unknown, status = 200): typeof fetch {
-  return vi.fn(async () => new Response(JSON.stringify(payload), { status })) as typeof fetch;
+  return vi.fn(async () => new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })) as typeof fetch;
 }
 
 describe('ollama embedding keepalive', () => {
-  it('rewrites any port once the origin identifies itself as Ollama', async () => {
+  it('rewrites an Ollama origin without contacting that host', async () => {
+    const globalFetch = vi.spyOn(globalThis, 'fetch');
     const fetchImpl = versionFetch({ version: '0.6.5' });
     const routed = await routeOllamaEmbedding(
-      'http://ollama.internal:23456/v1/embeddings',
-      { model: 'qwen3-embedding:4b', input: 'probe' },
+      'https://embeddings.invalid:23456/v1/embeddings',
+      { model: 'example-embed', input: 'probe' },
       fetchImpl,
     );
+
     expect(routed.rewritten).toBe(true);
-    expect(routed.url).toBe('http://ollama.internal:23456/api/embed');
+    expect(routed.url).toBe('https://embeddings.invalid:23456/api/embed');
     expect(routed.body.keep_alive).toBe('5m');
-    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledExactlyOnceWith(
+      'https://embeddings.invalid:23456/api/version',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
-  it('does not treat port 11434 as Ollama when the version probe is absent', async () => {
-    const body = { model: 'text-embedding-3-small', input: 'probe' };
+  it('does not treat a port number as Ollama when the injected probe is not Ollama', async () => {
+    const globalFetch = vi.spyOn(globalThis, 'fetch');
+    const body = { model: 'example-embed', input: 'probe' };
     const fetchImpl = versionFetch({ error: 'not found' }, 404);
-    const routed = await routeOllamaEmbedding('http://127.0.0.1:11434/v1/embeddings', body, fetchImpl);
+    const routed = await routeOllamaEmbedding(
+      'http://not-ollama.invalid:11434/v1/embeddings',
+      body,
+      fetchImpl,
+    );
+
     expect(routed.rewritten).toBe(false);
-    expect(routed.url).toBe('http://127.0.0.1:11434/v1/embeddings');
+    expect(routed.url).toBe('http://not-ollama.invalid:11434/v1/embeddings');
     expect(routed.body).toEqual(body);
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
-  it('leaves OpenAI unchanged and remembers the negative probe', async () => {
+  it('remembers a negative probe and never falls through to the runtime fetch', async () => {
+    const globalFetch = vi.spyOn(globalThis, 'fetch');
     const fetchImpl = versionFetch({}, 404);
-    const body = { model: 'text-embedding-3-small', input: 'probe' };
-    const first = await routeOllamaEmbedding('https://api.openai.com/v1/embeddings', body, fetchImpl);
-    const second = await routeOllamaEmbedding('https://api.openai.com/v1/embeddings', body, fetchImpl);
-    expect(first.url).toBe('https://api.openai.com/v1/embeddings');
+    const body = { model: 'example-embed', input: 'probe' };
+    const url = 'https://vendor.invalid/v1/embeddings';
+
+    const first = await routeOllamaEmbedding(url, body, fetchImpl);
+    const second = await routeOllamaEmbedding(url, body, fetchImpl);
+
+    expect(first.url).toBe(url);
     expect(second.body).toEqual(body);
     expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
   it('keeps a caller-supplied keep_alive', async () => {
+    const globalFetch = vi.spyOn(globalThis, 'fetch');
     const routed = await routeOllamaEmbedding(
-      'http://10.0.0.8:18080/v1/embeddings',
-      { model: 'nomic-embed-text', input: 'probe', keep_alive: '30s' },
+      'https://embeddings.invalid/v1/embeddings',
+      { model: 'example-embed', input: 'probe', keep_alive: '30s' },
       versionFetch({ version: '0.5.1' }),
     );
-    expect(routed.url).toBe('http://10.0.0.8:18080/api/embed');
+
+    expect(routed.url).toBe('https://embeddings.invalid/api/embed');
     expect(routed.body.keep_alive).toBe('30s');
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
   it('maps a native embeddings array back to the OpenAI data shape', () => {
     const mapped = mapOllamaEmbeddingResponse({
-      model: 'qwen3-embedding:4b',
+      model: 'example-embed',
       embeddings: [[0.1, 0.2]],
     });
     expect(mapped.data).toEqual([

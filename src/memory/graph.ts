@@ -1,0 +1,199 @@
+/**
+ * Knowledge Graph Manager
+ *
+ * Manages the Entity-Relation knowledge graph.
+ * Source: MCP Official Memory Server v0.6.3 (complete rewrite with same API).
+ *
+ * Key differences from official implementation:
+ * - Uses the project-scoped SQLite graph store; legacy JSONL is migration-only
+ * - Async initialization with the shared persistence layer
+ * - Project-scoped operations
+ */
+
+import type { Entity, Relation, KnowledgeGraph } from '../types.js';
+import { initGraphStore, type GraphSqliteStore } from '../store/graph-store.js';
+
+export class KnowledgeGraphManager {
+  private entities: Entity[] = [];
+  private relations: Relation[] = [];
+  private projectDir: string;
+  private projectId: string;
+  private store: GraphSqliteStore | null = null;
+  private initialized = false;
+  /** Index: lowercase entity name → Entity for O(1) lookups */
+  private entityIndex = new Map<string, Entity>();
+
+  constructor(projectDir: string, projectId = '__default__') {
+    this.projectDir = projectDir;
+    this.projectId = projectId;
+  }
+
+  /** Rebuild the entity name index */
+  private rebuildIndex(): void {
+    this.entityIndex.clear();
+    for (const e of this.entities) {
+      this.entityIndex.set(e.name.toLowerCase(), e);
+    }
+  }
+
+  /** Load graph from SQLite on first access */
+  async init(): Promise<void> {
+    if (this.initialized) return;
+    this.store = await initGraphStore(this.projectDir, this.projectId);
+    this.entities = this.store.loadEntities();
+    this.relations = this.store.loadRelations();
+    this.rebuildIndex();
+    this.initialized = true;
+  }
+
+  /** Find entity by name (case-insensitive, O(1)) */
+  findEntityByName(name: string): Entity | undefined {
+    return this.entityIndex.get(name.toLowerCase());
+  }
+
+  /** Get all entity names as a Set (lowercase, for fast membership checks) */
+  getEntityNameSet(): Set<string> {
+    return new Set(this.entityIndex.keys());
+  }
+
+  /** Persist current state to SQLite */
+  private async save(): Promise<void> {
+    if (!this.store) throw new Error('[memorix] KnowledgeGraphManager not initialized');
+    this.store.replaceAll(this.entities, this.relations);
+  }
+
+  /** Create new entities (skip duplicates by name) */
+  async createEntities(entities: Entity[]): Promise<Entity[]> {
+    await this.init();
+    const newEntities = entities.filter(
+      (e) => !this.entityIndex.has(e.name.toLowerCase()),
+    );
+    this.entities.push(...newEntities);
+    if (newEntities.length > 0) this.rebuildIndex();
+    await this.save();
+    return newEntities;
+  }
+
+  /** Create new relations (skip duplicates) */
+  async createRelations(relations: Relation[]): Promise<Relation[]> {
+    await this.init();
+    const newRelations = relations.filter(
+      (r) =>
+        !this.relations.some(
+          (existing) =>
+            existing.from === r.from &&
+            existing.to === r.to &&
+            existing.relationType === r.relationType,
+        ),
+    );
+    this.relations.push(...newRelations);
+    await this.save();
+    return newRelations;
+  }
+
+  /** Add observations to existing entities */
+  async addObservations(
+    observations: { entityName: string; contents: string[] }[],
+  ): Promise<{ entityName: string; addedObservations: string[] }[]> {
+    await this.init();
+    const results = observations.map((o) => {
+      const entity = this.entities.find((e) => e.name === o.entityName);
+      if (!entity) {
+        throw new Error(`Entity with name ${o.entityName} not found`);
+      }
+      const newObs = o.contents.filter((c) => !entity.observations.includes(c));
+      entity.observations.push(...newObs);
+      return { entityName: o.entityName, addedObservations: newObs };
+    });
+    await this.save();
+    return results;
+  }
+
+  /** Delete entities and their associated relations */
+  async deleteEntities(entityNames: string[]): Promise<void> {
+    await this.init();
+    this.entities = this.entities.filter((e) => !entityNames.includes(e.name));
+    this.relations = this.relations.filter(
+      (r) => !entityNames.includes(r.from) && !entityNames.includes(r.to),
+    );
+    this.rebuildIndex();
+    await this.save();
+  }
+
+  /** Delete specific observations from entities */
+  async deleteObservations(
+    deletions: { entityName: string; observations: string[] }[],
+  ): Promise<void> {
+    await this.init();
+    for (const d of deletions) {
+      const entity = this.entities.find((e) => e.name === d.entityName);
+      if (entity) {
+        entity.observations = entity.observations.filter(
+          (o) => !d.observations.includes(o),
+        );
+      }
+    }
+    await this.save();
+  }
+
+  /** Delete specific relations */
+  async deleteRelations(relations: Relation[]): Promise<void> {
+    await this.init();
+    this.relations = this.relations.filter(
+      (r) =>
+        !relations.some(
+          (del) =>
+            r.from === del.from &&
+            r.to === del.to &&
+            r.relationType === del.relationType,
+        ),
+    );
+    await this.save();
+  }
+
+  /** Get all entity names (for Formation Pipeline entity resolution) */
+  getEntityNames(): string[] {
+    return this.entities.map(e => e.name);
+  }
+
+  /** Read the entire graph */
+  async readGraph(): Promise<KnowledgeGraph> {
+    await this.init();
+    return { entities: this.entities, relations: this.relations };
+  }
+
+  /** Search nodes by query string (upgraded from official's basic includes) */
+  async searchNodes(query: string): Promise<KnowledgeGraph> {
+    await this.init();
+    const lowerQuery = query.toLowerCase();
+
+    const filteredEntities = this.entities.filter(
+      (e) =>
+        e.name.toLowerCase().includes(lowerQuery) ||
+        e.entityType.toLowerCase().includes(lowerQuery) ||
+        e.observations.some((o) => o.toLowerCase().includes(lowerQuery)),
+    );
+
+    const filteredNames = new Set(filteredEntities.map((e) => e.name));
+
+    const filteredRelations = this.relations.filter(
+      (r) => filteredNames.has(r.from) && filteredNames.has(r.to),
+    );
+
+    return { entities: filteredEntities, relations: filteredRelations };
+  }
+
+  /** Open specific nodes by name */
+  async openNodes(names: string[]): Promise<KnowledgeGraph> {
+    await this.init();
+
+    const filteredEntities = this.entities.filter((e) => names.includes(e.name));
+    const filteredNames = new Set(filteredEntities.map((e) => e.name));
+
+    const filteredRelations = this.relations.filter(
+      (r) => filteredNames.has(r.from) && filteredNames.has(r.to),
+    );
+
+    return { entities: filteredEntities, relations: filteredRelations };
+  }
+}

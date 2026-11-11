@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "command": "memorix hook --agent copilot",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "command": "memorix hook --agent copilot",
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "command": "memorix hook --agent copilot",
+        "timeoutSec": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "command": "memorix hook --agent copilot",
+        "timeoutSec": 10
+      }
+    ],
+    "preCompact": [
+      {
+        "type": "command",
+        "command": "memorix hook --agent copilot",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

@@ -1,0 +1,542 @@
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+  callLLM,
+  callLLMWithTools,
+  callLLMWithToolsStream,
+  initLLM,
+  normalizeOpenAICompatibleBaseUrl,
+  parseLLMTimeoutMs,
+  setLLMConfig,
+} from '../../src/llm/provider.ts';
+import { resetConfigCache, resetDotenv } from '../../src/config.ts';
+
+const TEST_ROOT = mkdtempSync(join(tmpdir(), 'memorix-llm-provider-'));
+const TEST_HOME = join(TEST_ROOT, 'home');
+const TEST_PROJECT = join(TEST_ROOT, 'project');
+mkdirSync(TEST_HOME, { recursive: true });
+mkdirSync(TEST_PROJECT, { recursive: true });
+
+afterAll(() => {
+  rmSync(TEST_ROOT, { recursive: true, force: true });
+});
+
+const LLM_ENV_KEYS = [
+  'MEMORIX_AGENT_API_KEY',
+  'MEMORIX_AGENT_PROVIDER',
+  'MEMORIX_AGENT_MODEL',
+  'MEMORIX_AGENT_BASE_URL',
+  'MEMORIX_AGENT_LLM_API_KEY',
+  'MEMORIX_AGENT_LLM_PROVIDER',
+  'MEMORIX_AGENT_LLM_MODEL',
+  'MEMORIX_AGENT_LLM_BASE_URL',
+  'MEMORIX_LLM_API_KEY',
+  'MEMORIX_LLM_PROVIDER',
+  'MEMORIX_LLM_MODEL',
+  'MEMORIX_LLM_BASE_URL',
+  'MEMORIX_API_KEY',
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENROUTER_API_KEY',
+  'REQUESTY_API_KEY',
+  'API_ROUTE_API_KEY',
+  'CHEAPER_INFERENCE_API_KEY',
+  'RUNCRATE_API_KEY',
+  'ATLASCLOUD_API_KEY',
+];
+
+function clearLLMEnv() {
+  for (const key of LLM_ENV_KEYS) delete process.env[key];
+}
+
+describe('initLLM config scopes', () => {
+  beforeEach(() => {
+    clearLLMEnv();
+    resetConfigCache();
+    resetDotenv();
+    setLLMConfig(null);
+  });
+
+  afterEach(() => {
+    clearLLMEnv();
+    resetConfigCache();
+    resetDotenv();
+    setLLMConfig(null);
+  });
+
+  it('initializes the optional Atlas memory preset and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'atlascloud';
+    process.env.MEMORIX_LLM_API_KEY = 'atlas-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'atlascloud', apiKey: 'atlas-test-key',
+      model: 'deepseek-ai/deepseek-v3.2', baseUrl: 'https://api.atlascloud.ai/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('initializes the optional Requesty memory preset from REQUESTY_API_KEY', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'requesty';
+    process.env.REQUESTY_API_KEY = 'requesty-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'requesty', apiKey: 'requesty-test-key',
+      model: 'openai/gpt-4.1-nano', baseUrl: 'https://router.requesty.ai/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'anthropic/claude-sonnet-4-5';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://router.eu.requesty.ai/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'anthropic/claude-sonnet-4-5', baseUrl: 'https://router.eu.requesty.ai/v1',
+    });
+  });
+
+  it('initializes API Route memory with its dedicated key and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    process.env.API_ROUTE_API_KEY = 'api-route-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'apiroute', apiKey: 'api-route-test-key',
+      model: 'deepseek-v4.1-flash', baseUrl: 'https://global.api-route.com/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('leaves API Route memory disabled when only unrelated keys are available', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'apiroute';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    expect(initLLM({ scope: 'memory', projectRoot: TEST_PROJECT, homeDir: TEST_HOME })).toBeNull();
+  });
+
+  it('initializes Cheaper Inference memory with its dedicated key and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'cheaperinference';
+    process.env.CHEAPER_INFERENCE_API_KEY = 'cheaper-inference-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'cheaperinference', apiKey: 'cheaper-inference-test-key',
+      model: 'gpt-5.4-mini', baseUrl: 'https://api.cheaperinference.com/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('leaves Cheaper Inference memory disabled when only unrelated keys are available', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'cheaperinference';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    expect(initLLM({ scope: 'memory', projectRoot: TEST_PROJECT, homeDir: TEST_HOME })).toBeNull();
+  });
+
+  it('initializes Runcrate memory with its dedicated key and preserves explicit overrides', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'runcrate';
+    process.env.RUNCRATE_API_KEY = 'runcrate-test-key';
+    const options = { scope: 'memory' as const, projectRoot: TEST_PROJECT, homeDir: TEST_HOME };
+    expect(initLLM(options)).toEqual({
+      provider: 'runcrate', apiKey: 'runcrate-test-key',
+      model: 'deepseek-ai/DeepSeek-V4.1-Flash', baseUrl: 'https://api.runcrate.ai/v1',
+    });
+    process.env.MEMORIX_LLM_MODEL = 'custom-model';
+    process.env.MEMORIX_LLM_BASE_URL = 'https://gateway.example/v1';
+    expect(initLLM(options)).toMatchObject({
+      model: 'custom-model', baseUrl: 'https://gateway.example/v1',
+    });
+  });
+
+  it('leaves Runcrate memory disabled when only unrelated keys are available', () => {
+    process.env.MEMORIX_LLM_PROVIDER = 'runcrate';
+    process.env.OPENAI_API_KEY = 'openai-test-key';
+    process.env.ANTHROPIC_API_KEY = 'anthropic-test-key';
+    process.env.OPENROUTER_API_KEY = 'router-test-key';
+    expect(initLLM({ scope: 'memory', projectRoot: TEST_PROJECT, homeDir: TEST_HOME })).toBeNull();
+  });
+
+  it('uses agent-specific LLM env vars for TUI agent scope', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+    process.env.MEMORIX_AGENT_LLM_API_KEY = 'sk-agent';
+    process.env.MEMORIX_AGENT_LLM_PROVIDER = 'openrouter';
+    process.env.MEMORIX_AGENT_LLM_MODEL = 'agent-model';
+    process.env.MEMORIX_AGENT_LLM_BASE_URL = 'https://agent.example.com/v1';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config).toEqual({
+      provider: 'openrouter',
+      apiKey: 'sk-agent',
+      model: 'agent-model',
+      baseUrl: 'https://agent.example.com/v1',
+    });
+  });
+
+  it('uses short MEMORIX_AGENT_* env aliases for TUI agent scope', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+    process.env.MEMORIX_AGENT_API_KEY = 'sk-agent-short';
+    process.env.MEMORIX_AGENT_PROVIDER = 'openrouter';
+    process.env.MEMORIX_AGENT_MODEL = 'agent-short-model';
+    process.env.MEMORIX_AGENT_BASE_URL = 'https://agent-short.example.com/v1';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config).toEqual({
+      provider: 'openrouter',
+      apiKey: 'sk-agent-short',
+      model: 'agent-short-model',
+      baseUrl: 'https://agent-short.example.com/v1',
+    });
+  });
+
+  it('prefers short MEMORIX_AGENT_* aliases over legacy MEMORIX_AGENT_LLM_* aliases', () => {
+    process.env.MEMORIX_AGENT_API_KEY = 'sk-agent-short';
+    process.env.MEMORIX_AGENT_LLM_API_KEY = 'sk-agent-legacy';
+    process.env.MEMORIX_AGENT_PROVIDER = 'openrouter';
+    process.env.MEMORIX_AGENT_LLM_PROVIDER = 'openai';
+    process.env.MEMORIX_AGENT_MODEL = 'agent-short-model';
+    process.env.MEMORIX_AGENT_LLM_MODEL = 'agent-legacy-model';
+    process.env.MEMORIX_AGENT_BASE_URL = 'https://agent-short.example.com/v1';
+    process.env.MEMORIX_AGENT_LLM_BASE_URL = 'https://agent-legacy.example.com/v1';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config).toEqual({
+      provider: 'openrouter',
+      apiKey: 'sk-agent-short',
+      model: 'agent-short-model',
+      baseUrl: 'https://agent-short.example.com/v1',
+    });
+  });
+
+  it('keeps memory LLM scope on existing MEMORIX_LLM_* config', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_PROVIDER = 'openai';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+
+    const config = initLLM({ scope: 'memory' });
+
+    expect(config?.apiKey).toBe('sk-memory');
+    expect(config?.model).toBe('memory-model');
+  });
+
+  it('falls back to memory LLM config for agent scope when no agent config exists', () => {
+    process.env.MEMORIX_LLM_API_KEY = 'sk-memory';
+    process.env.MEMORIX_LLM_MODEL = 'memory-model';
+
+    const config = initLLM({ scope: 'agent' });
+
+    expect(config?.apiKey).toBe('sk-memory');
+    expect(config?.model).toBe('memory-model');
+  });
+});
+
+describe('parseLLMTimeoutMs', () => {
+  it('returns default when env var is undefined', () => {
+    expect(parseLLMTimeoutMs(undefined)).toBe(30_000);
+  });
+
+  it('returns default when env var is empty string', () => {
+    expect(parseLLMTimeoutMs('')).toBe(30_000);
+  });
+
+  it('returns default for non-numeric string', () => {
+    expect(parseLLMTimeoutMs('abc')).toBe(30_000);
+  });
+
+  it('returns default for float string', () => {
+    expect(parseLLMTimeoutMs('1500.5')).toBe(30_000);
+  });
+
+  it('returns default for NaN-producing input', () => {
+    expect(parseLLMTimeoutMs('NaN')).toBe(30_000);
+  });
+
+  it('parses valid integer correctly', () => {
+    expect(parseLLMTimeoutMs('60000')).toBe(60_000);
+  });
+
+  it('clamps to minimum (1000ms) when value is too small', () => {
+    expect(parseLLMTimeoutMs('0')).toBe(1_000);
+    expect(parseLLMTimeoutMs('500')).toBe(1_000);
+    expect(parseLLMTimeoutMs('-5000')).toBe(1_000);
+  });
+
+  it('clamps to maximum (300000ms) when value is too large', () => {
+    expect(parseLLMTimeoutMs('999999')).toBe(300_000);
+    expect(parseLLMTimeoutMs('300001')).toBe(300_000);
+  });
+
+  it('accepts boundary values exactly', () => {
+    expect(parseLLMTimeoutMs('1000')).toBe(1_000);
+    expect(parseLLMTimeoutMs('300000')).toBe(300_000);
+  });
+});
+
+describe('normalizeOpenAICompatibleBaseUrl', () => {
+  it('adds /v1 only to a bare API host', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('http://localhost:11434')).toBe('http://localhost:11434/v1');
+  });
+
+  it('preserves explicit v1 through v4 API paths', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v1')).toBe('https://api.example.com/v1');
+    expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v2/')).toBe('https://api.example.com/v2');
+    expect(normalizeOpenAICompatibleBaseUrl('https://ark.cn-beijing.volces.com/api/v3')).toBe('https://ark.cn-beijing.volces.com/api/v3');
+    expect(normalizeOpenAICompatibleBaseUrl('https://api.example.com/v4')).toBe('https://api.example.com/v4');
+  });
+
+  it('preserves provider version variants such as v1beta', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('https://generativelanguage.googleapis.com/v1beta')).toBe('https://generativelanguage.googleapis.com/v1beta');
+  });
+});
+
+describe('callLLMWithTools', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'gpt-4.1-nano',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setLLMConfig(null);
+    vi.restoreAllMocks();
+  });
+
+  it('aborts while reading a non-streaming response body', async () => {
+    const ac = new AbortController();
+    const encoder = new TextEncoder();
+    const cancel = vi.fn(async () => undefined);
+    const releaseLock = vi.fn();
+    let readCount = 0;
+    const reader: Pick<ReadableStreamDefaultReader<Uint8Array>, 'read' | 'cancel' | 'releaseLock'> = {
+      read: vi.fn(async () => {
+        if (readCount++ === 0) {
+          return {
+            value: encoder.encode('{"choices":[{"message":{"content":"partial'),
+            done: false,
+          };
+        }
+
+        return await new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+          setTimeout(() => {
+            ac.abort(new DOMException('User cancelled', 'AbortError'));
+          }, 0);
+          ac.signal.addEventListener('abort', () => reject(ac.signal.reason), { once: true });
+        });
+      }),
+      cancel,
+      releaseLock,
+    };
+
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      body: {
+        getReader: () => reader as ReadableStreamDefaultReader<Uint8Array>,
+      },
+    } as unknown as Response)) as typeof fetch;
+
+    await expect(callLLMWithTools([
+      { role: 'user', content: 'Hello?' },
+    ], [], ac.signal)).rejects.toThrow(/abort|cancel/i);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Atlas memory calls through chat completions without retrying failures', async () => {
+    setLLMConfig({ provider: 'atlascloud', apiKey: 'atlas-test-key',
+      model: 'deepseek-ai/deepseek-v3.2', baseUrl: 'https://api.atlascloud.ai/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.atlascloud.ai/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer atlas-test-key');
+    expect(JSON.parse(options.body).model).toBe('deepseek-ai/deepseek-v3.2');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Requesty memory calls through chat completions', async () => {
+    setLLMConfig({ provider: 'requesty', apiKey: 'requesty-test-key',
+      model: 'openai/gpt-4o-mini', baseUrl: 'https://router.requesty.ai/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://router.requesty.ai/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer requesty-test-key');
+    expect(JSON.parse(options.body).model).toBe('openai/gpt-4o-mini');
+  });
+
+  it('routes API Route memory calls with the selected model and surfaces endpoint failures', async () => {
+    setLLMConfig({ provider: 'apiroute', apiKey: 'api-route-test-key',
+      model: 'deepseek-v4.1-flash', baseUrl: 'https://global.api-route.com/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://global.api-route.com/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer api-route-test-key');
+    expect(JSON.parse(options.body).model).toBe('deepseek-v4.1-flash');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Cheaper Inference memory calls with the selected model and surfaces endpoint failures', async () => {
+    setLLMConfig({ provider: 'cheaperinference', apiKey: 'cheaper-inference-test-key',
+      model: 'gpt-5.4-mini', baseUrl: 'https://api.cheaperinference.com/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.cheaperinference.com/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer cheaper-inference-test-key');
+    expect(JSON.parse(options.body).model).toBe('gpt-5.4-mini');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes Runcrate memory calls with the selected model and surfaces endpoint failures', async () => {
+    setLLMConfig({ provider: 'runcrate', apiKey: 'runcrate-test-key',
+      model: 'deepseek-ai/DeepSeek-V4.1-Flash', baseUrl: 'https://api.runcrate.ai/v1' });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: 'memory summary' } }],
+    }), { headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock;
+    expect((await callLLM('Summarize.', 'A project fact.')).content).toBe('memory summary');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.runcrate.ai/v1/chat/completions');
+    expect(options.headers.Authorization).toBe('Bearer runcrate-test-key');
+    expect(JSON.parse(options.body).model).toBe('deepseek-ai/DeepSeek-V4.1-Flash');
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(new Response('unavailable', { status: 503 }));
+    await expect(callLLM('Summarize.', 'A project fact.')).rejects.toThrow('503');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects oversized non-streaming responses before parsing the full body', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'content-length': String(3 * 1024 * 1024),
+      }),
+      body: null,
+    } as unknown as Response)) as typeof fetch;
+
+    await expect(callLLMWithTools([
+      { role: 'user', content: 'Hello?' },
+    ], [])).rejects.toThrow(/too large/i);
+  });
+
+  it('uses a provider-supplied /api/v3 root without appending /v1', async () => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await callLLMWithTools([{ role: 'user', content: 'Hello?' }], []);
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+  });
+});
+
+describe('OpenAI-compatible ordinary and streaming calls', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setLLMConfig(null);
+    vi.restoreAllMocks();
+  });
+
+  it('uses a provider-supplied /api/v3 root for ordinary chat calls', async () => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'ok' } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    await callLLM('system', 'user');
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+  });
+
+  it('uses a provider-supplied /api/v3 root for streaming tool calls', async () => {
+    setLLMConfig({
+      provider: 'openai',
+      apiKey: 'test-key',
+      model: 'deepseek-v4-flash-ga-260731',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    });
+    let requestedUrl = '';
+    globalThis.fetch = vi.fn(async (input) => {
+      requestedUrl = String(input);
+      return new Response(
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n' +
+        'data: [DONE]\n\n',
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      );
+    }) as typeof fetch;
+
+    const events = [];
+    for await (const event of callLLMWithToolsStream([{ role: 'user', content: 'Hello?' }], [])) {
+      events.push(event);
+    }
+
+    expect(requestedUrl).toBe('https://ark.cn-beijing.volces.com/api/v3/chat/completions');
+    expect(events.some((event) => event.type === 'text' && event.content === 'ok')).toBe(true);
+  });
+});

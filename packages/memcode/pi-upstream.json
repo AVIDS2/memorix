@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "upstream": {
+    "repository": "earendil-works/pi",
+    "baseline": "v0.79.0"
+  },
+  "packages": [
+    {
+      "name": "ai",
+      "upstreamPrefix": "packages/ai/",
+      "memorixPath": "packages/ai/"
+    },
+    {
+      "name": "agent-core",
+      "upstreamPrefix": "packages/agent/",
+      "memorixPath": "packages/agent-core/"
+    },
+    {
+      "name": "tui",
+      "upstreamPrefix": "packages/tui/",
+      "memorixPath": "packages/tui/"
+    },
+    {
+      "name": "memcode",
+      "upstreamPrefix": "packages/coding-agent/",
+      "memorixPath": "packages/memcode/"
+    }
+  ],
+  "overlayWatchPaths": [
+    {
+      "name": "Memorix command and memory integration",
+      "upstreamPaths": [
+        "packages/coding-agent/src/core/slash-commands.ts",
+        "packages/coding-agent/src/modes/interactive/interactive-mode.ts",
+        "packages/coding-agent/src/core/agent-session.ts",
+        "packages/coding-agent/src/core/system-prompt.ts"
+      ]
+    },
+    {
+      "name": "Memcode extension and shell integration",
+      "upstreamPaths": [
+        "packages/coding-agent/src/core/extensions/runner.ts",
+        "packages/coding-agent/src/core/extensions/types.ts",
+        "packages/coding-agent/src/core/tools/bash.ts",
+        "packages/coding-agent/src/core/tools/index.ts"
+      ]
+    }
+  ]
+}

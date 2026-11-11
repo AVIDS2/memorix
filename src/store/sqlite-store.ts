@@ -1,0 +1,583 @@
+/**
+ * SqliteBackend — ObservationStore implementation backed by better-sqlite3.
+ *
+ * Features:
+ *   - WAL mode for concurrent read performance
+ *   - storage_generation counter for cross-process freshness detection
+ *   - next_id counter in meta table (replaces counter.json)
+ *   - One-time migration from observations.json on first init
+ *   - Dynamic require of better-sqlite3 (optionalDependencies)
+ *
+ * Array fields (facts, filesModified, concepts, relatedCommits, relatedEntities)
+ * are stored as JSON strings in SQLite columns.
+ *
+ * Uses the shared database handle from sqlite-db.ts so that observations,
+ * mini-skills, and sessions all share one connection and one DB file.
+ */
+
+import { randomUUID } from 'node:crypto';
+import type { Observation } from '../types.js';
+import type { ObservationStore, StoreTransaction } from './obs-store.js';
+import { getDatabase, closeDatabase } from './sqlite-db.js';
+import { retrySqliteBusy } from './sqlite-reliability.js';
+import {
+  isObservationLexicalIndexEnabled,
+  rebuildObservationLexicalIndex,
+  searchObservationLexically,
+  type SqliteLexicalSearchOptions,
+} from './sqlite-fts.js';
+import type { LexicalSearchHit } from './obs-store.js';
+import path from 'node:path';
+import fs from 'node:fs';
+import { withFileLock } from './file-lock.js';
+
+// ── Row ↔ Observation serialization ────────────────────────────────
+
+function obsToRow(obs: Observation): Record<string, unknown> {
+  return {
+    id: obs.id,
+    entityName: obs.entityName,
+    type: obs.type,
+    title: obs.title,
+    narrative: obs.narrative,
+    facts: JSON.stringify(obs.facts ?? []),
+    filesModified: JSON.stringify(obs.filesModified ?? []),
+    concepts: JSON.stringify(obs.concepts ?? []),
+    tokens: obs.tokens ?? 0,
+    createdAt: obs.createdAt,
+    updatedAt: obs.updatedAt ?? null,
+    projectId: obs.projectId,
+    hasCausalLanguage: obs.hasCausalLanguage ? 1 : 0,
+    topicKey: obs.topicKey ?? null,
+    revisionCount: obs.revisionCount ?? 1,
+    sessionId: obs.sessionId ?? null,
+    status: obs.status ?? 'active',
+    progress: obs.progress ? JSON.stringify(obs.progress) : null,
+    source: obs.source ?? 'agent',
+    commitHash: obs.commitHash ?? null,
+    relatedCommits: obs.relatedCommits ? JSON.stringify(obs.relatedCommits) : null,
+    relatedEntities: obs.relatedEntities ? JSON.stringify(obs.relatedEntities) : null,
+    attachments: obs.attachments ? JSON.stringify(obs.attachments) : null,
+    sourceDetail: obs.sourceDetail ?? null,
+    valueCategory: obs.valueCategory ?? null,
+    admissionState: obs.admissionState ?? null,
+    admissionReason: obs.admissionReason ?? null,
+    visibility: obs.visibility ?? null,
+    sharedWithAgentIds: obs.sharedWithAgentIds ? JSON.stringify(obs.sharedWithAgentIds) : null,
+    createdByAgentId: obs.createdByAgentId ?? null,
+    writeGeneration: obs.writeGeneration ?? 0,
+  };
+}
+
+function rowToObs(row: any): Observation {
+  return {
+    id: row.id,
+    entityName: row.entityName,
+    type: row.type,
+    title: row.title,
+    narrative: row.narrative,
+    facts: safeJsonParse(row.facts, []),
+    filesModified: safeJsonParse(row.filesModified, []),
+    concepts: safeJsonParse(row.concepts, []),
+    tokens: row.tokens,
+    createdAt: row.createdAt,
+    ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
+    projectId: row.projectId,
+    hasCausalLanguage: !!row.hasCausalLanguage,
+    ...(row.topicKey ? { topicKey: row.topicKey } : {}),
+    revisionCount: row.revisionCount ?? 1,
+    ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+    status: row.status ?? 'active',
+    ...(row.progress ? { progress: safeJsonParse(row.progress, undefined) } : {}),
+    ...(row.source ? { source: row.source } : {}),
+    ...(row.commitHash ? { commitHash: row.commitHash } : {}),
+    ...(row.relatedCommits ? { relatedCommits: safeJsonParse(row.relatedCommits, []) } : {}),
+    ...(row.relatedEntities ? { relatedEntities: safeJsonParse(row.relatedEntities, []) } : {}),
+    ...(row.attachments ? { attachments: safeJsonParse(row.attachments, []) } : {}),
+    ...(row.sourceDetail ? { sourceDetail: row.sourceDetail } : {}),
+    ...(row.valueCategory ? { valueCategory: row.valueCategory } : {}),
+    ...(row.admissionState ? { admissionState: row.admissionState } : {}),
+    ...(row.admissionReason ? { admissionReason: row.admissionReason } : {}),
+    ...(row.visibility ? { visibility: row.visibility } : {}),
+    ...(row.sharedWithAgentIds ? { sharedWithAgentIds: safeJsonParse(row.sharedWithAgentIds, []) } : {}),
+    ...(row.createdByAgentId ? { createdByAgentId: row.createdByAgentId } : {}),
+    ...(row.writeGeneration ? { writeGeneration: row.writeGeneration } : {}),
+  } as Observation;
+}
+
+function safeJsonParse(val: string | null | undefined, fallback: any): any {
+  if (val == null || val === '') return fallback;
+  try { return JSON.parse(val); } catch { return fallback; }
+}
+
+// ── SqliteBackend ──────────────────────────────────────────────────
+
+export class SqliteBackend implements ObservationStore {
+  private db: any = null;
+  private dataDir: string = '';
+  private knownGeneration: number = 0;
+
+  // Async mutex for serializing atomic() calls on the single connection
+  private _atomicQueue: Promise<unknown> = Promise.resolve();
+
+  // Prepared statements (lazy-initialized after db open)
+  private stmtInsert: any = null;
+  private stmtUpdate: any = null;
+  private stmtSetStatus: any = null;
+  private stmtSetStatusIfCurrent: any = null;
+  private stmtDelete: any = null;
+  private stmtSelectAll: any = null;
+  private stmtSelectById: any = null;
+  private stmtSelectByProject: any = null;
+  private stmtSelectByProjectStatus: any = null;
+  private stmtSelectByProjectAfterId: any = null;
+  private stmtSelectByProjectStatusAfterId: any = null;
+  private stmtSelectByProjectNewest: any = null;
+  private stmtSelectByProjectStatusNewest: any = null;
+  private stmtCountByProject: any = null;
+  private stmtCountByProjectStatus: any = null;
+  private stmtCountByProjectVisible: any = null;
+  private stmtCountByProjectStatusVisible: any = null;
+  private stmtCountAll: any = null;
+  private stmtSelectByTopicKey: any = null;
+  private stmtSelectGeneration: any = null;
+  private stmtBumpGeneration: any = null;
+  private stmtGetMeta: any = null;
+  private stmtSetMeta: any = null;
+
+  async init(dataDir: string): Promise<void> {
+    this.dataDir = dataDir;
+
+    // Use shared database handle (opens DB, creates all tables, sets pragmas)
+    this.db = getDatabase(dataDir);
+
+    // Prepare statements
+    this.stmtInsert = this.db.prepare(`
+      INSERT INTO observations
+        (id, entityName, type, title, narrative, facts, filesModified, concepts, tokens,
+         createdAt, updatedAt, projectId, hasCausalLanguage, topicKey, revisionCount,
+         sessionId, status, progress, source, commitHash, relatedCommits, relatedEntities,
+         attachments, sourceDetail, valueCategory, admissionState, admissionReason, visibility, sharedWithAgentIds,
+         createdByAgentId, writeGeneration)
+      VALUES
+        (@id, @entityName, @type, @title, @narrative, @facts, @filesModified, @concepts, @tokens,
+         @createdAt, @updatedAt, @projectId, @hasCausalLanguage, @topicKey, @revisionCount,
+         @sessionId, @status, @progress, @source, @commitHash, @relatedCommits, @relatedEntities,
+         @attachments, @sourceDetail, @valueCategory, @admissionState, @admissionReason, @visibility, @sharedWithAgentIds,
+         @createdByAgentId, @writeGeneration)
+      ON CONFLICT(id) DO UPDATE SET
+        entityName = excluded.entityName,
+        type = excluded.type,
+        title = excluded.title,
+        narrative = excluded.narrative,
+        facts = excluded.facts,
+        filesModified = excluded.filesModified,
+        concepts = excluded.concepts,
+        tokens = excluded.tokens,
+        createdAt = excluded.createdAt,
+        updatedAt = excluded.updatedAt,
+        projectId = excluded.projectId,
+        hasCausalLanguage = excluded.hasCausalLanguage,
+        topicKey = excluded.topicKey,
+        revisionCount = excluded.revisionCount,
+        sessionId = excluded.sessionId,
+        status = excluded.status,
+        progress = excluded.progress,
+        source = excluded.source,
+        commitHash = excluded.commitHash,
+        relatedCommits = excluded.relatedCommits,
+        relatedEntities = excluded.relatedEntities,
+        attachments = excluded.attachments,
+        sourceDetail = excluded.sourceDetail,
+        valueCategory = excluded.valueCategory,
+        admissionState = excluded.admissionState,
+        admissionReason = excluded.admissionReason,
+        visibility = excluded.visibility,
+        sharedWithAgentIds = excluded.sharedWithAgentIds,
+        createdByAgentId = excluded.createdByAgentId,
+        writeGeneration = excluded.writeGeneration
+    `);
+    this.stmtUpdate = this.stmtInsert;
+    this.stmtSetStatus = this.db.prepare(`UPDATE observations SET status = ? WHERE id = ?`);
+    this.stmtSetStatusIfCurrent = this.db.prepare(
+      `UPDATE observations SET status = ? WHERE id = ? AND status = ?`,
+    );
+    this.stmtDelete = this.db.prepare(`DELETE FROM observations WHERE id = ?`);
+    this.stmtSelectAll = this.db.prepare(`SELECT * FROM observations`);
+    this.stmtSelectById = this.db.prepare(`SELECT * FROM observations WHERE id = ?`);
+    this.stmtSelectByProject = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ?
+      ORDER BY id ASC LIMIT ? OFFSET ?
+    `);
+    this.stmtSelectByProjectStatus = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND status = ?
+      ORDER BY id ASC LIMIT ? OFFSET ?
+    `);
+    this.stmtSelectByProjectAfterId = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND id > ?
+      ORDER BY id ASC LIMIT ?
+    `);
+    this.stmtSelectByProjectStatusAfterId = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND status = ? AND id > ?
+      ORDER BY id ASC LIMIT ?
+    `);
+    this.stmtSelectByProjectNewest = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ?
+      ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?
+    `);
+    this.stmtSelectByProjectStatusNewest = this.db.prepare(`
+      SELECT * FROM observations WHERE projectId = ? AND status = ?
+      ORDER BY createdAt DESC, id DESC LIMIT ? OFFSET ?
+    `);
+    this.stmtCountByProject = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ?`,
+    );
+    this.stmtCountByProjectStatus = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND status = ?`,
+    );
+    this.stmtCountByProjectVisible = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND (visibility IS NULL OR visibility = 'project')`,
+    );
+    this.stmtCountByProjectStatusVisible = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM observations WHERE projectId = ? AND status = ? AND (visibility IS NULL OR visibility = 'project')`,
+    );
+    this.stmtCountAll = this.db.prepare(`SELECT COUNT(*) AS count FROM observations`);
+    this.stmtSelectByTopicKey = this.db.prepare(
+      `SELECT * FROM observations WHERE projectId = ? AND topicKey = ? ORDER BY id ASC LIMIT 1`,
+    );
+    this.stmtSelectGeneration = this.db.prepare(`SELECT value FROM meta WHERE key = 'storage_generation'`);
+    this.stmtBumpGeneration = this.db.prepare(`UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'storage_generation'`);
+    this.stmtGetMeta = this.db.prepare(`SELECT value FROM meta WHERE key = ?`);
+    this.stmtSetMeta = this.db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`);
+
+    // Read initial generation
+    this.knownGeneration = this.readGeneration();
+
+    // Migration: if observations table is empty but observations.json exists, import
+    await this.migrateFromJsonIfNeeded();
+  }
+
+  // ── Internal helpers ─────────────────────────────────────────────
+
+  private readGeneration(): number {
+    const row = this.stmtSelectGeneration.get();
+    return row ? parseInt(row.value, 10) : 0;
+  }
+
+  private bumpGeneration(): void {
+    this.stmtBumpGeneration.run();
+    this.knownGeneration = this.readGeneration();
+  }
+
+  private rawLoadAll(): Observation[] {
+    const rows = this.stmtSelectAll.all();
+    return rows.map(rowToObs);
+  }
+
+  private rawGetById(id: number): Observation | undefined {
+    const row = this.stmtSelectById.get(id);
+    return row ? rowToObs(row) : undefined;
+  }
+
+  private rawFindByTopicKey(projectId: string, topicKey: string): Observation | undefined {
+    const row = this.stmtSelectByTopicKey.get(projectId, topicKey);
+    return row ? rowToObs(row) : undefined;
+  }
+
+  private rawLoadIdCounter(): number {
+    const row = this.stmtGetMeta.get('next_id');
+    return row ? parseInt(row.value, 10) : 1;
+  }
+
+  private rawSaveIdCounter(nextId: number): void {
+    this.stmtSetMeta.run('next_id', String(nextId));
+  }
+
+  // ── Migration ────────────────────────────────────────────────────
+
+  private async migrateFromJsonIfNeeded(): Promise<void> {
+    const jsonPath = path.join(this.dataDir, 'observations.json');
+    if (!fs.existsSync(jsonPath)) return;
+
+    await withFileLock(this.dataDir, async () => {
+      // Re-check under the cross-process lock. Another initializer may have
+      // completed the migration while this process was waiting.
+      const count = this.db.prepare(`SELECT COUNT(*) AS cnt FROM observations`).get();
+      if (count.cnt > 0) return;
+
+      const raw = fs.readFileSync(jsonPath, 'utf-8');
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        throw new Error('[memorix] observations.json migration refused: expected a JSON array');
+      }
+      const observations = parsed as Observation[];
+      if (observations.length === 0) return;
+      if (observations.some((obs) => !obs || !Number.isSafeInteger(obs.id) || obs.id < 1 || typeof obs.projectId !== 'string')) {
+        throw new Error('[memorix] observations.json migration refused: invalid observation record');
+      }
+
+      console.error(`[memorix] Migrating ${observations.length} observations from JSON to SQLite...`);
+
+      // The SQLite transaction makes the migration all-or-nothing. The JSON
+      // source remains intact until an operator explicitly removes it.
+      const insertMany = this.db.transaction((obsList: Observation[]) => {
+        for (const obs of obsList) {
+          this.stmtInsert.run(obsToRow(obs));
+        }
+
+        const counterPath = path.join(this.dataDir, 'counter.json');
+        let counterNextId: number | undefined;
+        if (fs.existsSync(counterPath)) {
+          const counterData = JSON.parse(fs.readFileSync(counterPath, 'utf-8')) as { nextId?: unknown; next_id?: unknown };
+          const candidate = counterData.nextId ?? counterData.next_id;
+          if (candidate !== undefined && (!Number.isSafeInteger(candidate) || Number(candidate) < 1)) {
+            throw new Error('[memorix] counter.json migration refused: nextId must be a positive integer');
+          }
+          counterNextId = candidate === undefined ? undefined : Number(candidate);
+        }
+        const maxId = Math.max(...obsList.map((obs) => obs.id));
+        this.rawSaveIdCounter(Math.max(counterNextId ?? 1, maxId + 1));
+        this.bumpGeneration();
+      });
+      insertMany(observations);
+
+      console.error(`[memorix] Migration complete. ${observations.length} observations now in SQLite.`);
+    });
+  }
+
+  // ── Public read ──────────────────────────────────────────────────
+
+  async loadAll(): Promise<Observation[]> {
+    return this.rawLoadAll();
+  }
+
+  async loadByProject(
+    projectId: string,
+    options: { status?: string; limit?: number; offset?: number; afterId?: number; newestFirst?: boolean } = {},
+  ): Promise<Observation[]> {
+    const limit = options.limit == null ? -1 : Math.max(1, Math.floor(options.limit));
+    const offset = options.offset == null ? 0 : Math.max(0, Math.floor(options.offset));
+    const afterId = options.afterId == null ? null : Math.max(0, Math.floor(options.afterId));
+    const newestFirst = options.newestFirst === true && afterId === null;
+    const rows = afterId === null
+      ? (newestFirst
+        ? (options.status
+          ? this.stmtSelectByProjectStatusNewest.all(projectId, options.status, limit, offset)
+          : this.stmtSelectByProjectNewest.all(projectId, limit, offset))
+        : (options.status
+          ? this.stmtSelectByProjectStatus.all(projectId, options.status, limit, offset)
+          : this.stmtSelectByProject.all(projectId, limit, offset)))
+      : (options.status
+        ? this.stmtSelectByProjectStatusAfterId.all(projectId, options.status, afterId, limit)
+        : this.stmtSelectByProjectAfterId.all(projectId, afterId, limit));
+    return rows.map(rowToObs);
+  }
+
+  async getById(id: number): Promise<Observation | undefined> {
+    return this.rawGetById(id);
+  }
+
+  async countByProject(projectId: string, options: { status?: string; visibility?: 'project' } = {}): Promise<number> {
+    const row = options.visibility === 'project'
+      ? (options.status
+        ? this.stmtCountByProjectStatusVisible.get(projectId, options.status)
+        : this.stmtCountByProjectVisible.get(projectId))
+      : options.status
+        ? this.stmtCountByProjectStatus.get(projectId, options.status)
+        : this.stmtCountByProject.get(projectId);
+    return Number(row?.count ?? 0);
+  }
+
+  async loadIdCounter(): Promise<number> {
+    return this.rawLoadIdCounter();
+  }
+
+  async countAll(): Promise<number> {
+    return Number(this.stmtCountAll.get()?.count ?? 0);
+  }
+
+  async listProjectIds(): Promise<string[]> {
+    return (this.db.prepare('SELECT DISTINCT projectId FROM observations ORDER BY projectId').all() as Array<{ projectId?: string }>)
+      .map((row) => row.projectId)
+      .filter((projectId): projectId is string => Boolean(projectId));
+  }
+
+  async migrateProjectIds(aliasIds: readonly string[], canonicalId: string): Promise<number> {
+    const sourceIds = [...new Set(aliasIds.filter((projectId) => projectId && projectId !== canonicalId))];
+    if (sourceIds.length === 0) return 0;
+
+    return retrySqliteBusy(async () => {
+      const placeholders = sourceIds.map(() => '?').join(', ');
+      const result = this.db.prepare(
+        `UPDATE observations SET projectId = ? WHERE projectId IN (${placeholders})`,
+      ).run(canonicalId, ...sourceIds);
+      const migrated = Number(result.changes ?? 0);
+      if (migrated > 0) this.bumpGeneration();
+      return migrated;
+    }, 'Migrate observation project IDs');
+  }
+
+  async searchLexical(options: SqliteLexicalSearchOptions): Promise<LexicalSearchHit[]> {
+    return searchObservationLexically(this.db, options).map((hit) => ({
+      observation: rowToObs(hit.row),
+      score: hit.score,
+    }));
+  }
+
+  hasLexicalIndex(): boolean {
+    return isObservationLexicalIndexEnabled(this.db);
+  }
+
+  async rebuildLexicalIndex(): Promise<boolean> {
+    return rebuildObservationLexicalIndex(this.db);
+  }
+
+  // ── Public write (each bumps generation) ─────────────────────────
+
+  async insert(obs: Observation): Promise<void> {
+    this.stmtInsert.run(obsToRow(obs));
+    this.bumpGeneration();
+  }
+
+  async update(obs: Observation): Promise<void> {
+    this.stmtUpdate.run(obsToRow(obs));
+    this.bumpGeneration();
+  }
+
+  async remove(id: number): Promise<void> {
+    this.stmtDelete.run(id);
+    this.bumpGeneration();
+  }
+
+  async bulkReplace(obs: Observation[]): Promise<void> {
+    const run = this.db.transaction((obsList: Observation[]) => {
+      this.db.prepare(`DELETE FROM observations`).run();
+      for (const o of obsList) {
+        this.stmtInsert.run(obsToRow(o));
+      }
+    });
+    run(obs);
+    this.bumpGeneration();
+  }
+
+  async bulkRemoveByIds(ids: number[]): Promise<void> {
+    if (ids.length === 0) return;
+    const run = this.db.transaction((idList: number[]) => {
+      const stmt = this.db.prepare(`DELETE FROM observations WHERE id = ?`);
+      for (const id of idList) {
+        stmt.run(id);
+      }
+    });
+    run(ids);
+    this.bumpGeneration();
+  }
+
+  async saveIdCounter(nextId: number): Promise<void> {
+    this.rawSaveIdCounter(nextId);
+  }
+
+  // ── Compound atomic operation ────────────────────────────────────
+
+  async atomic<T>(fn: (tx: StoreTransaction) => Promise<T>): Promise<T> {
+    // Serialize concurrent atomic() calls via an async queue.
+    // better-sqlite3 is single-connection; nested BEGIN is illegal.
+    const run = this._atomicQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await retrySqliteBusy(async () => {
+          this.db.prepare('BEGIN IMMEDIATE').run();
+        }, 'Observation atomic write');
+        try {
+          const tx: StoreTransaction = {
+            enqueueMaintenanceJob: async (input) => {
+              const payloadJson = JSON.stringify(input.payload ?? {});
+              const existing = this.db.prepare(`
+                SELECT id, status FROM maintenance_jobs
+                WHERE project_id = ? AND kind = ? AND dedupe_key = ?
+                  AND status IN ('pending', 'running', 'retry')
+                LIMIT 1
+              `).get(input.projectId, input.kind, input.dedupeKey);
+              if (existing) {
+                if (existing.status === 'running') {
+                  this.db.prepare(`
+                    UPDATE maintenance_jobs
+                    SET rerun_requested = 1, payload_json = ?, updated_at = ?
+                    WHERE id = ?
+                  `).run(payloadJson, Date.now(), existing.id);
+                }
+                return;
+              }
+              const now = Date.now();
+              this.db.prepare(`
+                INSERT INTO maintenance_jobs (
+                  id, project_id, kind, dedupe_key, payload_json, status, attempts,
+                  max_attempts, run_after, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 8, ?, ?, ?)
+              `).run(randomUUID(), input.projectId, input.kind, input.dedupeKey, payloadJson, now, now, now);
+            },
+            loadAll: async () => this.rawLoadAll(),
+            getById: async (id) => this.rawGetById(id),
+            findByTopicKey: async (projectId, topicKey) => this.rawFindByTopicKey(projectId, topicKey),
+            loadIdCounter: async () => this.rawLoadIdCounter(),
+            insert: async (obs) => { this.stmtInsert.run(obsToRow(obs)); },
+            update: async (obs) => { this.stmtUpdate.run(obsToRow(obs)); },
+            setStatus: async (id, status, expectedStatus) => {
+              const result = expectedStatus === undefined
+                ? this.stmtSetStatus.run(status, id)
+                : this.stmtSetStatusIfCurrent.run(status, id, expectedStatus);
+              return Number(result.changes) > 0;
+            },
+            remove: async (id) => { this.stmtDelete.run(id); },
+            saveAll: async (obs) => {
+              this.db.prepare(`DELETE FROM observations`).run();
+              for (const o of obs) {
+                this.stmtInsert.run(obsToRow(o));
+              }
+            },
+            saveIdCounter: async (nextId) => this.rawSaveIdCounter(nextId),
+            getGeneration: async () => this.readGeneration(),
+          };
+          const result = await fn(tx);
+          this.bumpGeneration();
+          this.db.prepare('COMMIT').run();
+          return result;
+        } catch (err) {
+          try { this.db.prepare('ROLLBACK').run(); } catch { /* already rolled back */ }
+          throw err;
+        }
+      });
+
+    // Keep the queue alive after failures so one bad transaction does not poison
+    // all future atomic() calls.
+    this._atomicQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  // ── Freshness ────────────────────────────────────────────────────
+
+  async ensureFresh(): Promise<boolean> {
+    const remoteGen = this.readGeneration();
+    if (remoteGen > this.knownGeneration) {
+      this.knownGeneration = remoteGen;
+      return true; // caller should reload observations[] + rebuild Orama
+    }
+    return false;
+  }
+
+  getGeneration(): number {
+    return this.knownGeneration;
+  }
+
+  // ── Diagnostics ──────────────────────────────────────────────────
+
+  close(): void {
+    // Detach from the shared handle without closing it — other stores
+    // (MiniSkillSqliteStore, SessionSqliteStore) may still be using it.
+    // Use closeDatabase(dataDir) or closeAllDatabases() for full shutdown.
+    this.db = null;
+  }
+
+  getBackendName(): 'sqlite' | 'degraded' {
+    return 'sqlite';
+  }
+}

@@ -1,0 +1,28 @@
+import { describe, it, expect } from 'vitest';
+import { computeLayoutWidths, getHomeSeparatorWidth, getStatusMessageRows, SLASH_COMMANDS } from '../../src/cli/tui/theme.js';
+
+describe('tui layout helpers', () => {
+  it('clamps the home separator width for very narrow content areas', () => {
+    expect(getHomeSeparatorWidth(6)).toBe(0);
+    expect(getHomeSeparatorWidth(8)).toBe(0);
+    expect(getHomeSeparatorWidth(9)).toBe(1);
+    expect(getHomeSeparatorWidth(80)).toBe(50);
+  });
+
+  it('counts explicit status message lines for layout reservation', () => {
+    expect(getStatusMessageRows('Home — type a question')).toBe(1);
+    expect(getStatusMessageRows('First\nSecond\nThird')).toBe(3);
+  });
+
+  it('never returns a negative content width on tiny terminals', () => {
+    expect(computeLayoutWidths(3).contentWidth).toBe(0);
+    expect(computeLayoutWidths(4).contentWidth).toBe(0);
+  });
+
+  it('includes the Memory Overview slash command', () => {
+    const wiki = SLASH_COMMANDS.find(command => command.name === '/wiki');
+    expect(wiki).toBeDefined();
+    expect(wiki?.alias).toBe('/knowledge');
+    expect(wiki?.description).toBe('Memory overview');
+  });
+});

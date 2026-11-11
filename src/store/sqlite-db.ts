@@ -1,0 +1,1402 @@
+/**
+ * Shared SQLite Database Handle
+ *
+ * Provides a singleton-per-dataDir better-sqlite3 connection shared across
+ * all SQLite-backed stores (observations, mini-skills, sessions, team).
+ *
+ * Responsibilities:
+ *   - Dynamic require of better-sqlite3 (optionalDependencies)
+ *   - WAL mode and busy_timeout configuration
+ *   - Schema creation for ALL tables (observations, mini_skills, sessions, meta, team_*)
+ *   - Singleton caching per dataDir
+ *   - Graceful close
+ */
+
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import fs from 'node:fs';
+import { createDatabase, loadSqlite } from './bun-sqlite-compat.js';
+import { assertNotHomeDataDir } from '../project/launch-root.js';
+import { initializeObservationLexicalIndex } from './sqlite-fts.js';
+
+// Dynamic require for SQLite (better-sqlite3, node:sqlite, or bun:sqlite)
+let BetterSqlite3: any;
+
+export function loadBetterSqlite3(): any {
+  if (BetterSqlite3) return BetterSqlite3;
+  try {
+    BetterSqlite3 = loadSqlite();
+    return BetterSqlite3;
+  } catch {
+    throw new Error('[memorix] SQLite is not available (better-sqlite3, node:sqlite, and bun:sqlite all failed)');
+  }
+}
+
+// ── Schema DDL ──────────────────────────────────────────────────────
+
+const CREATE_OBSERVATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS observations (
+  id              INTEGER PRIMARY KEY,
+  entityName      TEXT NOT NULL,
+  type            TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  narrative       TEXT NOT NULL DEFAULT '',
+  facts           TEXT NOT NULL DEFAULT '[]',
+  filesModified   TEXT NOT NULL DEFAULT '[]',
+  concepts        TEXT NOT NULL DEFAULT '[]',
+  tokens          INTEGER NOT NULL DEFAULT 0,
+  createdAt       TEXT NOT NULL,
+  updatedAt       TEXT,
+  projectId       TEXT NOT NULL,
+  hasCausalLanguage INTEGER DEFAULT 0,
+  topicKey        TEXT,
+  revisionCount   INTEGER DEFAULT 1,
+  sessionId       TEXT,
+  status          TEXT NOT NULL DEFAULT 'active',
+  progress        TEXT,
+  source          TEXT DEFAULT 'agent',
+  commitHash      TEXT,
+  relatedCommits  TEXT,
+  relatedEntities TEXT,
+  attachments     TEXT,
+  sourceDetail    TEXT,
+  valueCategory   TEXT,
+  admissionState  TEXT,
+  admissionReason TEXT,
+  visibility      TEXT,
+  sharedWithAgentIds TEXT
+);
+`;
+
+const CREATE_MINI_SKILLS_TABLE = `
+CREATE TABLE IF NOT EXISTS mini_skills (
+  id                   INTEGER PRIMARY KEY,
+  sourceObservationIds TEXT NOT NULL DEFAULT '[]',
+  sourceEntity         TEXT NOT NULL DEFAULT 'unknown',
+  title                TEXT NOT NULL,
+  instruction          TEXT NOT NULL DEFAULT '',
+  trigger_desc         TEXT NOT NULL DEFAULT '',
+  facts                TEXT NOT NULL DEFAULT '[]',
+  projectId            TEXT NOT NULL,
+  createdAt            TEXT NOT NULL,
+  usedCount            INTEGER NOT NULL DEFAULT 0,
+  tags                 TEXT NOT NULL DEFAULT '[]'
+);
+`;
+
+const CREATE_SESSIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS sessions (
+  id         TEXT PRIMARY KEY,
+  projectId  TEXT NOT NULL,
+  startedAt  TEXT NOT NULL,
+  endedAt    TEXT,
+  status     TEXT NOT NULL DEFAULT 'active',
+  summary    TEXT,
+  agent      TEXT
+);
+`;
+
+const CREATE_META_TABLE = `
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`;
+
+// ── Phase 4a: Orchestration Coordination Tables ─────────────────────
+
+const CREATE_TEAM_AGENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS team_agents (
+  agent_id        TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  agent_type      TEXT NOT NULL,
+  instance_id     TEXT NOT NULL,
+  name            TEXT NOT NULL DEFAULT '',
+  role            TEXT,
+  capabilities    TEXT,
+  status          TEXT NOT NULL DEFAULT 'active',
+  joined_at       INTEGER NOT NULL,
+  last_heartbeat  INTEGER NOT NULL,
+  left_at         INTEGER,
+  last_seen_obs_generation INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(project_id, agent_type, instance_id)
+);
+`;
+
+const CREATE_TEAM_MESSAGES_TABLE = `
+CREATE TABLE IF NOT EXISTS team_messages (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  sender_agent_id TEXT NOT NULL,
+  recipient_agent_id TEXT,
+  type            TEXT NOT NULL DEFAULT 'direct',
+  content         TEXT NOT NULL DEFAULT '',
+  payload         TEXT,
+  task_id         TEXT,
+  read_at         INTEGER,
+  created_at      INTEGER NOT NULL,
+  to_role         TEXT,
+  handoff_status  TEXT,
+  FOREIGN KEY (sender_agent_id) REFERENCES team_agents(agent_id),
+  FOREIGN KEY (task_id) REFERENCES team_tasks(task_id)
+);
+`;
+
+const CREATE_TEAM_TASKS_TABLE = `
+CREATE TABLE IF NOT EXISTS team_tasks (
+  task_id         TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  description     TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  assignee_agent_id TEXT,
+  result          TEXT,
+  metadata        TEXT,
+  created_by      TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  required_role   TEXT,
+  preferred_role  TEXT,
+  FOREIGN KEY (assignee_agent_id) REFERENCES team_agents(agent_id),
+  FOREIGN KEY (created_by) REFERENCES team_agents(agent_id)
+);
+`;
+
+const CREATE_TEAM_TASK_DEPS_TABLE = `
+CREATE TABLE IF NOT EXISTS team_task_deps (
+  task_id     TEXT NOT NULL,
+  dep_task_id TEXT NOT NULL,
+  PRIMARY KEY (task_id, dep_task_id),
+  FOREIGN KEY (task_id) REFERENCES team_tasks(task_id),
+  FOREIGN KEY (dep_task_id) REFERENCES team_tasks(task_id)
+);
+`;
+
+const CREATE_TEAM_LOCKS_TABLE = `
+CREATE TABLE IF NOT EXISTS team_locks (
+  file            TEXT NOT NULL,
+  project_id      TEXT NOT NULL,
+  locked_by       TEXT NOT NULL,
+  locked_at       INTEGER NOT NULL,
+  expires_at      INTEGER NOT NULL,
+  PRIMARY KEY (file, project_id),
+  FOREIGN KEY (locked_by) REFERENCES team_agents(agent_id)
+);
+`;
+
+// ── Phase 4d: Role-based Coordination Tables ─────────────────────────
+
+const CREATE_TEAM_ROLES_TABLE = `
+CREATE TABLE IF NOT EXISTS team_roles (
+  role_id               TEXT PRIMARY KEY,
+  project_id            TEXT NOT NULL,
+  label                 TEXT NOT NULL,
+  description           TEXT,
+  preferred_agent_types TEXT NOT NULL DEFAULT '[]',
+  max_concurrent        INTEGER NOT NULL DEFAULT 1,
+  created_at            INTEGER NOT NULL
+);
+`;
+
+// ── Chat Transcript Table ──────────────────────────────────────────────
+
+const CREATE_CHAT_TRANSCRIPT_TABLE = `
+CREATE TABLE IF NOT EXISTS chat_transcript (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id      TEXT NOT NULL,
+  thread_id       TEXT NOT NULL DEFAULT 'default',
+  role            TEXT NOT NULL,
+  content         TEXT NOT NULL DEFAULT '',
+  sources_json    TEXT NOT NULL DEFAULT '[]',
+  meta_json       TEXT NOT NULL DEFAULT '{}',
+  error           INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL
+);
+`;
+
+// ── Knowledge Graph Tables ────────────────────────────────────────────
+
+const CREATE_GRAPH_ENTITIES_TABLE = `
+CREATE TABLE IF NOT EXISTS graph_entities (
+  projectId       TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  entityType      TEXT NOT NULL DEFAULT '',
+  observations    TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (projectId, name)
+);
+`;
+
+const CREATE_GRAPH_RELATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS graph_relations (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  projectId       TEXT NOT NULL,
+  from_entity     TEXT NOT NULL,
+  to_entity       TEXT NOT NULL,
+  relationType    TEXT NOT NULL DEFAULT '',
+  UNIQUE(projectId, from_entity, to_entity, relationType)
+);
+`;
+
+// ── CodeGraph Memory Tables ─────────────────────────────────────────
+
+const CREATE_CODE_FILES_TABLE = `
+CREATE TABLE IF NOT EXISTS code_files (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  language        TEXT,
+  contentHash     TEXT NOT NULL,
+  mtimeMs         INTEGER,
+  sizeBytes       INTEGER,
+  indexedAt       TEXT NOT NULL,
+  gitCommit       TEXT,
+  source          TEXT,
+  parserError     TEXT,
+  UNIQUE(projectId, path)
+);
+`;
+
+const CREATE_CODE_SYMBOLS_TABLE = `
+CREATE TABLE IF NOT EXISTS code_symbols (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  fileId          TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  qualifiedName   TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  startLine       INTEGER,
+  endLine         INTEGER,
+  signature       TEXT,
+  contentHash     TEXT,
+  indexedAt       TEXT NOT NULL,
+  stale           INTEGER NOT NULL DEFAULT 0,
+  source          TEXT,
+  UNIQUE(projectId, fileId, qualifiedName, kind)
+);
+`;
+
+const CREATE_CODE_EDGES_TABLE = `
+CREATE TABLE IF NOT EXISTS code_edges (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  fromSymbolId    TEXT,
+  toSymbolId      TEXT,
+  fromFileId      TEXT,
+  toFileId        TEXT,
+  type            TEXT NOT NULL,
+  confidence      REAL NOT NULL DEFAULT 1.0,
+  evidence        TEXT,
+  source          TEXT,
+  indexedAt       TEXT NOT NULL
+);
+`;
+
+const CREATE_OBSERVATION_CODE_REFS_TABLE = `
+CREATE TABLE IF NOT EXISTS observation_code_refs (
+  id                 TEXT PRIMARY KEY,
+  projectId          TEXT NOT NULL,
+  observationId      INTEGER NOT NULL,
+  fileId             TEXT,
+  symbolId           TEXT,
+  capturedFileHash   TEXT,
+  capturedSymbolHash TEXT,
+  status             TEXT NOT NULL,
+  reason             TEXT,
+  createdAt          TEXT NOT NULL,
+  updatedAt          TEXT
+);
+`;
+
+const CREATE_SCHEMA_MIGRATIONS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS schema_migrations (',
+  '  id TEXT PRIMARY KEY,',
+  '  applied_at TEXT NOT NULL',
+  ');',
+].join('\n');
+
+const CREATE_CODE_STATE_SNAPSHOTS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS code_state_snapshots (',
+  '  id                   TEXT PRIMARY KEY,',
+  '  projectId            TEXT NOT NULL,',
+  '  provider             TEXT NOT NULL,',
+  '  baseRevision         TEXT,',
+  '  worktreeFingerprint  TEXT NOT NULL,',
+  '  worktreeState        TEXT NOT NULL,',
+  '  changedPathCount     INTEGER NOT NULL DEFAULT 0,',
+  '  indexedAt            TEXT NOT NULL,',
+  '  sourceEpoch          INTEGER NOT NULL,',
+  "  completenessJson     TEXT NOT NULL DEFAULT '{}',",
+  '  previousSnapshotId   TEXT,',
+  '  UNIQUE(projectId, sourceEpoch)',
+  ');',
+].join('\n');
+
+const CREATE_CODE_STATE_SNAPSHOT_FILES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS code_state_snapshot_files (',
+  '  snapshotId  TEXT NOT NULL,',
+  '  projectId   TEXT NOT NULL,',
+  '  fileId      TEXT NOT NULL,',
+  '  path        TEXT NOT NULL,',
+  '  contentHash TEXT NOT NULL,',
+  '  PRIMARY KEY (snapshotId, path),',
+  '  FOREIGN KEY (snapshotId) REFERENCES code_state_snapshots(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+// ── 1.2 Knowledge Claim Ledger ──────────────────────────────────────
+
+const CREATE_KNOWLEDGE_CLAIMS_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claims (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  subject         TEXT NOT NULL,
+  predicate       TEXT NOT NULL,
+  objectValue     TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  claimKey        TEXT NOT NULL,
+  conflictKey     TEXT NOT NULL,
+  status          TEXT NOT NULL,
+  confidence      REAL NOT NULL,
+  observedAt      TEXT NOT NULL,
+  validFrom       TEXT,
+  validTo         TEXT,
+  supersededBy    TEXT,
+  reviewState     TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  createdAt       TEXT NOT NULL,
+  updatedAt       TEXT NOT NULL
+);
+`;
+
+const CREATE_KNOWLEDGE_CLAIM_EVIDENCE_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claim_evidence (
+  id              TEXT PRIMARY KEY,
+  claimId         TEXT NOT NULL,
+  evidenceKind    TEXT NOT NULL,
+  evidenceId      TEXT NOT NULL,
+  relation        TEXT NOT NULL,
+  snapshotId      TEXT,
+  locator         TEXT,
+  capturedHash    TEXT,
+  evidenceKey     TEXT NOT NULL,
+  createdAt       TEXT NOT NULL,
+  UNIQUE(claimId, evidenceKey),
+  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_KNOWLEDGE_CLAIM_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS knowledge_claim_events (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  claimId         TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  fromStatus      TEXT,
+  toStatus        TEXT,
+  relatedClaimId  TEXT,
+  detail          TEXT,
+  createdAt       TEXT NOT NULL,
+  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE CASCADE
+);
+`;
+
+// ── 1.2 Knowledge Workspace ─────────────────────────────────────────
+
+const CREATE_KNOWLEDGE_WORKSPACES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workspaces (',
+  '  id              TEXT PRIMARY KEY,',
+  '  projectId       TEXT NOT NULL,',
+  '  mode            TEXT NOT NULL,',
+  '  rootPath        TEXT NOT NULL,',
+  '  projectRoot     TEXT,',
+  '  status          TEXT NOT NULL,',
+  '  createdAt       TEXT NOT NULL,',
+  '  updatedAt       TEXT NOT NULL,',
+  '  lastCompiledAt  TEXT,',
+  '  lastLintedAt    TEXT,',
+  '  UNIQUE(projectId, mode)',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGES_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_pages (',
+  '  id                TEXT PRIMARY KEY,',
+  '  workspaceId       TEXT NOT NULL,',
+  '  relativePath      TEXT NOT NULL,',
+  '  title             TEXT NOT NULL,',
+  '  kind              TEXT NOT NULL,',
+  '  status            TEXT NOT NULL,',
+  '  reviewState       TEXT NOT NULL,',
+  '  contentHash       TEXT NOT NULL,',
+  '  sourceHash        TEXT NOT NULL,',
+  "  claimIdsJson      TEXT NOT NULL DEFAULT '[]',",
+  '  snapshotId        TEXT,',
+  "  tagsJson          TEXT NOT NULL DEFAULT '[]',",
+  '  generatedAt       TEXT NOT NULL,',
+  '  updatedAt         TEXT NOT NULL,',
+  '  lastLintedAt      TEXT,',
+  '  manualContentHash TEXT,',
+  '  UNIQUE(workspaceId, relativePath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGE_CLAIMS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_page_claims (',
+  '  pageId   TEXT NOT NULL,',
+  '  claimId  TEXT NOT NULL,',
+  '  role     TEXT NOT NULL,',
+  '  PRIMARY KEY (pageId, claimId),',
+  '  FOREIGN KEY (pageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE,',
+  '  FOREIGN KEY (claimId) REFERENCES knowledge_claims(id) ON DELETE RESTRICT',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PAGE_LINKS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_page_links (',
+  '  sourcePageId TEXT NOT NULL,',
+  '  targetPath   TEXT NOT NULL,',
+  '  PRIMARY KEY (sourcePageId, targetPath),',
+  '  FOREIGN KEY (sourcePageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_PROPOSALS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_proposals (',
+  '  id              TEXT PRIMARY KEY,',
+  '  workspaceId     TEXT NOT NULL,',
+  '  pageId          TEXT NOT NULL,',
+  '  targetPath      TEXT NOT NULL,',
+  '  proposalPath    TEXT NOT NULL,',
+  '  baseContentHash TEXT,',
+  '  sourceHash      TEXT NOT NULL,',
+  '  reason          TEXT NOT NULL,',
+  '  status          TEXT NOT NULL,',
+  '  createdAt       TEXT NOT NULL,',
+  '  appliedAt       TEXT,',
+  '  UNIQUE(workspaceId, proposalPath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE,',
+  '  FOREIGN KEY (pageId) REFERENCES knowledge_pages(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+// ── 1.2 Workflow inheritance ────────────────────────────────────────
+
+const CREATE_KNOWLEDGE_WORKFLOWS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workflows (',
+  '  id            TEXT PRIMARY KEY,',
+  '  workspaceId   TEXT NOT NULL,',
+  '  sourcePath    TEXT NOT NULL,',
+  '  title         TEXT NOT NULL,',
+  '  status        TEXT NOT NULL,',
+  '  version       INTEGER NOT NULL,',
+  '  sourceHash    TEXT NOT NULL,',
+  '  contentHash   TEXT NOT NULL,',
+  '  specJson      TEXT NOT NULL,',
+  '  importedFrom  TEXT,',
+  '  createdAt     TEXT NOT NULL,',
+  '  updatedAt     TEXT NOT NULL,',
+  '  UNIQUE(workspaceId, sourcePath),',
+  '  FOREIGN KEY (workspaceId) REFERENCES knowledge_workspaces(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+const CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE = [
+  'CREATE TABLE IF NOT EXISTS knowledge_workflow_runs (',
+  '  id                    TEXT PRIMARY KEY,',
+  '  workflowId            TEXT NOT NULL,',
+  '  projectId             TEXT NOT NULL,',
+  '  task                  TEXT NOT NULL,',
+  '  startingSnapshotId    TEXT,',
+  "  selectedEvidenceJson  TEXT NOT NULL DEFAULT '[]',",
+  "  phaseStateJson        TEXT NOT NULL DEFAULT '{}',",
+  '  outcome               TEXT NOT NULL,',
+  '  verificationVerdict   TEXT NOT NULL,',
+  '  failureReason         TEXT,',
+  '  startedAt             TEXT NOT NULL,',
+  '  completedAt           TEXT,',
+  '  FOREIGN KEY (workflowId) REFERENCES knowledge_workflows(id) ON DELETE CASCADE',
+  ');',
+].join('\n');
+
+// ── 1.3 Durable cognitive memory ───────────────────────────────────
+
+const CREATE_LONG_TERM_MEMORIES_TABLE = `
+CREATE TABLE IF NOT EXISTS long_term_memories (
+  id                TEXT PRIMARY KEY,
+  originProjectId   TEXT NOT NULL,
+  ownerId           TEXT NOT NULL,
+  scope             TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  state             TEXT NOT NULL,
+  portability       TEXT NOT NULL DEFAULT 'project-bound',
+  title             TEXT NOT NULL,
+  content           TEXT NOT NULL,
+  factsJson         TEXT NOT NULL DEFAULT '[]',
+  tagsJson          TEXT NOT NULL DEFAULT '[]',
+  applicability     TEXT,
+  origin            TEXT NOT NULL,
+  createdAt         TEXT NOT NULL,
+  updatedAt         TEXT NOT NULL,
+  qualifiedAt       TEXT,
+  approvedAt        TEXT,
+  archivedAt        TEXT,
+  supersededBy      TEXT,
+  lastValidatedAt   TEXT,
+  accessCount       INTEGER NOT NULL DEFAULT 0,
+  lastAccessedAt    TEXT
+);
+`;
+
+const CREATE_LONG_TERM_MEMORY_EVIDENCE_TABLE = `
+CREATE TABLE IF NOT EXISTS long_term_memory_evidence (
+  id             TEXT PRIMARY KEY,
+  memoryId       TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  referenceId    TEXT NOT NULL,
+  relation       TEXT NOT NULL,
+  locator        TEXT,
+  capturedHash   TEXT,
+  createdAt      TEXT NOT NULL,
+  FOREIGN KEY (memoryId) REFERENCES long_term_memories(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_LONG_TERM_MEMORY_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS long_term_memory_events (
+  id          TEXT PRIMARY KEY,
+  memoryId    TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  fromState   TEXT,
+  toState     TEXT,
+  detail      TEXT,
+  createdAt   TEXT NOT NULL,
+  FOREIGN KEY (memoryId) REFERENCES long_term_memories(id) ON DELETE CASCADE
+);
+`;
+
+// ── 1.4 Evidence-governed memory ───────────────────────────────────
+
+const CREATE_MEMORY_OUTCOME_SIGNALS_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_outcome_signals (
+  id            TEXT PRIMARY KEY,
+  projectId     TEXT NOT NULL,
+  candidateKind TEXT NOT NULL,
+  candidateId   TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  sourceRef     TEXT NOT NULL,
+  snapshotId    TEXT,
+  detail        TEXT,
+  observedAt    TEXT NOT NULL
+);
+`;
+
+// ── 1.3.3 Controlled media assets ─────────────────────────────────
+
+const CREATE_MEDIA_ASSETS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_assets (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT NOT NULL,
+  sha256           TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  mime_type        TEXT NOT NULL,
+  byte_size        INTEGER NOT NULL,
+  storage_rel_path TEXT NOT NULL,
+  source_kind      TEXT NOT NULL,
+  source_label     TEXT,
+  provider         TEXT,
+  model            TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  deleted_at       INTEGER,
+  UNIQUE(project_id, sha256)
+);
+`;
+
+const CREATE_MEDIA_ASSET_LINKS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_asset_links (
+  id             TEXT PRIMARY KEY,
+  asset_id       TEXT NOT NULL,
+  project_id     TEXT NOT NULL,
+  observation_id INTEGER,
+  role           TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE,
+  FOREIGN KEY (observation_id) REFERENCES observations(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEDIA_DERIVATIONS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_derivations (
+  id          TEXT PRIMARY KEY,
+  asset_id    TEXT NOT NULL,
+  project_id  TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  profile_key TEXT,
+  content     TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT,
+  status      TEXT NOT NULL DEFAULT 'ready',
+  error       TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEDIA_EMBEDDING_PROFILES_TABLE = `
+CREATE TABLE IF NOT EXISTS media_embedding_profiles (
+  profile_key TEXT PRIMARY KEY,
+  provider    TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  dimensions  INTEGER NOT NULL,
+  modality    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+`;
+
+const CREATE_MEDIA_EMBEDDINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_embeddings (
+  asset_id    TEXT NOT NULL,
+  project_id  TEXT NOT NULL,
+  profile_key TEXT NOT NULL,
+  intent      TEXT NOT NULL,
+  dimensions  INTEGER NOT NULL,
+  vector_json TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (asset_id, profile_key, intent),
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE CASCADE,
+  FOREIGN KEY (profile_key) REFERENCES media_embedding_profiles(profile_key) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEDIA_JOBS_TABLE = `
+CREATE TABLE IF NOT EXISTS media_jobs (
+  id                   TEXT PRIMARY KEY,
+  project_id           TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  request_json         TEXT NOT NULL DEFAULT '{}',
+  source_asset_id      TEXT,
+  provider_task_id     TEXT,
+  asset_id             TEXT,
+  last_error           TEXT,
+  attempts             INTEGER NOT NULL DEFAULT 0,
+  attach_on_complete   INTEGER NOT NULL DEFAULT 0,
+  observation_title    TEXT,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL,
+  completed_at         INTEGER,
+  FOREIGN KEY (asset_id) REFERENCES media_assets(id) ON DELETE SET NULL,
+  FOREIGN KEY (source_asset_id) REFERENCES media_assets(id) ON DELETE SET NULL
+);
+`;
+
+// ── Runtime maintenance jobs ───────────────────────────────────────
+
+const CREATE_MAINTENANCE_JOBS_TABLE = `
+CREATE TABLE IF NOT EXISTS maintenance_jobs (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT NOT NULL,
+  kind             TEXT NOT NULL,
+  dedupe_key       TEXT NOT NULL,
+  payload_json     TEXT NOT NULL DEFAULT '{}',
+  status           TEXT NOT NULL DEFAULT 'pending',
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  max_attempts     INTEGER NOT NULL DEFAULT 8,
+  run_after        INTEGER NOT NULL,
+  lease_owner      TEXT,
+  lease_expires_at INTEGER,
+  last_error       TEXT,
+  attempted        INTEGER NOT NULL DEFAULT 0,
+  succeeded        INTEGER NOT NULL DEFAULT 0,
+  failed           INTEGER NOT NULL DEFAULT 0,
+  remaining        INTEGER NOT NULL DEFAULT 0,
+  progress_recorded INTEGER NOT NULL DEFAULT 0,
+  rerun_requested INTEGER NOT NULL DEFAULT 0,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  completed_at     INTEGER
+);
+`;
+
+const CREATE_MAINTENANCE_TARGETS_TABLE = `
+CREATE TABLE IF NOT EXISTS maintenance_targets (
+  project_id   TEXT PRIMARY KEY,
+  project_root TEXT NOT NULL,
+  data_dir     TEXT NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+`;
+
+// ── 1.2.7 Cross-Agent Compaction Checkpoints ───────────────────────
+
+const CREATE_COMPACTION_CHECKPOINTS_TABLE = `
+CREATE TABLE IF NOT EXISTS compaction_checkpoints (
+  id                   TEXT PRIMARY KEY,
+  project_id           TEXT NOT NULL,
+  session_id           TEXT NOT NULL,
+  agent                TEXT NOT NULL,
+  phase                TEXT NOT NULL,
+  capture_kind         TEXT NOT NULL,
+  reason               TEXT NOT NULL DEFAULT 'unknown',
+  source_event         TEXT NOT NULL,
+  source_key           TEXT NOT NULL,
+  summary              TEXT,
+  tokens_before        INTEGER,
+  first_kept_entry_id  TEXT,
+  details_json         TEXT NOT NULL DEFAULT '{}',
+  transcript_available INTEGER NOT NULL DEFAULT 0,
+  status               TEXT NOT NULL DEFAULT 'active',
+  pre_captured_at      TEXT NOT NULL,
+  completed_at         TEXT,
+  delivered_at         TEXT,
+  delivery_count       INTEGER NOT NULL DEFAULT 0,
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL
+);
+`;
+
+// 1.8 context-control plane: persisted provenance cards, feedback state, and
+// explicit stateless MCP project handles. These are append/update records in
+// the same SQLite database as observations so a process restart cannot lose
+// the context-control boundary.
+const CREATE_EVIDENCE_CARDS_TABLE = `
+CREATE TABLE IF NOT EXISTS evidence_cards (
+  id                 TEXT PRIMARY KEY,
+  project_id         TEXT NOT NULL,
+  candidate_kind     TEXT NOT NULL,
+  candidate_id       TEXT NOT NULL,
+  title              TEXT NOT NULL,
+  summary            TEXT NOT NULL DEFAULT '',
+  entity_name        TEXT,
+  source_kind        TEXT NOT NULL,
+  source_ref         TEXT NOT NULL,
+  locator            TEXT,
+  captured_hash      TEXT,
+  session_id         TEXT,
+  status             TEXT NOT NULL DEFAULT 'active',
+  verification       TEXT NOT NULL DEFAULT 'unverified',
+  freshness          TEXT NOT NULL DEFAULT 'current',
+  stale_reason       TEXT,
+  files_json         TEXT NOT NULL DEFAULT '[]',
+  related_entities_json TEXT NOT NULL DEFAULT '[]',
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL,
+  UNIQUE(project_id, candidate_kind, candidate_id)
+);
+`;
+
+const CREATE_EVIDENCE_CARD_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS evidence_card_events (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL,
+  card_id     TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  detail      TEXT,
+  created_at  TEXT NOT NULL,
+  FOREIGN KEY (card_id) REFERENCES evidence_cards(id) ON DELETE CASCADE
+);
+`;
+
+const CREATE_MEMORY_FEEDBACK_STATES_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_feedback_states (
+  project_id       TEXT NOT NULL,
+  candidate_kind   TEXT NOT NULL,
+  candidate_id     TEXT NOT NULL,
+  weight           REAL NOT NULL DEFAULT 1.0,
+  lifecycle_status TEXT NOT NULL DEFAULT 'active',
+  updated_at       TEXT NOT NULL,
+  PRIMARY KEY (project_id, candidate_kind, candidate_id)
+);
+`;
+
+const CREATE_MEMORY_FEEDBACK_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS memory_feedback_events (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  candidate_kind  TEXT NOT NULL,
+  candidate_id    TEXT NOT NULL,
+  signal          TEXT NOT NULL,
+  actor           TEXT,
+  note            TEXT,
+  source_ref      TEXT NOT NULL,
+  target_event_id TEXT,
+  delta           REAL NOT NULL DEFAULT 0,
+  observed_at     TEXT NOT NULL
+);
+`;
+
+const CREATE_TASK_CONTINUITY_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS task_continuity_events (
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL,
+  task_id         TEXT NOT NULL,
+  task            TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  item_status     TEXT,
+  source_ref      TEXT,
+  evidence_json   TEXT NOT NULL DEFAULT '[]',
+  actor           TEXT,
+  created_at      TEXT NOT NULL,
+  event_key       TEXT,
+  item_key        TEXT,
+  supersedes_id   TEXT
+);
+`;
+
+const CREATE_AGENT_EFFECTS_TABLE = `
+CREATE TABLE IF NOT EXISTS agent_effects (
+  id                TEXT PRIMARY KEY,
+  pipeline_id       TEXT NOT NULL,
+  task_id           TEXT NOT NULL,
+  attempt           INTEGER NOT NULL,
+  effect_key        TEXT NOT NULL,
+  tool              TEXT NOT NULL,
+  risk_tier         TEXT NOT NULL,
+  replay_policy     TEXT NOT NULL,
+  status            TEXT NOT NULL,
+  call_id           TEXT,
+  idempotency_key   TEXT NOT NULL,
+  input_fingerprint TEXT,
+  detail            TEXT,
+  started_at        INTEGER NOT NULL,
+  finished_at       INTEGER
+);
+`;
+
+const CREATE_MCP_BINDINGS_TABLE = `
+CREATE TABLE IF NOT EXISTS mcp_bindings (
+  handle_id    TEXT PRIMARY KEY,
+  project_id   TEXT NOT NULL,
+  project_root TEXT NOT NULL,
+  data_dir     TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT NOT NULL,
+  expires_at   TEXT
+);
+`;
+
+const CREATE_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_observations_projectId ON observations(projectId);
+CREATE INDEX IF NOT EXISTS idx_observations_topicKey ON observations(projectId, topicKey);
+CREATE INDEX IF NOT EXISTS idx_observations_status ON observations(status);
+CREATE INDEX IF NOT EXISTS idx_observations_project_status_id ON observations(projectId, status, id);
+CREATE INDEX IF NOT EXISTS idx_observations_project_admission ON observations(projectId, status, admissionState, id);
+CREATE INDEX IF NOT EXISTS idx_observations_project_visibility ON observations(projectId, status, visibility, id);
+CREATE INDEX IF NOT EXISTS idx_mini_skills_projectId ON mini_skills(projectId);
+CREATE INDEX IF NOT EXISTS idx_sessions_projectId ON sessions(projectId);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(projectId, status);
+CREATE INDEX IF NOT EXISTS idx_team_agents_project ON team_agents(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_team_messages_recipient ON team_messages(recipient_agent_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_team_messages_project ON team_messages(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_team_tasks_project ON team_tasks(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_team_tasks_assignee ON team_tasks(assignee_agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_team_locks_project ON team_locks(project_id);
+CREATE INDEX IF NOT EXISTS idx_team_roles_project ON team_roles(project_id);
+CREATE INDEX IF NOT EXISTS idx_team_tasks_role ON team_tasks(required_role);
+CREATE INDEX IF NOT EXISTS idx_team_messages_role ON team_messages(to_role);
+CREATE INDEX IF NOT EXISTS idx_graph_relations_from ON graph_relations(from_entity);
+CREATE INDEX IF NOT EXISTS idx_graph_relations_to ON graph_relations(to_entity);
+CREATE INDEX IF NOT EXISTS idx_chat_transcript_project ON chat_transcript(project_id, thread_id);
+CREATE INDEX IF NOT EXISTS idx_code_files_project ON code_files(projectId);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_project_name ON code_symbols(projectId, name);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_file ON code_symbols(fileId);
+CREATE INDEX IF NOT EXISTS idx_code_edges_project ON code_edges(projectId, type);
+CREATE INDEX IF NOT EXISTS idx_code_snapshots_project_epoch ON code_state_snapshots(projectId, sourceEpoch DESC);
+CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId);
+CREATE INDEX IF NOT EXISTS idx_observation_code_refs_obs ON observation_code_refs(projectId, observationId);
+CREATE INDEX IF NOT EXISTS idx_observation_code_refs_status ON observation_code_refs(projectId, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_status ON knowledge_claims(projectId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_claims(projectId, conflictKey, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspaces(projectId, mode);
+CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId);
+CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memories_owner_state ON long_term_memories(ownerId, state, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memories_project_state ON long_term_memories(originProjectId, state, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memories_scope_portability ON long_term_memories(scope, portability, state, updatedAt DESC);
+CREATE INDEX IF NOT EXISTS idx_long_term_memory_evidence_memory ON long_term_memory_evidence(memoryId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt);
+CREATE INDEX IF NOT EXISTS idx_media_assets_project_active ON media_assets(project_id, deleted_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_media_assets_project_hash ON media_assets(project_id, sha256);
+CREATE INDEX IF NOT EXISTS idx_media_links_asset ON media_asset_links(project_id, asset_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_media_links_observation ON media_asset_links(project_id, observation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_media_derivations_asset ON media_derivations(project_id, asset_id, kind);
+CREATE INDEX IF NOT EXISTS idx_media_embeddings_profile ON media_embeddings(project_id, profile_key, asset_id);
+CREATE INDEX IF NOT EXISTS idx_media_jobs_project_status ON media_jobs(project_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_ready ON maintenance_jobs(status, run_after);
+CREATE INDEX IF NOT EXISTS idx_maintenance_jobs_project ON maintenance_jobs(project_id, status, run_after);
+CREATE INDEX IF NOT EXISTS idx_maintenance_targets_updated ON maintenance_targets(updated_at);
+CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_project_recent ON compaction_checkpoints(project_id, status, completed_at DESC, pre_captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_session_pending ON compaction_checkpoints(project_id, session_id, agent, phase, status, pre_captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_source ON compaction_checkpoints(project_id, source_key);
+CREATE INDEX IF NOT EXISTS idx_evidence_cards_project ON evidence_cards(project_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evidence_cards_candidate ON evidence_cards(project_id, candidate_kind, candidate_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_card_events_card ON evidence_card_events(card_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_continuity_project_task ON task_continuity_events(project_id, task_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_task_continuity_project_recent ON task_continuity_events(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_continuity_item ON task_continuity_events(project_id, task_id, kind, item_key, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_continuity_event_key
+  ON task_continuity_events(project_id, task_id, event_key)
+  WHERE event_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_effect_identity
+  ON agent_effects(pipeline_id, task_id, attempt, effect_key);
+CREATE INDEX IF NOT EXISTS idx_agent_effect_pipeline ON agent_effects(pipeline_id, started_at ASC);
+CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_bindings_root ON mcp_bindings(project_root, last_used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mcp_bindings_expiry ON mcp_bindings(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_jobs_active_dedupe
+  ON maintenance_jobs(project_id, kind, dedupe_key)
+  WHERE status IN ('pending', 'running', 'retry');
+`;
+
+interface SchemaMigration {
+  id: string;
+  apply: (db: any) => void;
+}
+
+function hasColumn(db: any, table: string, column: string): boolean {
+  return db.prepare('PRAGMA table_info(' + table + ')')
+    .all()
+    .some((row: { name?: string }) => row.name === column);
+}
+
+function addColumnIfMissing(db: any, table: string, column: string, definition: string): void {
+  if (hasColumn(db, table, column)) return;
+  db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + definition);
+}
+
+const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+  {
+    id: '1.2.2-observation-admission',
+    apply: (db) => {
+      addColumnIfMissing(db, 'observations', 'admissionState', 'admissionState TEXT');
+      addColumnIfMissing(db, 'observations', 'admissionReason', 'admissionReason TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_observations_project_admission ON observations(projectId, status, admissionState, id)');
+    },
+  },
+  {
+    id: '1.2.2-observation-visibility',
+    apply: (db) => {
+      addColumnIfMissing(db, 'observations', 'visibility', 'visibility TEXT');
+      addColumnIfMissing(db, 'observations', 'sharedWithAgentIds', 'sharedWithAgentIds TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_observations_project_visibility ON observations(projectId, status, visibility, id)');
+    },
+  },
+  {
+    id: '1.2-code-state-snapshots',
+    apply: (db) => {
+      db.exec(CREATE_CODE_STATE_SNAPSHOTS_TABLE);
+      addColumnIfMissing(db, 'code_files', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_files', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'code_symbols', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_symbols', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'code_edges', 'snapshotId', 'snapshotId TEXT');
+      addColumnIfMissing(db, 'code_edges', 'sourceEpoch', 'sourceEpoch INTEGER');
+      addColumnIfMissing(db, 'observation_code_refs', 'snapshotId', 'snapshotId TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_snapshots_project_epoch ON code_state_snapshots(projectId, sourceEpoch DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_files_snapshot ON code_files(projectId, snapshotId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_symbols_snapshot ON code_symbols(projectId, snapshotId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_edges_snapshot ON code_edges(projectId, snapshotId)');
+    },
+  },
+  {
+    id: '1.4-codegraph-snapshot-manifest',
+    apply: (db) => {
+      db.exec(CREATE_CODE_STATE_SNAPSHOT_FILES_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_code_snapshot_files_project_path ON code_state_snapshot_files(projectId, path)');
+    },
+  },
+  {
+    id: '1.4-memory-outcome-signals',
+    apply: (db) => {
+      db.exec(CREATE_MEMORY_OUTCOME_SIGNALS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_outcomes_candidate ON memory_outcome_signals(projectId, candidateKind, candidateId, observedAt DESC)');
+    },
+  },
+  {
+    id: '1.2-knowledge-claim-ledger',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_CLAIMS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_CLAIM_EVIDENCE_TABLE);
+      db.exec(CREATE_KNOWLEDGE_CLAIM_EVENTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_status ON knowledge_claims(projectId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_conflict ON knowledge_claims(projectId, conflictKey, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claims_project_key ON knowledge_claims(projectId, claimKey, status)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_evidence_claim ON knowledge_claim_evidence(claimId, createdAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_claim_events_claim ON knowledge_claim_events(claimId, createdAt)');
+    },
+  },
+  {
+    id: '1.2-knowledge-workspace',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_WORKSPACES_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGES_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGE_CLAIMS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PAGE_LINKS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_PROPOSALS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workspaces_project ON knowledge_workspaces(projectId, mode)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_pages_workspace_status ON knowledge_pages(workspaceId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_page_claims_claim ON knowledge_page_claims(claimId)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_proposals_workspace_status ON knowledge_proposals(workspaceId, status, createdAt DESC)');
+    },
+  },
+  {
+    id: '1.2-workflow-inheritance',
+    apply: (db) => {
+      db.exec(CREATE_KNOWLEDGE_WORKFLOWS_TABLE);
+      db.exec(CREATE_KNOWLEDGE_WORKFLOW_RUNS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflows_workspace_status ON knowledge_workflows(workspaceId, status, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_knowledge_workflow_runs_project_workflow ON knowledge_workflow_runs(projectId, workflowId, startedAt DESC)');
+    },
+  },
+  {
+    id: '1.2.7-compaction-checkpoints',
+    apply: (db) => {
+      db.exec(CREATE_COMPACTION_CHECKPOINTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_project_recent ON compaction_checkpoints(project_id, status, completed_at DESC, pre_captured_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_session_pending ON compaction_checkpoints(project_id, session_id, agent, phase, status, pre_captured_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_compaction_checkpoints_source ON compaction_checkpoints(project_id, source_key)');
+    },
+  },
+  {
+    id: '1.3-long-term-memory',
+    apply: (db) => {
+      db.exec(CREATE_LONG_TERM_MEMORIES_TABLE);
+      db.exec(CREATE_LONG_TERM_MEMORY_EVIDENCE_TABLE);
+      db.exec(CREATE_LONG_TERM_MEMORY_EVENTS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_owner_state ON long_term_memories(ownerId, state, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_project_state ON long_term_memories(originProjectId, state, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memories_scope_portability ON long_term_memories(scope, portability, state, updatedAt DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_evidence_memory ON long_term_memory_evidence(memoryId, createdAt)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_long_term_memory_events_memory ON long_term_memory_events(memoryId, createdAt)');
+    },
+  },
+  {
+    id: '1.2-observation-attachments',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE observations ADD COLUMN attachments TEXT'); } catch { /* already exists */ }
+    },
+  },
+  {
+    id: '1.3.3-media-assets',
+    apply: (db) => {
+      db.exec(CREATE_MEDIA_ASSETS_TABLE);
+      db.exec(CREATE_MEDIA_ASSET_LINKS_TABLE);
+      db.exec(CREATE_MEDIA_DERIVATIONS_TABLE);
+      db.exec(CREATE_MEDIA_EMBEDDING_PROFILES_TABLE);
+      db.exec(CREATE_MEDIA_EMBEDDINGS_TABLE);
+      db.exec(CREATE_MEDIA_JOBS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_assets_project_active ON media_assets(project_id, deleted_at, created_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_assets_project_hash ON media_assets(project_id, sha256)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_links_asset ON media_asset_links(project_id, asset_id, created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_links_observation ON media_asset_links(project_id, observation_id, created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_derivations_asset ON media_derivations(project_id, asset_id, kind)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_embeddings_profile ON media_embeddings(project_id, profile_key, asset_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_project_status ON media_jobs(project_id, status, updated_at DESC)');
+    },
+  },
+  {
+    id: '1.4.3-media-derivation-metadata',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE media_derivations ADD COLUMN metadata_json TEXT'); } catch { /* already exists */ }
+    },
+  },
+  {
+    id: '1.4.3-media-job-source-asset',
+    apply: (db) => {
+      try { db.exec('ALTER TABLE media_jobs ADD COLUMN source_asset_id TEXT'); } catch { /* already exists */ }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_media_jobs_source_asset ON media_jobs(project_id, source_asset_id, status)');
+    },
+  },
+  {
+    id: '1.8-context-control-plane',
+    apply: (db) => {
+      db.exec(CREATE_EVIDENCE_CARDS_TABLE);
+      db.exec(CREATE_EVIDENCE_CARD_EVENTS_TABLE);
+      db.exec(CREATE_MEMORY_FEEDBACK_STATES_TABLE);
+      db.exec(CREATE_MEMORY_FEEDBACK_EVENTS_TABLE);
+      db.exec(CREATE_MCP_BINDINGS_TABLE);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_evidence_cards_project ON evidence_cards(project_id, status, updated_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_evidence_cards_candidate ON evidence_cards(project_id, candidate_kind, candidate_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_evidence_card_events_card ON evidence_card_events(card_id, created_at)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_states_project ON memory_feedback_states(project_id, candidate_kind, updated_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_memory_feedback_events_candidate ON memory_feedback_events(project_id, candidate_kind, candidate_id, observed_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_project ON mcp_bindings(project_id, last_used_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_root ON mcp_bindings(project_root, last_used_at DESC)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mcp_bindings_expiry ON mcp_bindings(expires_at)');
+    },
+  },
+  {
+    id: '1.8.7-codegraph-evidence',
+    apply: (db) => {
+      addColumnIfMissing(db, 'code_files', 'source', 'source TEXT');
+      addColumnIfMissing(db, 'code_files', 'parserError', 'parserError TEXT');
+      addColumnIfMissing(db, 'code_symbols', 'source', 'source TEXT');
+      addColumnIfMissing(db, 'code_edges', 'source', 'source TEXT');
+    },
+  },
+  {
+    id: '1.9-continuity-v2',
+    apply: (db) => {
+      addColumnIfMissing(db, 'task_continuity_events', 'event_key', 'event_key TEXT');
+      addColumnIfMissing(db, 'task_continuity_events', 'item_key', 'item_key TEXT');
+      addColumnIfMissing(db, 'task_continuity_events', 'supersedes_id', 'supersedes_id TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_task_continuity_item ON task_continuity_events(project_id, task_id, kind, item_key, created_at DESC)');
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_task_continuity_event_key
+        ON task_continuity_events(project_id, task_id, event_key)
+        WHERE event_key IS NOT NULL`);
+    },
+  },
+  {
+    id: '1.11-maintenance-progress',
+    apply: (db) => {
+      addColumnIfMissing(db, 'maintenance_jobs', 'attempted', 'attempted INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'succeeded', 'succeeded INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'failed', 'failed INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'remaining', 'remaining INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'maintenance_jobs', 'progress_recorded', 'progress_recorded INTEGER NOT NULL DEFAULT 0');
+    },
+  },
+  {
+    id: '1.11-maintenance-rerun',
+    apply: (db) => {
+      addColumnIfMissing(db, 'maintenance_jobs', 'rerun_requested', 'rerun_requested INTEGER NOT NULL DEFAULT 0');
+    },
+  },
+];
+
+function applySchemaMigrations(db: any): void {
+  db.exec(CREATE_SCHEMA_MIGRATIONS_TABLE);
+  for (const migration of SCHEMA_MIGRATIONS) {
+    const applied = db.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(migration.id);
+    if (applied) continue;
+    const apply = db.transaction(() => {
+      migration.apply(db);
+      db.prepare('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)').run(
+        migration.id,
+        new Date().toISOString(),
+      );
+    });
+    apply();
+  }
+}
+
+// ── Singleton cache ─────────────────────────────────────────────────
+
+const _dbCache = new Map<string, any>();
+const _dbLeases = new Map<string, number>();
+
+export interface DatabaseLease {
+  dataDir: string;
+  db: any;
+  release: () => void;
+}
+
+export interface DatabaseStats {
+  cached: number;
+  leased: number;
+  leasedDataDirs: number;
+}
+
+function normalizeDataDir(dataDir: string): string {
+  return path.resolve(dataDir);
+}
+
+function touchDatabase(normalized: string, db: any): void {
+  _dbCache.delete(normalized);
+  _dbCache.set(normalized, db);
+}
+
+/**
+ * Get or create a shared SQLite database handle for the given data directory.
+ *
+ * The handle is cached per normalized dataDir path. All stores (observations,
+ * mini-skills, sessions) share the same connection and the same DB file.
+ *
+ * Callers must NOT close the returned handle directly — use closeDatabase().
+ */
+export function getDatabase(dataDir: string): any {
+  const normalized = normalizeDataDir(dataDir);
+  assertNotHomeDataDir(normalized);
+  const existing = _dbCache.get(normalized);
+  if (existing) {
+    touchDatabase(normalized, existing);
+    return existing;
+  }
+
+  loadBetterSqlite3();
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  const dbPath = path.join(dataDir, 'memorix.db');
+  let db: any;
+  try {
+    db = createDatabase(dbPath);
+
+    // Set the connection-local wait policy before the journal-mode transition.
+    db.pragma('busy_timeout = 5000');
+    // WAL allows readers to continue while one short writer transaction runs.
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+
+  // Create all tables
+  db.exec(CREATE_OBSERVATIONS_TABLE);
+  db.exec(CREATE_MINI_SKILLS_TABLE);
+  db.exec(CREATE_SESSIONS_TABLE);
+  db.exec(CREATE_META_TABLE);
+  // Phase 4a: coordination tables (order matters for FK references)
+  db.exec(CREATE_TEAM_AGENTS_TABLE);
+  db.exec(CREATE_TEAM_TASKS_TABLE);
+  db.exec(CREATE_TEAM_TASK_DEPS_TABLE);
+  db.exec(CREATE_TEAM_MESSAGES_TABLE);
+  db.exec(CREATE_TEAM_LOCKS_TABLE);
+  db.exec(CREATE_TEAM_ROLES_TABLE);
+  db.exec(CREATE_GRAPH_ENTITIES_TABLE);
+  db.exec(CREATE_GRAPH_RELATIONS_TABLE);
+  db.exec(CREATE_CHAT_TRANSCRIPT_TABLE);
+  db.exec(CREATE_CODE_FILES_TABLE);
+  db.exec(CREATE_CODE_SYMBOLS_TABLE);
+  db.exec(CREATE_CODE_EDGES_TABLE);
+  db.exec(CREATE_OBSERVATION_CODE_REFS_TABLE);
+  db.exec(CREATE_MAINTENANCE_JOBS_TABLE);
+  db.exec(CREATE_MAINTENANCE_TARGETS_TABLE);
+  db.exec(CREATE_COMPACTION_CHECKPOINTS_TABLE);
+  db.exec(CREATE_TASK_CONTINUITY_EVENTS_TABLE);
+  db.exec(CREATE_AGENT_EFFECTS_TABLE);
+
+  // Phase 3a migration: add sourceSnapshot + updatedAt to mini_skills
+  // Idempotent — ALTER TABLE ADD COLUMN throws if column already exists
+  // IMPORTANT: These must run BEFORE CREATE_INDEXES so columns exist when indexes reference them
+  try { db.exec(`ALTER TABLE mini_skills ADD COLUMN sourceSnapshot TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE mini_skills ADD COLUMN updatedAt TEXT`); } catch { /* already exists */ }
+
+  // Phase 4a: observation attribution columns
+  try { db.exec(`ALTER TABLE observations ADD COLUMN createdByAgentId TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE observations ADD COLUMN writeGeneration INTEGER DEFAULT 0`); } catch { /* already exists */ }
+
+  // Phase 4d: role-based coordination columns
+  try { db.exec(`ALTER TABLE team_tasks ADD COLUMN required_role TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE team_tasks ADD COLUMN preferred_role TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE team_messages ADD COLUMN to_role TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE team_messages ADD COLUMN handoff_status TEXT`); } catch { /* already exists */ }
+
+  // New migrations are transactional and tracked. Older idempotent migrations
+  // remain untouched for backwards compatibility with existing local stores.
+  applySchemaMigrations(db);
+
+  // Create indexes AFTER all ALTER TABLE migrations so referenced columns exist
+  db.exec(CREATE_INDEXES);
+
+  // FTS5 is a derived accelerator. It is initialized after all migrations so
+  // old databases have the attachment column before triggers are created.
+  initializeObservationLexicalIndex(db);
+
+  // Seed meta defaults
+  db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('storage_generation', '0')`).run();
+  db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('next_id', '1')`).run();
+  db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES ('mini_skills_generation', '0')`).run();
+
+    touchDatabase(normalized, db);
+    return db;
+  } catch (error) {
+    // A schema/migration/FTS failure must not leave an uncached connection
+    // holding a file lock while callers retry initialization.
+    try { db?.close(); } catch { /* best-effort cleanup */ }
+    throw error;
+  }
+}
+
+/**
+ * Hold a database handle across an HTTP/session lifetime. Idle eviction only
+ * closes handles with no active leases, so cache pressure cannot invalidate a
+ * store that is still serving a request.
+ */
+export function acquireDatabase(dataDir: string): DatabaseLease {
+  const normalized = normalizeDataDir(dataDir);
+  const db = getDatabase(normalized);
+  _dbLeases.set(normalized, (_dbLeases.get(normalized) ?? 0) + 1);
+  let released = false;
+  return {
+    dataDir: normalized,
+    db,
+    release: () => {
+      if (released) return;
+      released = true;
+      const count = (_dbLeases.get(normalized) ?? 0) - 1;
+      if (count > 0) _dbLeases.set(normalized, count);
+      else _dbLeases.delete(normalized);
+    },
+  };
+}
+
+/** Return bounded resource information for health and diagnostics. */
+export function getDatabaseStats(): DatabaseStats {
+  let leased = 0;
+  for (const count of _dbLeases.values()) leased += count;
+  return { cached: _dbCache.size, leased, leasedDataDirs: _dbLeases.size };
+}
+
+/**
+ * Evict least-recently-used unleased handles until the cache is within its
+ * target. Stores that need a handle across awaits must hold a lease first.
+ */
+export function evictIdleDatabases(maxCached: number): number {
+  const target = Math.max(0, Math.floor(maxCached));
+  let evicted = 0;
+  for (const [normalized, db] of [..._dbCache]) {
+    if (_dbCache.size <= target) break;
+    if ((_dbLeases.get(normalized) ?? 0) > 0) continue;
+    try { db.close(); } catch { /* best-effort */ }
+    _dbCache.delete(normalized);
+    evicted++;
+  }
+  return evicted;
+}
+
+/**
+ * Close and remove a cached database handle for the given data directory.
+ * Safe to call even if no handle exists.
+ */
+export function closeDatabase(dataDir: string): void {
+  const normalized = normalizeDataDir(dataDir);
+  if ((_dbLeases.get(normalized) ?? 0) > 0) return;
+  const db = _dbCache.get(normalized);
+  if (db) {
+    try { db.close(); } catch { /* best-effort */ }
+    _dbCache.delete(normalized);
+  }
+}
+
+/**
+ * Close all cached database handles. Used during shutdown or tests.
+ */
+export function closeAllDatabases(): void {
+  for (const [key, db] of _dbCache) {
+    try { db.close(); } catch { /* best-effort */ }
+    _dbCache.delete(key);
+  }
+  _dbLeases.clear();
+}
+
+/**
+ * Check if better-sqlite3 is available without throwing.
+ */
+export function isSqliteAvailable(): boolean {
+  try {
+    loadBetterSqlite3();
+    return true;
+  } catch {
+    return false;
+  }
+}

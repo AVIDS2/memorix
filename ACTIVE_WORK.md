@@ -37,6 +37,9 @@ artifacts for the VPS/hosted build path only.
   durable in SQLite. The main MCP server captures an immutable `RuntimeContext`
   at bind/activation/switch boundaries and CodeGraph host paths consume its
   frozen config snapshot.
+- [x] 1.11 derived-view adapters: SQLite FTS5 and Orama now expose the common
+  `DerivedView` lifecycle with explicit status, rebuild/refresh, compact, and
+  close behavior; focused tests cover stale/missing and shutdown states.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
   Observation inserts and topic-key updates now commit vector backfill,

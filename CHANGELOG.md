@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 - Observation writes now persist an idempotent CodeGraph/evidence projection
   job in the same SQLite transaction; successful foreground projections
   acknowledge it, while failures remain recoverable by maintenance.
+- Added common `DerivedView` adapters for SQLite FTS5 and Orama with explicit
+  status, rebuild/refresh, compact, and close lifecycle methods.
 
 ### Changed
 - Search execution now returns a request-scoped receipt to compact search,

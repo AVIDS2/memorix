@@ -1,0 +1,380 @@
+# Development Guide
+
+This guide is for contributors working on Memorix itself.
+
+Memorix is a TypeScript project built around:
+
+- MCP server runtime
+- memcode bundled terminal-agent runtime
+- CLI workflows
+- SQLite canonical persistence with compatibility/fallback layers
+- layered retrieval: SQLite FTS5, optional LanceDB semantic index, and Orama fallback
+- dashboard and HTTP service
+
+## Current Development Baseline
+
+The current release line is **1.10.3** and package metadata is kept
+synchronized with the root package and MCP Registry manifest. The next larger
+feature phase follows the 1.11 relay-preview plan.
+
+Contributors should assume the following areas are part of the current release line:
+
+- shared memory across MCP clients, CLI, SDK, dashboard, hooks, and memcode
+- memcode uses Memorix project memory, hooks, `/memory` commands, resumable sessions, and model switching as the bundled terminal agent
+- TOML-first configuration with global `~/.memorix/config.toml` and project `<git-root>/memorix.toml`
+- separate `[agent]`, `[memory.llm]`, and `[embedding]` model lanes
+- privacy-safe handoff receipts and doctor receipt diagnostics
+- optional session semantics in generated agent rules
+- notify-only auto-update by default with explicit install opt-in
+- dashboard config loading aligned with CLI/TUI status surfaces
+- the existing layered retrieval, retention, attribution, and compact output model
+- source-backed long-term memory with candidate, qualification, approval, archival, supersession, and explicit portable user scope
+- preview-first project maintenance shared across Dashboard, CLI, and MCP
+- persisted Evidence Cards, feedback audit events, and stateless MCP project handles
+- the reproducible large-store gate for SDK, HTTP MCP, hooks, persistence, and
+  cold-start retrieval budgets
+
+---
+
+## 1. Prerequisites
+
+- Node.js `>=22.18.0`
+- npm
+- Git
+
+Clone and install:
+
+```bash
+git clone https://github.com/AVIDS2/memorix.git
+cd memorix
+npm install
+```
+
+Optional local dependencies:
+
+- `fastembed` for local embedding experiments
+- `@huggingface/transformers` for transformer embedding mode
+
+Memorix still works without them.
+
+---
+
+## 2. Core Commands
+
+### Build
+
+```bash
+npm run build
+```
+
+### Watch mode
+
+```bash
+npm run dev
+```
+
+### Typecheck
+
+```bash
+npm run lint
+```
+
+`lint` currently runs `tsc --noEmit`.
+
+### Full test suite
+
+```bash
+npm test
+```
+
+### Vitest watch mode
+
+```bash
+npm run test:watch
+```
+
+### Local runtime checks
+
+```bash
+memorix serve
+node scripts/mcp-stdio-smoke.mjs
+memorix background start
+memorix status
+```
+
+For the 1.10 context contract and capacity gates, run the deterministic matrix
+and the packed 40k transport fixture:
+
+```bash
+npm run gate:context-matrix
+npm run gate:context-runtime
+node scripts/large-store-gate.mjs --records 100000
+```
+
+`gate:context-runtime` rebuilds the packed runtime before running its fixture.
+The 100k command is a separate capacity check because it takes materially
+longer and is not part of the ordinary `npm test` loop.
+
+---
+
+## 3. Recommended Development Loop
+
+For most feature work:
+
+1. write or update a focused test
+2. implement the change
+3. run the targeted test file
+4. run `npm run lint`
+5. run `npm run build`
+6. run `npm test`
+7. validate the real MCP or CLI path if the feature affects runtime behavior
+
+Examples:
+
+```bash
+npx vitest run tests/git/noise-filter.test.ts
+npm run lint
+npm run build
+npm test
+```
+
+If the feature touches the dashboard, HTTP transport, or MCP wiring, do a live verification after the test suite.
+
+---
+
+## 4. Repository Structure
+
+High-level layout:
+
+```text
+src/
+  cli/                 interactive menu and subcommands
+  compact/             compact formatting and token budgeting
+  config/              TOML-first config, dotenv/YAML compatibility, provenance
+  dashboard/           dashboard server and static frontend
+  embedding/           embedding providers
+  git/                 Git Memory extractor, hook path, noise filter
+  hooks/               IDE hook normalization and capture
+  llm/                 optional LLM quality helpers
+  memory/              observations, sessions, retention, graph, formation
+  project/             Git-based project detection and aliases
+  rules/               rules sync across agents
+  search/              intent-aware retrieval helpers
+  skills/              memory-driven skills generation
+  store/               Orama index and persistence
+  team/                orchestration coordination registry, tasks, locks, messages
+  workspace/           MCP and workflow sync across agents
+
+tests/
+  ...mirrors runtime modules with focused unit and integration tests
+```
+
+Docs layout:
+
+- `README.md`: landing page and quick start
+- `docs/SETUP.md`: client setup and troubleshooting
+- `docs/CONFIGURATION.md`: TOML-first config and legacy compatibility
+- `docs/MEMCODE.md`: bundled terminal-agent guide
+- `docs/GIT_MEMORY.md`: Git Memory workflows
+- `docs/ARCHITECTURE.md`: system design
+- `docs/API_REFERENCE.md`: MCP tool surface
+
+---
+
+## 5. Runtime Modes to Validate
+
+### stdio MCP
+
+```bash
+memorix serve
+```
+
+Use this to validate:
+
+- tool registration
+- stdio MCP behavior
+- IDE integration compatibility
+
+### HTTP MCP + dashboard
+
+```bash
+memorix background start
+```
+
+Use this to validate:
+
+- HTTP MCP endpoint
+- Team tools
+- dashboard API parity
+- dashboard UX
+
+Use `memorix serve-http --port 3211` when you want the same stack in the foreground for debugging, manual supervision, or custom ports.
+
+### Dashboard-only mode
+
+```bash
+memorix dashboard
+```
+
+Useful for local UI checks. The HTTP service also serves the embedded dashboard used in normal background mode.
+
+---
+
+## 6. Feature Areas Worth Testing Live
+
+Some features deserve real runtime verification, not just tests:
+
+- project identity detection
+- config provenance
+- Git hook installation and post-commit ingest
+- cross-project search and detail refs
+- HTTP transport and Team tools
+- dashboard graph stability and page layout
+
+When validating these, prefer:
+
+- real MCP calls
+- real CLI commands
+- real temporary Git repositories
+
+over only unit tests.
+
+---
+
+## 7. Git Memory Development Notes
+
+Git Memory turns commit history into searchable engineering memory, so changes here directly affect how well agents can recall what changed in a codebase.
+
+When working in this area, validate:
+
+- `memorix git-hook --force`
+- `memorix git-hook-uninstall`
+- `memorix ingest commit`
+- `memorix ingest commit --force`
+- `memorix ingest log --count N`
+
+Also validate behavior in:
+
+- normal repositories
+- worktrees
+- noisy commit streams
+
+See [GIT_MEMORY.md](GIT_MEMORY.md) for user-facing behavior.
+
+---
+
+## 8. Configuration Development Notes
+
+Memorix uses TOML as the primary user-facing config model:
+
+- global `~/.memorix/config.toml`
+- project `<git-root>/memorix.toml`
+
+When touching config code, always validate:
+
+- project `memorix.toml`
+- global `~/.memorix/config.toml`
+- project `.env`
+- user `~/.memorix/.env`
+- legacy project/user `memorix.yml`
+- legacy `~/.memorix/config.json`
+- env var overrides
+
+And always check:
+
+```bash
+memorix status
+```
+
+to make sure provenance diagnostics match runtime behavior.
+
+---
+
+## 9. Release Workflow
+
+The repository's canonical workflow is [Memorix release](knowledge/workflows/memorix-release.md).
+It is the versioned source for agents and maintainers; its checks supplement,
+rather than replace, the explicit maintainer approval required to publish.
+
+Recommended release flow:
+
+1. update docs and version metadata
+2. run:
+
+```bash
+npm run lint
+npm run build
+npm test
+```
+
+Model catalog refresh is a separate maintenance step, not part of the release
+build. Run it only when intentionally updating generated provider snapshots:
+
+```bash
+npm run update-models
+git diff -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts
+```
+
+The generators refuse unexpectedly shrunken live results by default. If a shrink
+is intentional after reviewing the diff, rerun with
+`MEMORIX_ALLOW_MODEL_CATALOG_SHRINK=1`.
+
+3. validate key live flows:
+
+- MCP store/search/detail
+- dashboard
+- Git Memory
+- config diagnostics
+- `memorix setup --agent codex --global` followed by `memorix doctor agents --agent codex --scope global --json` in an isolated home, when changing the Codex integration
+
+4. inspect package contents:
+
+```bash
+npm pack --dry-run --json
+```
+
+5. commit and push
+6. publish the supported public package manually when ready:
+
+```bash
+npm publish --access public
+```
+
+Notes:
+
+- `prepublishOnly` synchronizes and checks Registry metadata, then runs build + test; it does not contact live model catalog APIs
+- `server.json` is the official MCP Registry record. Keep it synchronized with
+  `package.json` by running `npm run sync:mcp-registry`; verify it with
+  `npm run check:mcp-registry` before a release.
+- The GitHub publish workflow can publish npm first, then uses GitHub OIDC to
+  publish the same verified version to the official MCP Registry. When npm was
+  already published manually, run the workflow with `publish_npm=false` to
+  publish only the Registry record. It does not require a Registry token or
+  private key in repository secrets.
+- `@memorix/ai`, `@memorix/agent-core`, `@memorix/tui`, and `@memorix/memcode` are internal workspaces. Their code is bundled into the root `memorix` distribution and they must stay `private` unless the project deliberately establishes an owned npm scope and a separate package-support contract.
+- npm publish is usually manual, especially when 2FA is enabled
+- GitHub release automation should not be treated as a substitute for manual runtime validation
+
+---
+
+## 10. Contribution Standards
+
+When contributing to Memorix:
+
+- keep public docs aligned with runtime behavior
+- prefer explicit, project-safe behavior over clever fallback
+- avoid adding features without a clear product story
+- validate MCP behavior with real calls when changing server logic
+- keep Git Memory, reasoning memory, and retrieval semantics coherent
+
+Memorix is strongest when its engineering truth layer, reasoning layer, and local service runtime all stay in sync.
+
+---
+
+## 11. Related Docs
+
+- [Setup Guide](SETUP.md)
+- [Configuration Guide](CONFIGURATION.md)
+- [Git Memory Guide](GIT_MEMORY.md)
+- [Architecture](ARCHITECTURE.md)
+- [API Reference](API_REFERENCE.md)

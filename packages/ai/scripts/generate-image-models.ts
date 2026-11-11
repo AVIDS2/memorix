@@ -1,0 +1,187 @@
+#!/usr/bin/env node
+
+import { writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+import type { ImagesApi, ImagesModel } from "../src/types.ts";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageRoot = join(__dirname, "..");
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const MINIMAX_IMAGE_MODEL_IDS = ["image-01", "image-01-live"] as const;
+const MINIMAX_IMAGE_VARIANTS = [
+	{ provider: "minimax", baseUrl: "https://api.minimax.io/v1/image_generation" },
+	{ provider: "minimax-cn", baseUrl: "https://api.minimaxi.com/v1/image_generation" },
+] as const;
+const MIN_GENERATED_IMAGE_MODEL_COUNT = 1;
+const CATALOG_SHRINK_OVERRIDE_ENV = "MEMORIX_ALLOW_MODEL_CATALOG_SHRINK";
+
+interface OpenRouterModelRecord {
+	id: string;
+	name: string;
+	context_length?: number;
+	architecture?: {
+		input_modalities?: string[];
+		output_modalities?: string[];
+	};
+	pricing?: {
+		prompt?: string;
+		completion?: string;
+		input_cache_read?: string;
+		input_cache_write?: string;
+	};
+}
+
+async function fetchOpenRouterImageModels(): Promise<ImagesModel<"openrouter-images">[]> {
+	try {
+		console.log("Fetching image models from OpenRouter API...");
+		const response = await fetch(`${OPENROUTER_BASE_URL}/models?output_modalities=image`);
+		const data = (await response.json()) as { data?: OpenRouterModelRecord[] };
+		const models: ImagesModel<"openrouter-images">[] = [];
+
+		for (const model of data.data ?? []) {
+			const input = Array.from(
+				new Set(
+					(model.architecture?.input_modalities ?? [])
+						.filter((modality): modality is "text" | "image" => modality === "text" || modality === "image"),
+				),
+			);
+			const output = Array.from(
+				new Set(
+					(model.architecture?.output_modalities ?? []).filter(
+						(modality): modality is "text" | "image" => modality === "text" || modality === "image",
+					),
+				),
+			);
+
+			if (!output.includes("image")) continue;
+			if (input.length === 0) input.push("text");
+
+			models.push({
+				id: model.id,
+				name: model.name,
+				api: "openrouter-images",
+				provider: "openrouter",
+				baseUrl: OPENROUTER_BASE_URL,
+				input,
+				output,
+				cost: {
+					input: parseFloat(model.pricing?.prompt || "0") * 1_000_000,
+					output: parseFloat(model.pricing?.completion || "0") * 1_000_000,
+					cacheRead: parseFloat(model.pricing?.input_cache_read || "0") * 1_000_000,
+					cacheWrite: parseFloat(model.pricing?.input_cache_write || "0") * 1_000_000,
+				},
+			});
+		}
+
+		console.log(`Fetched ${models.length} image models from OpenRouter`);
+		return models;
+	} catch (error) {
+		console.error("Failed to fetch OpenRouter image models:", error);
+		return [];
+	}
+}
+
+function getMiniMaxImageModels(): ImagesModel<"minimax-images">[] {
+	return MINIMAX_IMAGE_VARIANTS.flatMap(({ provider, baseUrl }) =>
+		MINIMAX_IMAGE_MODEL_IDS.map((modelId) => ({
+			id: modelId,
+			name: modelId,
+			api: "minimax-images",
+			provider,
+			baseUrl,
+			input: ["text", "image"],
+			output: ["image"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		})),
+	);
+}
+
+export async function loadExistingGeneratedImageModelCount(): Promise<number> {
+	try {
+		const generatedUrl = new URL("../src/image-models.generated.ts", import.meta.url).href;
+		const generated = (await import(`${generatedUrl}?count=${Date.now()}`)) as {
+			IMAGE_MODELS?: Record<string, Record<string, ImagesModel<any>>>;
+		};
+		return countGeneratedImageModels(generated.IMAGE_MODELS ?? {});
+	} catch {
+		return 0;
+	}
+}
+
+export function countGeneratedImageModels(providers: Record<string, Record<string, unknown>>): number {
+	return Object.values(providers).reduce((total, models) => total + Object.keys(models).length, 0);
+}
+
+export function assertImageModelCatalogRefreshSafe(nextCount: number, existingCount: number): void {
+	const minimum = Math.max(MIN_GENERATED_IMAGE_MODEL_COUNT, Math.floor(existingCount * 0.8));
+	if (nextCount >= minimum || process.env[CATALOG_SHRINK_OVERRIDE_ENV] === "1") return;
+
+	throw new Error(
+		`Refusing to write shrunken image model catalog: generated ${nextCount} models, existing catalog has ${existingCount}. ` +
+			`This usually means the live OpenRouter image catalog partially failed. Re-run later, inspect the diff, or set ${CATALOG_SHRINK_OVERRIDE_ENV}=1 to override intentionally.`,
+	);
+}
+
+function serializeImageModel(model: ImagesModel<ImagesApi>): string {
+	return `{
+			id: ${JSON.stringify(model.id)},
+			name: ${JSON.stringify(model.name)},
+			api: ${JSON.stringify(model.api)},
+			provider: ${JSON.stringify(model.provider)},
+			baseUrl: ${JSON.stringify(model.baseUrl)},
+			input: ${JSON.stringify(model.input)},
+			output: ${JSON.stringify(model.output)},
+			cost: ${JSON.stringify(model.cost, null, 2).replace(/^/gm, "\t")}
+		} satisfies ImagesModel<${JSON.stringify(model.api)}>`;
+}
+
+function generateImageModelsFile(models: ImagesModel<ImagesApi>[]): string {
+	const imageModelsByProvider = new Map<string, Map<string, string>>();
+	for (const model of models) {
+		let providerModels = imageModelsByProvider.get(model.provider);
+		if (!providerModels) {
+			providerModels = new Map();
+			imageModelsByProvider.set(model.provider, providerModels);
+		}
+		providerModels.set(model.id, serializeImageModel(model));
+	}
+
+	const providerEntries = Array.from(imageModelsByProvider.entries())
+		.map(([provider, providerModels]) => {
+			const modelEntries = Array.from(providerModels.entries())
+				.sort(([left], [right]) => left.localeCompare(right))
+				.map(([id, serialized]) => `\t\t${JSON.stringify(id)}: ${serialized},`)
+				.join("\n");
+			return `\t${JSON.stringify(provider)}: {\n${modelEntries}\n\t},`;
+		})
+		.join("\n");
+
+	return `// This file is auto-generated by scripts/generate-image-models.ts
+// Do not edit manually - run 'npm run update-models' to update
+
+import type { ImagesApi, ImagesModel } from "./types.ts";
+
+export const IMAGE_MODELS = {
+${providerEntries}
+} as const satisfies Record<string, Record<string, ImagesModel<ImagesApi>>>;
+`;
+}
+
+async function main(): Promise<void> {
+	const models: ImagesModel<ImagesApi>[] = [...(await fetchOpenRouterImageModels()), ...getMiniMaxImageModels()];
+	const existingModelCount = await loadExistingGeneratedImageModelCount();
+	assertImageModelCatalogRefreshSafe(models.length, existingModelCount);
+	const output = generateImageModelsFile(models);
+	const outputPath = join(packageRoot, "src", "image-models.generated.ts");
+	writeFileSync(outputPath, output, "utf-8");
+	console.log(`Generated ${outputPath}`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	main().catch((error) => {
+		console.error(error);
+		process.exit(1);
+	});
+}

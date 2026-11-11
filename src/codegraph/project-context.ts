@@ -1,0 +1,320 @@
+import type { ProjectInfo } from '../types.js';
+import { evaluateCodeRefFreshness } from './freshness.js';
+import type {
+  CodeFile,
+  CodeRefStatus,
+  CodeStateSnapshot,
+  CodeSymbol,
+  ObservationCodeRef,
+} from './types.js';
+import type { CodeGraphStore } from './store.js';
+import { isCodeGraphExcludedPath } from './exclude.js';
+
+export interface ProjectContextObservation {
+  id: number;
+  projectId: string;
+  title: string;
+  type: string;
+  status?: string;
+  /** Automatic capture must be qualified before it can source a project brief. */
+  admissionState?: 'ephemeral' | 'candidate' | 'qualified';
+  createdAt?: string;
+  updatedAt?: string;
+  /** Explicit file paths recorded with a memory, used only before Code Memory exists. */
+  filesModified?: string[];
+}
+
+export interface LanguageSummary {
+  language: string;
+  files: number;
+}
+
+export interface ProjectContextOverview {
+  project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
+  code: {
+    provider: string;
+    files: number;
+    symbols: number;
+    edges: number;
+    refs: number;
+    indexedAt?: string;
+    languages: LanguageSummary[];
+    latestSnapshot?: CodeStateSnapshot;
+  };
+  memory: {
+    total: number;
+    active: number;
+  };
+  freshness: {
+    current: number;
+    suspect: number;
+    stale: number;
+    unbound: number;
+  };
+  suggestedReads: string[];
+}
+
+export interface ProjectContextSource {
+  observationId: number;
+  title: string;
+  type: string;
+  path?: string;
+  symbol?: string;
+  status: CodeRefStatus;
+  reason: string;
+}
+
+export interface ProjectContextExplain {
+  project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
+  sources: ProjectContextSource[];
+  overview: ProjectContextOverview;
+}
+
+function uniq<T>(items: T[]): T[] {
+  return [...new Set(items)];
+}
+
+function activeObservations(observations: ProjectContextObservation[], projectId: string): ProjectContextObservation[] {
+  return observations.filter(obs => obs.projectId === projectId && (obs.status ?? 'active') === 'active');
+}
+
+function countLanguages(files: CodeFile[]): LanguageSummary[] {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    const language = file.language ?? 'unknown';
+    counts.set(language, (counts.get(language) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([language, files]) => ({ language, files }))
+    .sort((a, b) => a.language.localeCompare(b.language));
+}
+
+function suggestedReadRank(path: string): number {
+  const normalized = path.replace(/\\/g, '/');
+  if (normalized.startsWith('src/')) return 0;
+  if (normalized.startsWith('tests/') || normalized.startsWith('test/')) return 0;
+  if (normalized.startsWith('packages/') && normalized.includes('/src/')) return 2;
+  return 3;
+}
+
+function compactSuggestedReads(paths: string[], limit = 8, exclude?: string[]): string[] {
+  return uniq(paths)
+    .filter(path => !isCodeGraphExcludedPath(path, exclude))
+    .sort((a, b) => suggestedReadRank(a) - suggestedReadRank(b))
+    .slice(0, limit);
+}
+
+function collectGraph(
+  store: CodeGraphStore,
+  projectId: string,
+  observations: ProjectContextObservation[],
+  exclude?: string[],
+): {
+  files: CodeFile[];
+  symbols: CodeSymbol[];
+  refs: ObservationCodeRef[];
+  freshness: ProjectContextOverview['freshness'];
+  sources: ProjectContextSource[];
+  suggestedReads: string[];
+} {
+  const files = store.listFiles(projectId);
+  const symbols = store.listReferencedSymbols(projectId);
+  const filesById = new Map(files.map(file => [file.id, file]));
+  const symbolsById = new Map(symbols.map(symbol => [symbol.id, symbol]));
+  const observationsById = new Map(observations.map(obs => [obs.id, obs]));
+  const activeObservationIds = new Set(observations.map(obs => obs.id));
+  const refs = store.listProjectObservationRefs(projectId)
+    .filter(ref => activeObservationIds.has(ref.observationId));
+  const freshness: ProjectContextOverview['freshness'] = {
+    current: 0,
+    suspect: 0,
+    stale: 0,
+    unbound: 0,
+  };
+  const sources: ProjectContextSource[] = [];
+  const suggestedReads: string[] = [];
+
+  const severity: Record<CodeRefStatus, number> = { current: 1, suspect: 2, stale: 3, unbound: 0 };
+  const grouped = new Map<number, {
+    observation: ProjectContextObservation;
+    file?: CodeFile;
+    symbol?: CodeSymbol;
+    result: ReturnType<typeof evaluateCodeRefFreshness>;
+  }>();
+  for (const ref of refs) {
+    const file = ref.fileId ? filesById.get(ref.fileId) : undefined;
+    const symbol = ref.symbolId ? symbolsById.get(ref.symbolId) : undefined;
+    const result = evaluateCodeRefFreshness(ref, file, symbol);
+    const observation = observationsById.get(ref.observationId);
+    if (!observation) continue;
+    const existing = grouped.get(ref.observationId);
+    if (!existing || severity[result.status] > severity[existing.result.status]
+      || (severity[result.status] === severity[existing.result.status] && symbol && !existing.symbol)) {
+      grouped.set(ref.observationId, { observation, file, symbol, result });
+    }
+  }
+
+  for (const { observation, file, symbol, result } of grouped.values()) {
+    freshness[result.status] += 1;
+    if (file && isCodeGraphExcludedPath(file.path, exclude)) continue;
+    if (result.status === 'current' && file) suggestedReads.push(file.path);
+    sources.push({
+      observationId: observation.id,
+      title: observation.title,
+      type: observation.type,
+      ...(file ? { path: file.path } : {}),
+      ...(symbol ? { symbol: symbol.name } : {}),
+      status: result.status,
+      reason: result.reason,
+    });
+  }
+
+  // A cold project has no parsed graph yet. Do not make the first agent brief
+  // empty while a refresh is queued: surface only file paths the memory itself
+  // explicitly recorded, and label them unbound so callers know to verify.
+  if (files.length === 0) {
+    for (const observation of observations) {
+      for (const path of observation.filesModified ?? []) {
+        if (!path || isCodeGraphExcludedPath(path, exclude)) continue;
+        suggestedReads.push(path);
+        sources.push({
+          observationId: observation.id,
+          title: observation.title,
+          type: observation.type,
+          path,
+          status: 'unbound',
+          reason: 'Recorded file hint; Code Memory refresh is pending.',
+        });
+        freshness.unbound++;
+      }
+    }
+  }
+
+  return {
+    files,
+    symbols,
+    refs,
+    freshness,
+    sources,
+    suggestedReads: compactSuggestedReads(suggestedReads, 8, exclude),
+  };
+}
+
+function overviewFromGraph(input: {
+  project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
+  store: CodeGraphStore;
+  observations: ProjectContextObservation[];
+  active: ProjectContextObservation[];
+  graph: ReturnType<typeof collectGraph>;
+}): ProjectContextOverview {
+  const status = input.store.status(input.project.id);
+  return {
+    project: input.project,
+    code: {
+      provider: status.provider,
+      files: status.files,
+      symbols: status.symbols,
+      edges: status.edges,
+      refs: status.refs,
+      ...(status.indexedAt ? { indexedAt: status.indexedAt } : {}),
+      languages: countLanguages(input.graph.files),
+      ...(status.latestSnapshot ? { latestSnapshot: status.latestSnapshot } : {}),
+    },
+    memory: {
+      total: input.observations.filter(obs => obs.projectId === input.project.id).length,
+      active: input.active.length,
+    },
+    freshness: input.graph.freshness,
+    suggestedReads: input.graph.suggestedReads,
+  };
+}
+
+export function buildProjectContextOverview(input: {
+  project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
+  store: CodeGraphStore;
+  observations: ProjectContextObservation[];
+  exclude?: string[];
+}): ProjectContextOverview {
+  const active = activeObservations(input.observations, input.project.id);
+  const graph = collectGraph(input.store, input.project.id, active, input.exclude);
+  return overviewFromGraph({
+    project: input.project,
+    store: input.store,
+    observations: input.observations,
+    active,
+    graph,
+  });
+}
+
+export function buildProjectContextExplain(input: {
+  project: Pick<ProjectInfo, 'id' | 'name' | 'rootPath'>;
+  store: CodeGraphStore;
+  observations: ProjectContextObservation[];
+  exclude?: string[];
+}): ProjectContextExplain {
+  const active = activeObservations(input.observations, input.project.id);
+  const graph = collectGraph(input.store, input.project.id, active, input.exclude);
+  const overview = overviewFromGraph({
+    project: input.project,
+    store: input.store,
+    observations: input.observations,
+    active,
+    graph,
+  });
+  return {
+    project: input.project,
+    sources: graph.sources.sort((a, b) => a.observationId - b.observationId || (a.path ?? '').localeCompare(b.path ?? '')),
+    overview,
+  };
+}
+
+function plural(count: number, singular: string, pluralText = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralText}`;
+}
+
+export function formatProjectContextOverview(overview: ProjectContextOverview): string {
+  const languages = overview.code.languages.length > 0
+    ? overview.code.languages.map(item => `${item.language} ${item.files}`).join(', ')
+    : 'none indexed yet';
+  const lines = [
+    `Project context for ${overview.project.name}`,
+    `- Code memory: ${plural(overview.code.files, 'code file')} / ${plural(overview.code.symbols, 'symbol')} / ${plural(overview.code.edges, 'relationship')}`,
+    `- Languages: ${languages}`,
+    `- Memories: ${overview.memory.active} active / ${overview.memory.total} total`,
+    `- Links: ${overview.freshness.current} current, ${plural(overview.freshness.suspect, 'suspect memory link')}, ${plural(overview.freshness.stale, 'stale memory link')}`,
+    overview.code.indexedAt ? `- Last project scan: ${overview.code.indexedAt}` : '- Last project scan: never',
+    '',
+    'Suggested reads',
+  ];
+
+  if (overview.suggestedReads.length === 0) {
+    lines.push('- none yet');
+  } else {
+    overview.suggestedReads.slice(0, 8).forEach((path, index) => lines.push(`${index + 1}. ${path}`));
+  }
+
+  return lines.join('\n');
+}
+
+export function formatProjectContextExplain(explain: ProjectContextExplain): string {
+  const lines = [
+    `Context sources for ${explain.project.name}`,
+    `- Project: ${explain.project.id}`,
+    `- Root: ${explain.project.rootPath}`,
+    '',
+    'Sources',
+  ];
+
+  if (explain.sources.length === 0) {
+    lines.push('- no code-bound memories yet');
+  } else {
+    for (const source of explain.sources.slice(0, 20)) {
+      const location = source.path ? `${source.path}${source.symbol ? `#${source.symbol}` : ''}` : 'missing code location';
+      lines.push(`- #${source.observationId} ${source.type}: ${source.title}`);
+      lines.push(`  location: ${location}`);
+      lines.push(`  status: ${source.status} (${source.reason})`);
+    }
+  }
+
+  return lines.join('\n');
+}

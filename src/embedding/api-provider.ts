@@ -21,7 +21,7 @@ import {
   type EmbeddingProvider,
   type EmbeddingRequestOptions,
 } from './provider.js';
-import { adaptOllamaEmbeddingRequest, mapOllamaEmbeddingResponse, shouldMapOllamaEmbeddingResponse } from './ollama-embed.js';
+import { mapOllamaEmbeddingResponse, routeOllamaEmbedding } from './ollama-embed.js';
 
 function cacheDir(): string {
   return process.env.MEMORIX_DATA_DIR || join(homedir(), '.memorix', 'data');
@@ -1332,10 +1332,12 @@ async function fetchWithRetry(
   attempt = 0,
   nativeGemini = false,
 ): Promise<EmbeddingAPIResponse> {
+  let rewritten = false;
   if (!nativeGemini) {
-    const adapted = adaptOllamaEmbeddingRequest(url, body);
-    url = adapted.url;
-    body = adapted.body;
+    const routed = await routeOllamaEmbedding(url, body);
+    url = routed.url;
+    body = routed.body;
+    rewritten = routed.rewritten;
   }
   const controller = new AbortController();
   const timeoutMs = typeof options.timeoutMs === 'number' && Number.isFinite(options.timeoutMs)
@@ -1369,9 +1371,7 @@ async function fetchWithRetry(
         response.json() as Promise<EmbeddingAPIResponse>,
         signal,
       );
-      return shouldMapOllamaEmbeddingResponse(url)
-        ? mapOllamaEmbeddingResponse(payload)
-        : payload;
+      return rewritten ? mapOllamaEmbeddingResponse(payload) : payload;
     }
 
     if (options.retry !== false && (response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES) {

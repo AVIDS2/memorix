@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-11
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -30,13 +30,15 @@ artifacts for the VPS/hosted build path only.
   concrete `DerivedView` adapter with status/refresh/rebuild/compact/close,
   and the Orama bridge writes through that adapter. Non-finite retrieval
   numeric inputs are normalized before searching.
-- [ ] 1.11 P1 remainder: migrate other derived views and host binding paths,
-  then finish enforceable host contracts. The `src/core` dependency direction
+- [x] 1.11 P1 derived-view and host boundary slice: FTS5, Orama, Lance, and
+  CodeGraph expose the common lifecycle; the `src/core` dependency direction
   is now guarded by a test; `MaintenanceResult` is defined in the kernel and
   rejects invalid progress before it reaches SQLite. Maintenance progress is
   durable in SQLite. The main MCP server captures an immutable `RuntimeContext`
   at bind/activation/switch boundaries and CodeGraph host paths consume its
   frozen config snapshot.
+- [ ] 1.11 P1 remainder: expose a single adapter registry and migrate any
+  remaining dashboard/diagnostic paths that still inspect raw index state.
 - [x] 1.11 derived-view adapters: SQLite FTS5 and Orama now expose the common
   `DerivedView` lifecycle with explicit status, rebuild/refresh, compact, and
   close behavior; CodeGraph now exposes the same lifecycle over Lite refresh
@@ -58,13 +60,21 @@ artifacts for the VPS/hosted build path only.
   provider cooldown remains bounded. Existing maintenance rows migrate by
   adding a defaulted `rerun_requested` column.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
-  progressive disclosure into one RetrievalFacade. The first facade slice
-  attaches each result to its own diagnostics and derived-view receipt; compact
-  search, SDK, TUI search, search-index probes, and TUI chat consume that receipt.
+  progressive disclosure into one RetrievalFacade. The current slice attaches
+  each result to its own diagnostics and derived-view receipt; compact search,
+  SDK, TUI search, search-index probes, TUI chat, and workset assembly consume
+  request-scoped state.
   Feedback policy now uses the active canonical data directory and reports
   feedback omissions separately from embedding fallback. The existing 20-case
   offline task matrix passes 20/20 with a fresh 40k store gate, but it does not
   establish improvement on unseen live issue-resolution tasks or remote vectors.
+- [x] 2026-11-11 local regression evidence: 356 files passed, 3 skipped;
+  3323 tests passed, 5 skipped; build passed. The 40k gate passed with 32.8ms
+  warm SDK search, 280.6ms HTTP MCP cold search, 421.6MB peak RSS, and all
+  persistence checks. These are local Windows/Node 22 measurements.
+- [x] 2026-11-11 remote main integrity repair: malformed Git Data API merge
+  tree was corrected in #388; remote main now contains 1820 blobs and all
+  source/test/docs files. #389, #390, and #391 are merged.
 - [x] 2026-11-05 Windows/Node 22 offline 40k gate: 40,000 seeded records,
   74.6s seed, 33.6ms warm SDK search, 418.7ms HTTP MCP cold search,
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.

@@ -28,6 +28,8 @@ import { maybeExpandSearchQuery } from '../search/query-expansion.js';
 import { parseRerankTimeoutMs, shouldAttemptHttpRerank, shouldAttemptLlmRerank } from '../rerank/policy.js';
 import { withTimeout, withTimeoutSignal } from '../timeout.js';
 import { getObservationStore } from './obs-store.js';
+import { getResolvedConfig } from '../config/resolved-config.js';
+import { isCjkHeavyQuery } from '../config/retrieval-strategy.js';
 import { createSemanticDerivedView } from '../search/semantic-view.js';
 import { createRetrievalPlan, type RetrievalReceipt } from '../core/retrieval-contracts.js';
 import {
@@ -334,6 +336,54 @@ async function searchPersistentLexically(
  * candidate list. The vector index is a derived accelerator; authoritative
  * observation rows still come from SQLite before visibility is applied.
  */
+async function searchLanceInVectorOrder(
+  options: SearchOptions,
+  projectIds: string[] | null,
+  limit: number,
+  queryVector: number[],
+  provider: EmbeddingProvider,
+): Promise<SearchResultLike | null> {
+  try {
+    const { getObservationDataDir } = await import('../memory/observations.js');
+    const dataDir = getObservationDataDir();
+    if (!dataDir) return null;
+    const vectorHits = await searchSemanticVectors({
+      dataDir,
+      profile: createSemanticIndexProfile(provider),
+      vector: queryVector,
+      projectId: projectIds ?? options.projectId,
+      status: 'all',
+      limit: Math.min(10_000, Math.max(limit, 1) * 4),
+    });
+    if (!vectorHits || vectorHits.length === 0) return null;
+
+    const store = getObservationStore();
+    const hits: SearchHitLike[] = [];
+    const seen = new Set<number>();
+    for (const hit of vectorHits) {
+      if (seen.has(hit.observationId)) continue;
+      seen.add(hit.observationId);
+      const observation = await store.getById(hit.observationId);
+      if (!observation) continue;
+      if (projectIds && !projectIds.includes(observation.projectId)) continue;
+      if (options.status !== 'all' && (observation.status ?? 'active') !== (options.status ?? 'active')) continue;
+      if (options.type && observation.type !== options.type) continue;
+      if (options.source && observation.source !== options.source) continue;
+      const document = observationToSearchDocument(observation);
+      hits.push({
+        id: document.id,
+        score: 1 / (1 + hits.length),
+        document,
+      });
+      if (hits.length >= limit) break;
+    }
+    if (hits.length === 0) return null;
+    return { count: hits.length, hits };
+  } catch {
+    return null;
+  }
+}
+
 async function searchPersistentSemantically(
   options: SearchOptions,
   projectIds: string[] | null,
@@ -1150,6 +1200,18 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
 
   mark('preSearch');
   let results: SearchResultLike | Awaited<ReturnType<typeof search>>;
+  const retrieval = getResolvedConfig().retrieval;
+  const wantLanceOrder = (isCjkHeavyQuery(originalQuery ?? '') ? retrieval.cjk : retrieval.ascii) === 'vector';
+  let lanceOrderUsed = false;
+  let persistent: SearchResultLike | null = null;
+  if (wantLanceOrder && queryVector && embeddingProviderForSearch) {
+    persistent = await searchLanceInVectorOrder(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch);
+    if (persistent) lanceOrderUsed = true;
+    else {
+      fallbackUsed = true;
+      fallbackReason = fallbackReason ?? 'lance vector index empty; hybrid search used';
+    }
+  }
   const persistentCorpusEligible = await shouldUsePersistentSearch(projectIds, options.projectId);
   // `embeddingEnabled` alone misses the common case: embedding is configured
   // (enabled) but the current provider is unavailable, has incompatible
@@ -1159,7 +1221,7 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
   // deterministic empty result despite the FTS5 index having real matches.
   const canUsePersistentLexical = persistentCorpusEligible && Boolean(hasQuery) && !queryVector &&
     (quality === 'fast' || tier === 'fast' || !embeddingEnabled || embeddingUnavailable);
-  let persistent = persistentCorpusEligible && queryVector && embeddingProviderForSearch
+  if (!persistent) persistent = persistentCorpusEligible && queryVector && embeddingProviderForSearch
     ? await searchPersistentSemantically(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch)
     : canUsePersistentLexical
       ? await searchPersistentLexically(options, projectIds, requestLimit)
@@ -1177,7 +1239,7 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
     results = persistent;
     // Keep the public mode label compatible with existing integrations while
     // exposing the concrete accelerator through performance marks/status.
-    setMode(queryVector ? 'hybrid' : quality === 'fast' ? 'fulltext (fast profile)' : 'fulltext');
+    setMode(lanceOrderUsed ? 'vector' : queryVector ? 'hybrid' : quality === 'fast' ? 'fulltext (fast profile)' : 'fulltext');
     mark(queryVector ? 'persistentHybridSearch' : 'sqliteFtsSearch');
   } else {
     try {

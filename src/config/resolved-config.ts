@@ -12,6 +12,7 @@ import { loadFileConfig } from './legacy-loader.js';
 import { loadTomlConfig, type MemorixTomlConfig } from './toml-loader.js';
 import { loadYamlConfig, type MemorixYamlConfig } from './yaml-loader.js';
 import { loadDotenv } from './dotenv-loader.js';
+import { firstRetrievalStrategy, type RetrievalStrategy } from './retrieval-strategy.js';
 
 export interface ResolvedLaneOptions {
   projectRoot?: string | null;
@@ -43,6 +44,10 @@ export interface ResolvedMemorixConfig {
     baseUrl?: string;
     apiKey?: string;
     dimensions?: number;
+  };
+  retrieval: {
+    cjk: RetrievalStrategy;
+    ascii: RetrievalStrategy;
   };
   rerank: {
     provider: 'off' | 'http';
@@ -191,6 +196,10 @@ export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMe
       apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey, openRouterEmbeddingApiKey, requestyEmbeddingApiKey),
       dimensions: firstNumber(parseNumber(process.env.MEMORIX_EMBEDDING_DIMENSIONS), toml.embedding?.dimensions, yaml.embedding?.dimensions, legacy.embeddingApi?.dimensions),
     },
+    retrieval: {
+      cjk: firstRetrievalStrategy('vector', process.env.MEMORIX_RETRIEVAL_CJK, toml.retrieval?.cjk, yaml.retrieval?.cjk),
+      ascii: firstRetrievalStrategy('hybrid', process.env.MEMORIX_RETRIEVAL_ASCII, toml.retrieval?.ascii, yaml.retrieval?.ascii),
+    },
     rerank: resolveRerankLane({
       toml,
       yaml,
@@ -327,6 +336,8 @@ function getEnvSourceNames(): string[] {
     'MEMORIX_EMBEDDING_BASE_URL',
     'MEMORIX_EMBEDDING_MODEL',
     'MEMORIX_EMBEDDING_DIMENSIONS',
+    'MEMORIX_RETRIEVAL_CJK',
+    'MEMORIX_RETRIEVAL_ASCII',
     'MEMORIX_RERANK_PROVIDER',
     'MEMORIX_RERANK_MODEL',
     'MEMORIX_RERANK_BASE_URL',

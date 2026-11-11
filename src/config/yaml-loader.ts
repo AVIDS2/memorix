@@ -48,6 +48,12 @@ export interface MemorixYamlConfig {
     dimensions?: number;
   };
 
+  /** Which ranker to use for CJK vs ASCII queries. */
+  retrieval?: {
+    cjk?: 'vector' | 'hybrid' | string;
+    ascii?: 'vector' | 'hybrid' | string;
+  };
+
   /** Remote neural rerank (HTTP only) */
   rerank?: {
     provider?: 'off' | 'http' | string;
@@ -210,6 +216,7 @@ export function loadYamlConfig(projectRoot?: string | null, options: LoadYamlOpt
     llm: { ...userConfig.llm, ...projectConfig.llm },
     agent: { ...userConfig.agent, ...projectConfig.agent },
     embedding: { ...userConfig.embedding, ...projectConfig.embedding },
+    retrieval: { ...userConfig.retrieval, ...projectConfig.retrieval },
     rerank: { ...userConfig.rerank, ...projectConfig.rerank },
     git: { ...userConfig.git, ...projectConfig.git },
     codegraph: { ...userConfig.codegraph, ...projectConfig.codegraph },

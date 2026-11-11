@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.AVIDS2/memorix",
+  "title": "Memorix",
+  "description": "Local-first project memory with legacy MCP and 2026 discovery compatibility.",
+  "repository": {
+    "url": "https://github.com/AVIDS2/memorix",
+    "source": "github"
+  },
+  "version": "1.10.3",
+  "websiteUrl": "https://mem.rglens.com",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/AVIDS2/memorix/main/assets/logo.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "1024x1024"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "memorix",
+      "version": "1.10.3",
+      "runtimeHint": "npx",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

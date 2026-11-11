@@ -1,0 +1,4043 @@
+/**
+ * Memorix Dashboard — SPA Application
+ * Vanilla JS, zero dependencies, i18n support (EN/ZH)
+ */
+
+// ============================================================
+// i18n — Internationalization
+// ============================================================
+
+const i18n = {
+  en: {
+    // Dashboard
+    dashboard: 'Dashboard',
+    dashboardSubtitle: 'Overview of your project memory',
+    entities: 'Entities',
+    relations: 'Relations',
+    observations: 'Observations',
+    evidence: 'Evidence',
+    nextId: 'Next ID',
+    observationTypes: 'Observation Types',
+    recentActivity: 'Recent Activity',
+    noObservationsYet: 'No observations yet',
+    noRecentActivity: 'No recent activity',
+    noData: 'No Data',
+    noDataDesc: 'Start using Memorix to see your dashboard',
+
+    // Graph
+
+    // Observations
+    observationsStored: 'observations stored',
+    searchObservations: 'Search observations...',
+    all: 'All',
+    noMatchingObs: 'No matching observations',
+    noObsTitle: 'No Observations',
+    noObsDesc: 'Use memorix_store to create observations',
+    evidenceSubtitle: 'Why this memory is trusted, where it came from, and whether it is still current',
+    evidenceSource: 'Source',
+    evidenceLocator: 'Locator',
+    evidenceFreshness: 'Freshness',
+    evidenceCurrent: 'Current',
+    evidenceStale: 'Stale',
+    evidenceVerified: 'Verified',
+    evidenceUnverified: 'Unverified',
+    evidenceConflicted: 'Conflicted',
+    evidenceNoCards: 'No evidence cards',
+    evidenceNoCardsDesc: 'Store or sync project memories to build a provenance view.',
+    evidenceEvents: 'Audit events',
+    untitled: 'Untitled',
+    unknown: 'unknown',
+    lowQuality: 'cleanup candidate',
+    exportData: 'Export',
+    deleteObs: 'Delete',
+    deleteConfirm: 'Delete observation #%id%?',
+    batchCleanup: 'Cleanup',
+    selectRecords: 'Select',
+    memoryMaintenance: 'Memory Maintenance',
+    previewRequired: 'Preview required',
+    cleanupAction: 'Cleanup',
+    consolidateAction: 'Consolidate',
+    deduplicateAction: 'Deduplicate',
+    archiveAction: 'Archive',
+    previewAction: 'Preview',
+    executeAction: 'Execute',
+    closeAction: 'Close',
+    cleanupNoise: 'Include test and demo noise',
+    maintenancePreview: 'Maintenance preview',
+    maintenanceEmpty: 'No candidates found',
+    maintenanceUnavailable: 'Action unavailable',
+    maintenanceChanged: 'Memory changed. Preview again before executing.',
+    maintenanceSuccess: 'Maintenance completed',
+    maintenanceFailed: 'Maintenance failed',
+    willDelete: 'Delete',
+    willArchive: 'Archive',
+    willResolve: 'Resolve',
+    willMerge: 'Merge',
+    canonicalRecord: 'Keep',
+    affectedRecords: 'Affected records',
+    cleanupLowQuality: 'Low quality',
+    cleanupDuplicates: 'Exact duplicates',
+    cleanupNoiseCount: 'Noise',
+    scannedRecords: 'Scanned',
+    comparisonFailures: 'Comparison failures',
+    confirmCleanup: 'Execute cleanup',
+    confirmConsolidate: 'Merge candidates',
+    confirmDeduplicate: 'Resolve duplicates',
+    confirmArchive: 'Archive candidates',
+    selected: 'selected',
+    cancel: 'Cancel',
+    deleteSelected: 'Delete Selected',
+    deleteFailed: 'Delete failed',
+    batchDeleteConfirm: 'Delete %count% observations?',
+    deleted: 'Deleted',
+    narrative: 'Narrative',
+    facts: 'Facts',
+    concepts: 'Concepts',
+    files: 'Files Modified',
+    clickToExpand: 'Click to expand',
+    vectorSearch: 'Vector Search',
+    fulltextOnly: 'Fulltext Only',
+    enabled: 'Enabled',
+    typeDistribution: 'Type Distribution',
+
+    // Sessions
+    sessions: 'Sessions',
+    sessionsSubtitle: 'Session lifecycle timeline',
+    noSessions: 'No Sessions',
+    noSessionsDesc: 'Use memorix_session_start to begin tracking sessions',
+    sessionActive: 'Active',
+    sessionCompleted: 'Completed',
+    sessionAgent: 'Agent',
+    sessionStarted: 'Started',
+    sessionEnded: 'Ended',
+    sessionSummary: 'Summary',
+
+    // Retention
+    memoryRetention: 'Memory Retention',
+    retentionSubtitle: 'Exponential decay scoring with immunity rules',
+    active: 'Active',
+    stale: 'Stale',
+    archiveCandidates: 'Archive Candidates',
+    immune: 'Immune',
+    allObsByScore: 'All Observations by Retention Score',
+    id: 'ID',
+    title: 'Title',
+    type: 'Type',
+    entity: 'Entity',
+    score: 'Score',
+    ageH: 'Age (h)',
+    access: 'Access',
+    status: 'Status',
+    noRetentionData: 'No Retention Data',
+    noRetentionDesc: 'Store observations to see memory retention scores',
+
+    // Team -> Coordination
+    teamTitle: 'Coordination Status',
+    teamSubtitle: 'Read-only project coordination status',
+    teamNoData: 'No coordination status is available',
+    teamNoDataHint: 'Coordination state is read-only and comes from the project SQLite store.',
+    teamStatusError: 'Coordination status unavailable',
+    teamStatusDegraded: 'Coordination status degraded',
+    teamStatusErrorDesc: 'The persistent coordination state could not be read. This view has no write actions.',
+    teamStatusDegradedDesc: 'Some persistent coordination state could not be read. Values may be incomplete.',
+    teamActiveAgents: 'Active Agents',
+    teamLockedFiles: 'Locked Files',
+    teamTasks: 'Tasks',
+    teamAvailable: 'Available',
+    teamAgents: 'Agents',
+    teamLocks: 'File Locks',
+    teamTaskStatus: 'Task Status',
+    // Resume area
+    resumeTitle: 'Continue This Project',
+    resumeDesc: 'What needs attention right now',
+    resumeOpenTasks: 'Open tasks',
+    resumeAvailableTasks: 'Available to claim',
+    resumeOpenHandoffs: 'Pending handoffs',
+    resumeUnreadMessages: 'Unread messages',
+    resumeActiveLocks: 'Active locks',
+    resumeActiveAgents: 'Active agents',
+    resumeAllClear: 'All clear — nothing pending',
+    resumeAllClearDesc: 'No open tasks, handoffs, or unread messages',
+
+    // Overview (new)
+    memoryControlPlane: 'Memory Control Plane',
+    memoriesAcross: 'memories across',
+    entitiesUnit: 'entities',
+    gitMemories: 'Git Memories',
+    agentMemories: 'Agent Memories',
+    thisWeek: 'this week',
+    hooksAndMcp: 'hooks + MCP',
+    memorySources: 'Memory Sources',
+    retentionHealth: 'Retention Summary',
+    sourceGit: 'Git',
+    sourceAgent: 'Agent',
+    sourceManual: 'Manual',
+
+    // Git Memory
+    gitMemoryTitle: 'Git Memory',
+    gitMemorySubtitle: 'memories from git commits — ground truth, immutable',
+    totalGitMemories: 'Total Git Memories',
+    uniqueCommits: 'Unique Commits',
+    typeCoverage: 'Type Coverage',
+    noGitMemory: 'No Git Memory',
+    noGitMemoryDesc: 'Install the post-commit hook with: memorix git-hook-install',
+    noGitMemoriesYet: 'No Git Memories Yet',
+    noGitMemoriesHint: 'Install the post-commit hook to automatically capture git memories:',
+    recentGitMemories: 'Recent Git Memories',
+    commit: 'Commit',
+    created: 'Created',
+    knowledgeTitle: 'Memory Overview',
+    knowledgeSubtitle: 'Read-only overview generated from durable project memory, not a maintained wiki',
+    knowledgeObservationsUsed: 'Observations Used',
+    knowledgeMiniSkillsUsed: 'Mini-skills Used',
+    knowledgeRefs: 'Refs',
+    knowledgeGenerated: 'Generated',
+    knowledgeQuickJump: 'Sections',
+    knowledgeNoItems: 'No entries in this section yet',
+    knowledgeNoItemsDesc: 'This section will fill in as durable project knowledge is stored.',
+    knowledgeUnavailable: 'Memory Overview Unavailable',
+    knowledgeUnavailableDesc: 'Could not load /api/knowledge for the selected project.',
+    knowledgeEmpty: 'No Memory Overview Entries',
+    knowledgeEmptyDesc: 'Store durable observations or promote mini-skills to populate this read-only memory overview.',
+    knowledgeProvenance: 'Provenance',
+    knowledgeEntry: 'entry',
+    knowledgeEntries: 'entries',
+    knowledgeSectionProjectOverview: 'Project Overview',
+    knowledgeSectionCoreDecisions: 'Core Decisions',
+    knowledgeSectionOperationalKnowledge: 'Operational Knowledge',
+    knowledgeSectionKnownGotchas: 'Known Gotchas',
+    knowledgeSectionGitBackedFacts: 'Git-backed Facts',
+    knowledgeSectionPromotedSkills: 'Promoted Skills',
+
+    // Config
+    configTitle: 'Config Provenance',
+    configSubtitle: 'Where every configuration value comes from — two files, two roles',
+    configSourceMatrix: 'Config Source Matrix',
+    configHint: '= behavior config',
+    configHintEnv: '= secrets only',
+    valueProvenance: 'Value Provenance',
+    trackedValues: 'tracked values',
+    configKey: 'Key',
+    configValue: 'Value',
+    configSource: 'Source',
+    configStatus: 'Status',
+    moveToEnv: 'Move to .env',
+    configUnavailable: 'Config Unavailable',
+    configUnavailableDesc: 'Could not load configuration data',
+
+    // Identity
+    identityTitle: 'Project Identity Health',
+    identitySubtitle: 'Project ID stability, aliases, and cross-agent consistency',
+    healthStatus: 'Health Status',
+    healthy: 'Healthy',
+    unhealthy: 'Issues',
+    knownProjectIds: 'Known Project IDs',
+    aliasGroups: 'Alias Groups',
+    dirtyIds: 'Dirty IDs',
+    currentIdentity: 'Current Identity',
+    currentProjectId: 'Current Project ID',
+    canonicalId: 'Canonical ID',
+    aliases: 'Aliases',
+    healthIssues: 'Health Issues',
+    noIssues: 'No issues detected. Project identity is clean.',
+    dirtyProjectIds: 'Dirty Project IDs',
+    allKnownProjectIds: 'All Known Project IDs',
+    tagCurrent: 'current',
+    tagCanonical: 'canonical',
+    tagDirty: 'dirty',
+    identityUnavailable: 'Identity Unavailable',
+    identityUnavailableDesc: 'Could not load project identity data',
+
+    // System Status
+    systemStatus: 'System Status',
+    searchMode: 'Search Mode',
+    embeddingProvider: 'Embedding Provider',
+    backfillPending: 'Backfill Pending',
+    vectorsMissing: 'vectors missing',
+    noBackfillNeeded: 'All vectors indexed',
+    vectorStatusSessionLocal: 'Active MCP session',
+    providerReady: 'Ready',
+    providerUnavailable: 'Unavailable',
+    providerDisabled: 'Disabled (BM25 only)',
+    degradedHint: 'Search is degraded — no vector similarity',
+    maintenance: 'Maintenance',
+    maintenanceIdle: 'No work queued',
+    maintenanceQueued: 'queued',
+    maintenanceRunning: 'running',
+    maintenanceNeedsAttention: 'needs attention',
+    knowledgeLifecycle: 'Knowledge Lifecycle',
+    claimsNeedReview: 'claims need review',
+    pendingProposals: 'pending proposals',
+    knowledgeReady: 'Knowledge current',
+
+    // Project states
+    noProjects: 'No projects',
+    error: 'Error',
+    projectUnresolved: 'Unresolved',
+    projectUnresolvedDesc: 'No project bound — select a project from the switcher',
+    projectResolved: 'Resolved',
+    projectScopeProject: 'Project Coordination Status',
+    projectScopeGlobal: 'All Projects',
+    projectScopeProjectDesc: 'Agents and tasks coordinated for this project',
+    projectScopeGlobalDesc: 'Agents and tasks coordinated across projects',
+
+    // Team (additional)
+    teamMessages: 'Messages',
+    teamAllRead: 'All read',
+    teamUnread: 'unread',
+    teamNoAgentsProject: 'No coordinated agents recorded for this project',
+    teamNoAgentsGlobal: 'No coordinated agents recorded in any scope',
+    teamNoFilesLocked: 'No files locked',
+    teamNoTasksCreated: 'No tasks created',
+    teamPending: 'pending',
+    teamActive: 'active',
+    teamDone: 'done',
+    teamRefresh: 'Refresh',
+    teamProjectBtn: 'Project',
+    teamGlobalBtn: 'Global',
+    teamOffline: 'offline',
+    teamLive: 'live',
+    teamFile: 'file',
+    // H1/H2: Activity layering
+    teamTierActive: 'Active',
+    teamTierRecent: 'Recent',
+    teamTierHistorical: 'Historical',
+    teamTierAll: 'All',
+    teamRecentCount: 'recent',
+    teamHistoricalCount: 'historical',
+    teamHistoricalTotal: 'Historical total',
+    teamHistoricalHint: 'Inactive for more than 7 days. Not currently coordinated agents.',
+    teamRecentHint: 'Inactive, last seen within 7 days.',
+    teamShowHistorical: 'Show historical',
+    teamHideHistorical: 'Hide historical',
+    teamNoActiveNow: 'No active coordinated agents right now',
+    teamNoRecent: 'No coordinated agents seen in the last 7 days',
+    teamSummaryHint: 'Only explicit coordination identities appear here. Historical rows are collapsed by default.',
+    // Resume area
+    resumeTitle: 'Continue This Project',
+    resumeDesc: 'Pick up where you left off',
+    resumeOpenTasks: 'Open tasks',
+    resumeAvailableTasks: 'available to claim',
+    resumeOpenHandoffs: 'Open handoffs',
+    resumeUnreadMessages: 'Unread messages',
+    resumeActiveLocks: 'Active locks',
+    resumeActiveAgents: 'Active agents',
+    resumeAllClear: 'All clear',
+    resumeAllClearDesc: 'No pending tasks, handoffs, or locks',
+    // H3: Identity layering
+    identityHealthPrimary: 'Current project health',
+    identityRealProjects: 'Real projects',
+    identityTemporary: 'Temporary / smoke / demo',
+    identityPlaceholder: 'Placeholder / broken',
+    identityUnmergedFragments: 'Unmerged real fragments',
+    identityAliasGroupsReal: 'Alias groups (real projects only)',
+    identityAliasGroupsAll: 'Alias groups (all, including historical)',
+    identityHistoricalFold: 'Historical / temporary project IDs',
+    identityHistoricalNote: 'These include smoke/demo/test scratch projects and placeholder IDs. Not counted toward current health.',
+    identityShowHistorical: 'Show historical project IDs',
+    identityHideHistorical: 'Hide historical',
+    // H4/H5: Project switcher groups
+    switcherGroupCurrent: 'Current',
+    switcherGroupReal: 'Real projects',
+    switcherGroupTemporary: 'Temporary / smoke / demo',
+    switcherGroupPlaceholder: 'Placeholder',
+    switcherShowTemp: 'Show temporary',
+    switcherHideTemp: 'Hide temporary',
+    switcherTempCount: 'temp',
+    teamNoRole: 'no role',
+    teamAvailableToClaim: 'available to claim',
+    teamActiveCount: 'active',
+    teamRoles: 'Roles',
+    teamDefined: 'Defined',
+    teamHandoffs: 'Handoffs',
+    teamOpen: 'Open',
+    taskPending: 'Pending',
+    taskInProgress: 'In Progress',
+    taskCompleted: 'Done',
+    taskFailed: 'Failed',
+
+    // Graph (additional)
+    graphSearch: 'Search',
+    graphSelectNode: 'Select a node to inspect',
+    graphFindEntity: 'Find entity...',
+
+    // Deterministic memory-map projection
+    kgTitle: 'Memory Map',
+    kgSubtitle: 'Deterministic links from shared entities, skill sources, and explicit relations',
+    kgNodes: 'nodes',
+    kgEdges: 'edges',
+    kgClusters: 'clusters',
+    kgNoData: 'No Memory Map Data',
+    kgNoDataDesc: 'Store durable observations or promote mini-skills to build a deterministic memory map.',
+    kgUnavailable: 'Memory Map Unavailable',
+    kgUnavailableDesc: 'The memory-map service did not return a valid response. Check the Dashboard service and try again.',
+    kgClusterFilter: 'Section Cluster',
+    kgEdgeTypeFilter: 'Edge Type',
+    kgEdgeSupports: 'supports',
+    kgEdgeRelatesTo: 'relates to',
+    kgEdgeMentions: 'mentions',
+    kgEdgeDerivedFrom: 'derived from',
+    kgInspectorSummary: 'Summary',
+    kgInspectorProvenance: 'Provenance',
+    kgInspectorSection: 'Section',
+    kgInspectorEntity: 'Entity',
+    kgInspectorEvidence: 'Evidence',
+    kgInspectorRelatedEdges: 'Related Edges',
+    kgInspectorNoEdges: 'No edges',
+    kgViewMode: 'View Mode',
+    kgFocused: 'Focused',
+    kgFullGraph: 'Full Graph',
+    codeGraphHealthTitle: 'CodeGraph health',
+    codeGraphStateReady: 'Semantic index ready',
+    codeGraphStatePartial: 'Needs attention',
+    codeGraphStateNotIndexed: 'Structural index only',
+    codeGraphFiles: 'files',
+    codeGraphSymbols: 'symbols',
+    codeGraphEdges: 'edges',
+    codeGraphParserErrors: 'parser errors',
+    codeGraphSnapshotIncomplete: 'incomplete scan',
+    codeGraphUnavailable: 'CodeGraph health unavailable',
+
+    // Identity (additional)
+    identityCurrentProject: 'Current Project',
+    identityHistoricalProjects: 'Historical Projects',
+    identityProjectBound: 'Project bound and healthy',
+    identityProjectUnbound: 'Project not bound — select a project',
+    identityDirtyCurrentWarning: 'Current project has dirty IDs that need resolution',
+    identityDirtyHistoricalNote: 'Dirty IDs from other projects (not affecting current project)',
+    identityTotalCount: 'total',
+
+    // Config (additional)
+    configProjectUnavailable: 'Project config unavailable',
+    configProjectUnavailableDesc: 'Project root path is unknown — project-scoped config files cannot be resolved',
+
+    // Git Memory (additional)
+    gitMemoryTotal: 'total',
+
+    // Nav tooltips + labels
+    navDashboard: 'Dashboard',
+    navGitMemory: 'Git Memory',
+    navKnowledge: 'Memory Overview',
+    navGraph: 'Memory Map',
+    navObservations: 'Observations',
+    navEvidence: 'Evidence',
+    navRetention: 'Retention',
+    navConfig: 'Config',
+    navIdentity: 'Identity',
+    navSessions: 'Sessions',
+    navTeam: 'Coordination',
+    navLabelDashboard: 'Overview',
+    navLabelGitMemory: 'Git Memory',
+    navLabelKnowledge: 'Knowledge',
+    navLabelGraph: 'Graph',
+    navLabelObservations: 'Observations',
+    navLabelEvidence: 'Evidence',
+    navLabelRetention: 'Retention',
+    navLabelConfig: 'Config',
+    navLabelIdentity: 'Identity',
+    navLabelSessions: 'Sessions',
+    navLabelTeam: 'Coordination',
+    sectionCore: 'CORE',
+    sectionHealth: 'HEALTH',
+    sectionCollaboration: 'AGENTS',
+    themeDark: 'Dark',
+    themeLight: 'Light',
+    loading: 'Loading...',
+    searchProjects: 'Search projects...',
+
+    // Mode banner
+    modeStandalone: 'Standalone',
+    modeControlPlane: 'Control Plane',
+    modeStandaloneHint: 'Standalone dashboard - memory and read-only coordination status',
+    modeControlPlaneHint: 'HTTP control plane - shared MCP access and read-only coordination status',
+    modeBannerProject: 'Project',
+    modeBannerMcp: 'MCP',
+
+    // Time ago
+    timeAgoS: 's ago',
+    timeAgoM: 'm ago',
+    timeAgoH: 'h ago',
+    timeAgoD: 'd ago',
+    timeExpired: 'expired',
+    timeLeft: 'm left',
+    teamJoined: 'joined',
+    teamSeen: 'seen',
+    teamLeft: 'left',
+    persistedAgentsAvailable: 'persisted agent(s) available in',
+    sessionsCount: 'session(s)',
+  },
+  zh: {
+    // Dashboard
+    dashboard: '仪表盘',
+    dashboardSubtitle: '项目记忆概览',
+    entities: '实体',
+    relations: '关系',
+    observations: '观察记录',
+    evidence: '证据',
+    nextId: '下一个 ID',
+    observationTypes: '观察类型分布',
+    recentActivity: '最近活动',
+    noObservationsYet: '暂无观察记录',
+    noRecentActivity: '暂无最近活动',
+    noData: '暂无数据',
+    noDataDesc: '开始使用 Memorix 来查看仪表盘',
+
+    // Graph
+
+    // Observations
+    observationsStored: '条观察已存储',
+    searchObservations: '搜索观察记录...',
+    all: '全部',
+    noMatchingObs: '没有匹配的观察记录',
+    noObsTitle: '暂无观察记录',
+    noObsDesc: '使用 memorix_store 创建观察记录',
+    evidenceSubtitle: '查看记忆为何可信、来自哪里，以及是否仍然有效',
+    evidenceSource: '来源',
+    evidenceLocator: '定位',
+    evidenceFreshness: '新鲜度',
+    evidenceCurrent: '当前',
+    evidenceStale: '已过期',
+    evidenceVerified: '已验证',
+    evidenceUnverified: '未验证',
+    evidenceConflicted: '有冲突',
+    evidenceNoCards: '暂无证据卡',
+    evidenceNoCardsDesc: '写入或同步项目记忆后，这里会显示来源和审计信息。',
+    evidenceEvents: '审计事件',
+    untitled: '无标题',
+    unknown: '未知',
+    lowQuality: '清理候选',
+    exportData: '导出',
+    deleteObs: '删除',
+    deleteConfirm: '确认删除观察 #%id%？',
+    batchCleanup: '清理',
+    selectRecords: '选择',
+    memoryMaintenance: '记忆维护',
+    previewRequired: '执行前需预览',
+    cleanupAction: '清理',
+    consolidateAction: '合并',
+    deduplicateAction: '智能去重',
+    archiveAction: '归档',
+    previewAction: '预览',
+    executeAction: '执行',
+    closeAction: '关闭',
+    cleanupNoise: '包含测试和演示噪声',
+    maintenancePreview: '维护预览',
+    maintenanceEmpty: '没有发现候选项',
+    maintenanceUnavailable: '当前操作不可用',
+    maintenanceChanged: '记忆已发生变化，请重新预览后再执行。',
+    maintenanceSuccess: '维护完成',
+    maintenanceFailed: '维护失败',
+    willDelete: '删除',
+    willArchive: '归档',
+    willResolve: '设为已解决',
+    willMerge: '合并',
+    canonicalRecord: '保留',
+    affectedRecords: '受影响记录',
+    cleanupLowQuality: '低质量记录',
+    cleanupDuplicates: '完全重复',
+    cleanupNoiseCount: '噪声',
+    scannedRecords: '已扫描',
+    comparisonFailures: '比较失败',
+    confirmCleanup: '执行清理',
+    confirmConsolidate: '合并候选项',
+    confirmDeduplicate: '解决重复项',
+    confirmArchive: '归档候选项',
+    selected: '已选中',
+    cancel: '取消',
+    deleteSelected: '删除所选',
+    deleteFailed: '删除失败',
+    batchDeleteConfirm: '确认删除 %count% 条观察？',
+    deleted: '已删除',
+    narrative: '叙述',
+    facts: '事实',
+    concepts: '概念',
+    files: '相关文件',
+    clickToExpand: '点击展开',
+    vectorSearch: '向量搜索',
+    fulltextOnly: '仅全文搜索',
+    enabled: '已启用',
+    typeDistribution: '类型分布',
+
+    // Sessions
+    sessions: '会话',
+    sessionsSubtitle: '会话生命周期时间线',
+    noSessions: '暂无会话',
+    noSessionsDesc: '使用 memorix_session_start 开始跟踪会话',
+    sessionActive: '进行中',
+    sessionCompleted: '已完成',
+    sessionAgent: 'Agent',
+    sessionStarted: '开始时间',
+    sessionEnded: '结束时间',
+    sessionSummary: '摘要',
+
+    // Retention
+    memoryRetention: '记忆衰减',
+    retentionSubtitle: '基于指数衰减的评分系统，支持免疫规则',
+    active: '活跃',
+    stale: '陈旧',
+    archiveCandidates: '归档候选',
+    immune: '免疫',
+    allObsByScore: '按衰减分数排列的所有观察',
+    id: 'ID',
+    title: '标题',
+    type: '类型',
+    entity: '实体',
+    score: '分数',
+    ageH: '年龄 (h)',
+    access: '访问次数',
+    status: '状态',
+    noRetentionData: '暂无衰减数据',
+    noRetentionDesc: '存储观察记录以查看记忆衰减分数',
+
+    // Team -> 编排协作
+    teamTitle: '协作状态',
+    teamSubtitle: '只读项目协作状态',
+    teamNoData: '暂无可用的协作状态',
+    teamNoDataHint: '协作状态为只读，并来自项目 SQLite 存储。',
+    teamStatusError: '协作状态不可用',
+    teamStatusDegraded: '协作状态已降级',
+    teamStatusErrorDesc: '无法读取持久协作状态。此视图不提供写入操作。',
+    teamStatusDegradedDesc: '部分持久协作状态无法读取，当前数据可能不完整。',
+    teamActiveAgents: '活跃 Agent',
+    teamLockedFiles: '锁定文件',
+    teamTasks: '任务',
+    teamAvailable: '可领取',
+    teamAgents: 'Agent',
+    teamLocks: '文件锁',
+    teamTaskStatus: '任务状态',
+    // Resume area
+    resumeTitle: '继续这个项目',
+    resumeDesc: '当前需要关注的事项',
+    resumeOpenTasks: '待处理任务',
+    resumeAvailableTasks: '可领取任务',
+    resumeOpenHandoffs: '待接交接',
+    resumeUnreadMessages: '未读消息',
+    resumeActiveLocks: '活跃锁',
+    resumeActiveAgents: '活跃 Agent',
+    resumeAllClear: '全部就绪 — 无待处理项',
+    resumeAllClearDesc: '无待处理任务、交接或未读消息',
+
+    // Overview (new)
+    memoryControlPlane: '记忆控制台',
+    memoriesAcross: '条记忆，分布于',
+    entitiesUnit: '个实体',
+    gitMemories: 'Git 记忆',
+    agentMemories: 'Agent 记忆',
+    thisWeek: '本周新增',
+    hooksAndMcp: 'hooks + MCP',
+    memorySources: '记忆来源',
+    retentionHealth: '保留摘要',
+    sourceGit: 'Git',
+    sourceAgent: 'Agent',
+    sourceManual: '手动',
+
+    // Git Memory
+    gitMemoryTitle: 'Git 记忆',
+    gitMemorySubtitle: '来自 git 提交的记忆 — 真实来源且不可变',
+    totalGitMemories: 'Git 记忆总数',
+    uniqueCommits: '唯一提交',
+    typeCoverage: '类型覆盖',
+    noGitMemory: '暂无 Git 记忆',
+    noGitMemoryDesc: '使用以下命令安装 post-commit hook: memorix git-hook-install',
+    noGitMemoriesYet: '暂无 Git 记忆',
+    noGitMemoriesHint: '安装 post-commit hook 以自动捕获 git 记忆：',
+    recentGitMemories: '最近 Git 记忆',
+    commit: '提交',
+    created: '创建时间',
+    knowledgeTitle: '记忆概览',
+    knowledgeSubtitle: '从持久项目记忆生成的只读概览，尚非可维护 Wiki',
+    knowledgeObservationsUsed: '使用的观察',
+    knowledgeMiniSkillsUsed: '使用的 Mini-skills',
+    knowledgeRefs: '引用',
+    knowledgeGenerated: '生成于',
+    knowledgeQuickJump: '章节',
+    knowledgeNoItems: '本章节暂无条目',
+    knowledgeNoItemsDesc: '当项目中出现持久知识后，本章节会自动填充。',
+    knowledgeUnavailable: '记忆概览不可用',
+    knowledgeUnavailableDesc: '无法为所选项目加载 /api/knowledge。',
+    knowledgeEmpty: '暂无记忆概览条目',
+    knowledgeEmptyDesc: '存储持久观察或提升 mini-skill 后，此只读记忆概览会自动填充。',
+    knowledgeProvenance: '来源',
+    knowledgeEntry: '条',
+    knowledgeEntries: '条',
+    knowledgeSectionProjectOverview: '项目概览',
+    knowledgeSectionCoreDecisions: '核心决策',
+    knowledgeSectionOperationalKnowledge: '操作知识',
+    knowledgeSectionKnownGotchas: '已知陷阱',
+    knowledgeSectionGitBackedFacts: 'Git 事实',
+    knowledgeSectionPromotedSkills: '提升技能',
+
+    // Config
+    configTitle: '配置溯源',
+    configSubtitle: '每个配置值的来源 — 两个文件，两种角色',
+    configSourceMatrix: '配置源矩阵',
+    configHint: '= 行为配置',
+    configHintEnv: '= 仅存放密钥',
+    valueProvenance: '值的溯源',
+    trackedValues: '个追踪值',
+    configKey: '键',
+    configValue: '值',
+    configSource: '来源',
+    configStatus: '状态',
+    moveToEnv: '应移至 .env',
+    configUnavailable: '配置不可用',
+    configUnavailableDesc: '无法加载配置数据',
+
+    // Identity
+    identityTitle: '项目身份健康度',
+    identitySubtitle: '项目 ID 稳定性、别名和跨 Agent 一致性',
+    healthStatus: '健康状态',
+    healthy: '健康',
+    unhealthy: '存在问题',
+    knownProjectIds: '已知项目 ID',
+    aliasGroups: '别名组',
+    dirtyIds: '脏 ID',
+    currentIdentity: '当前身份',
+    currentProjectId: '当前项目 ID',
+    canonicalId: '标准 ID',
+    aliases: '别名',
+    healthIssues: '健康问题',
+    noIssues: '未检测到问题。项目身份状态良好。',
+    dirtyProjectIds: '脏项目 ID',
+    allKnownProjectIds: '所有已知项目 ID',
+    tagCurrent: '当前',
+    tagCanonical: '标准',
+    tagDirty: '脏',
+    identityUnavailable: '身份信息不可用',
+    identityUnavailableDesc: '无法加载项目身份数据',
+
+    // System Status
+    systemStatus: '系统状态',
+    searchMode: '搜索模式',
+    embeddingProvider: '向量提供者',
+    backfillPending: '回填待处理',
+    vectorsMissing: '条向量缺失',
+    noBackfillNeeded: '所有向量已索引',
+    vectorStatusSessionLocal: '由活动 MCP 会话统计',
+    providerReady: '就绪',
+    providerUnavailable: '不可用',
+    providerDisabled: '已禁用 (仅 BM25)',
+    degradedHint: '搜索已降级 — 无向量相似性',
+    maintenance: '维护任务',
+    maintenanceIdle: '无待处理任务',
+    maintenanceQueued: '项排队',
+    maintenanceRunning: '项运行中',
+    maintenanceNeedsAttention: '项需要处理',
+    knowledgeLifecycle: '知识生命周期',
+    claimsNeedReview: '条 claim 待复核',
+    pendingProposals: '个提案待审',
+    knowledgeReady: '知识状态正常',
+
+    // Project states
+    noProjects: '无项目',
+    error: '错误',
+    projectUnresolved: '未绑定',
+    projectUnresolvedDesc: '无项目绑定 — 请从切换器选择项目',
+    projectResolved: '已绑定',
+    projectScopeProject: '项目协作状态',
+    projectScopeGlobal: '所有项目',
+    projectScopeProjectDesc: '当前项目中的 agents 和任务',
+    projectScopeGlobalDesc: '所有项目中的 agents 和任务',
+
+    // Team (additional)
+    teamMessages: '消息',
+    teamAllRead: '全部已读',
+    teamUnread: '未读',
+    teamNoAgentsProject: '当前项目暂无 agent 协调记录',
+    teamNoAgentsGlobal: '任何范围均无 agent 协调记录',
+    teamNoFilesLocked: '无文件锁定',
+    teamNoTasksCreated: '无已创建任务',
+    teamPending: '待处理',
+    teamActive: '进行中',
+    teamDone: '已完成',
+    teamRefresh: '刷新',
+    teamProjectBtn: '项目',
+    teamGlobalBtn: '全局',
+    teamOffline: '离线',
+    teamLive: '在线',
+    teamFile: '文件',
+    // H1/H2: 活跃度分层
+    teamTierActive: '活跃',
+    teamTierRecent: '近期',
+    teamTierHistorical: '历史',
+    teamTierAll: '全部',
+    teamRecentCount: '近期',
+    teamHistoricalCount: '历史',
+    teamHistoricalTotal: '历史累计',
+    teamHistoricalHint: '超过 7 天无活动，非当前协调中的 agent',
+    teamRecentHint: '未活跃，最近 7 天内有过心跳',
+    teamShowHistorical: '显示历史',
+    teamHideHistorical: '隐藏历史',
+    teamNoActiveNow: '当前无活跃协调 agent',
+    teamNoRecent: '最近 7 天无 agent 协调活动',
+    teamSummaryHint: '这里只显示显式加入协调状态的 agent 身份。历史数据默认折叠。',
+    // Resume area
+    resumeTitle: '继续此项目',
+    resumeDesc: '从上次中断处继续',
+    resumeOpenTasks: '待办任务',
+    resumeAvailableTasks: '可认领',
+    resumeOpenHandoffs: '待接手',
+    resumeUnreadMessages: '未读消息',
+    resumeActiveLocks: '文件锁',
+    resumeActiveAgents: '活跃 Agent',
+    resumeAllClear: '一切就绪',
+    resumeAllClearDesc: '无待办任务、待接手或文件锁',
+    // H3: Identity 分层
+    identityHealthPrimary: '当前项目健康',
+    identityRealProjects: '真实项目',
+    identityTemporary: '临时 / smoke / 演示',
+    identityPlaceholder: 'Placeholder / 损坏',
+    identityUnmergedFragments: '未合并的真实项目碎片',
+    identityAliasGroupsReal: '别名组（仅真实项目）',
+    identityAliasGroupsAll: '别名组（全部，含历史）',
+    identityHistoricalFold: '历史 / 临时项目 ID',
+    identityHistoricalNote: '包含 smoke/demo/测试临时项目与 placeholder ID，不计入当前健康。',
+    identityShowHistorical: '显示历史项目 ID',
+    identityHideHistorical: '隐藏历史',
+    // H4/H5: 项目切换器分组
+    switcherGroupCurrent: '当前',
+    switcherGroupReal: '真实项目',
+    switcherGroupTemporary: '临时 / smoke / 演示',
+    switcherGroupPlaceholder: 'Placeholder',
+    switcherShowTemp: '显示临时项目',
+    switcherHideTemp: '隐藏临时项目',
+    switcherTempCount: '临时',
+    teamNoRole: '无角色',
+    teamAvailableToClaim: '可领取',
+    teamActiveCount: '活跃',
+    teamRoles: '角色',
+    teamDefined: '已定义',
+    teamHandoffs: '交接',
+    teamOpen: '待领取',
+    taskPending: '待处理',
+    taskInProgress: '进行中',
+    taskCompleted: '已完成',
+    taskFailed: '失败',
+
+    // Sessions (additional)
+    sessionsTimeline: '时间线',
+    sessionsTotal: '总计',
+    sessionsTotalLower: '总计',
+
+    // Graph (additional)
+    graphSearch: '搜索',
+    graphSelectNode: '选择节点以查看详情',
+    graphFindEntity: '查找实体...',
+
+    // Deterministic memory-map projection
+    kgTitle: '记忆关系图',
+    kgSubtitle: '由共享实体、技能来源和显式关系确定性推断',
+    kgNodes: '个节点',
+    kgEdges: '条边',
+    kgClusters: '个聚类',
+    kgNoData: '暂无记忆关系图数据',
+    kgNoDataDesc: '存储持久观察或提升迷你技能以构建确定性记忆关系图。',
+    kgUnavailable: '记忆关系图暂时不可用',
+    kgUnavailableDesc: '记忆关系图服务没有返回有效数据，请检查 Dashboard 服务后重试。',
+    kgClusterFilter: '分区聚类',
+    kgEdgeTypeFilter: '边类型',
+    kgEdgeSupports: '支撑',
+    kgEdgeRelatesTo: '关联',
+    kgEdgeMentions: '提及',
+    kgEdgeDerivedFrom: '派生自',
+    kgInspectorSummary: '摘要',
+    kgInspectorProvenance: '溯源',
+    kgInspectorSection: '分区',
+    kgInspectorEntity: '实体',
+    kgInspectorEvidence: '证据',
+    kgInspectorRelatedEdges: '相关边',
+    kgInspectorNoEdges: '无边',
+    kgViewMode: '视图模式',
+    kgFocused: '聚焦',
+    kgFullGraph: '全量',
+    codeGraphHealthTitle: '代码图谱健康度',
+    codeGraphStateReady: '语义索引就绪',
+    codeGraphStatePartial: '需要处理',
+    codeGraphStateNotIndexed: '当前只有结构索引',
+    codeGraphFiles: '个文件',
+    codeGraphSymbols: '个符号',
+    codeGraphEdges: '条关系',
+    codeGraphParserErrors: '个解析错误',
+    codeGraphSnapshotIncomplete: '扫描不完整',
+    codeGraphUnavailable: '代码图谱状态不可用',
+
+    // Identity (additional)
+    identityCurrentProject: '当前项目',
+    identityHistoricalProjects: '历史项目',
+    identityProjectBound: '项目已绑定且健康',
+    identityProjectUnbound: '项目未绑定 — 请选择项目',
+    identityDirtyCurrentWarning: '当前项目存在需要解决的脏 ID',
+    identityDirtyHistoricalNote: '来自其他项目的脏 ID（不影响当前项目）',
+    identityTotalCount: '总计',
+
+    // Config (additional)
+    configProjectUnavailable: '项目配置不可用',
+    configProjectUnavailableDesc: '项目根路径未知 — 无法解析项目级配置文件',
+
+    // Git Memory (additional)
+    gitMemoryTotal: '总计',
+
+    // Nav tooltips
+    navDashboard: '仪表盘',
+    navGitMemory: 'Git 记忆',
+    navKnowledge: '记忆概览',
+    navGraph: '记忆关系图',
+    navObservations: '观察记录',
+    navEvidence: '证据',
+    navRetention: '记忆衰减',
+    navConfig: '配置溯源',
+    navIdentity: '身份健康',
+    navSessions: '会话',
+    navTeam: '编排协作',
+    navLabelDashboard: '概览',
+    navLabelGitMemory: 'Git 记忆',
+    navLabelKnowledge: '知识库',
+    navLabelGraph: '图谱',
+    navLabelObservations: '观察',
+    navLabelEvidence: '证据',
+    navLabelRetention: '衰减',
+    navLabelConfig: '配置',
+    navLabelIdentity: '身份',
+    navLabelSessions: '会话',
+    navLabelTeam: '编排协作',
+    sectionCore: '核心',
+    sectionHealth: '健康',
+    sectionCollaboration: 'Agents',
+    themeDark: '深色',
+    themeLight: '浅色',
+    loading: '加载中...',
+    searchProjects: '搜索项目...',
+
+    // Mode banner
+    modeStandalone: '独立模式',
+    modeControlPlane: '控制平面',
+    modeStandaloneHint: '独立视图 - 记忆与只读协作状态',
+    modeControlPlaneHint: 'HTTP 控制平面 - 共享 MCP 接入与只读协作状态',
+    modeBannerProject: '项目',
+    modeBannerMcp: 'MCP',
+
+    // Time ago
+    timeAgoS: '秒前',
+    timeAgoM: '分钟前',
+    timeAgoH: '小时前',
+    timeAgoD: '天前',
+    timeExpired: '已过期',
+    timeLeft: '分钟剩余',
+    teamJoined: '加入',
+    teamSeen: '活跃',
+    teamLeft: '离开',
+    persistedAgentsAvailable: '个持久化代理可用，在',
+    sessionsCount: '个会话',
+  },
+};
+
+let currentLang = localStorage.getItem('memorix-lang') || 'en';
+let dashboardMode = 'standalone'; // 'standalone' | 'control-plane'
+let dashboardPort = 3210;
+let mcpEndpoint = null;
+
+function t(key) {
+  return (i18n[currentLang] && i18n[currentLang][key]) || i18n.en[key] || key;
+}
+
+function onDomReady(fn) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
+  } else {
+    fn();
+  }
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('memorix-lang', lang);
+  document.documentElement.lang = lang;
+
+  // Update lang toggle label
+  const label = document.getElementById('lang-label');
+  if (label) label.textContent = lang === 'en' ? '中文' : 'EN';
+
+  // Update nav tooltips + labels
+  const tooltipMap = { dashboard: 'navDashboard', 'git-memory': 'navGitMemory', knowledge: 'navKnowledge', graph: 'navGraph', observations: 'navObservations', evidence: 'navEvidence', retention: 'navRetention', config: 'navConfig', identity: 'navIdentity', sessions: 'navSessions', team: 'navTeam' };
+  const labelMap = { dashboard: 'navLabelDashboard', 'git-memory': 'navLabelGitMemory', knowledge: 'navLabelKnowledge', graph: 'navLabelGraph', observations: 'navLabelObservations', evidence: 'navLabelEvidence', retention: 'navLabelRetention', config: 'navLabelConfig', identity: 'navLabelIdentity', sessions: 'navLabelSessions', team: 'navLabelTeam' };
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    const page = b.dataset.page;
+    if (page && tooltipMap[page]) b.title = t(tooltipMap[page]);
+    if (page && labelMap[page]) {
+      const span = b.querySelector('.nav-label');
+      if (span) span.textContent = t(labelMap[page]);
+    }
+  });
+
+  // Update section labels
+  const sectionMap = { core: 'sectionCore', health: 'sectionHealth', collaboration: 'sectionCollaboration' };
+  document.querySelectorAll('.sidebar-section-label').forEach(el => {
+    const key = sectionMap[el.dataset.section];
+    if (key) el.textContent = t(key);
+  });
+
+  // Update theme label
+  const themeLabel = document.getElementById('theme-label');
+  if (themeLabel) themeLabel.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight');
+
+  // Update project search placeholder
+  const projectSearch = document.getElementById('project-search');
+  if (projectSearch) projectSearch.placeholder = t('searchProjects');
+
+  // Update project name loading text
+  const projectName = document.getElementById('project-name');
+  if (projectName && projectName.textContent === 'Loading...') projectName.textContent = t('loading');
+
+  // Force reload all pages
+  Object.keys(loaded).forEach(k => delete loaded[k]);
+  loadPage(currentPage);
+}
+
+// Init lang toggle button
+onDomReady(() => {
+  const btn = document.getElementById('lang-toggle');
+  const label = document.getElementById('lang-label');
+  if (label) label.textContent = currentLang === 'en' ? '中文' : 'EN';
+  if (btn) {
+    btn.addEventListener('click', () => {
+      setLang(currentLang === 'en' ? 'zh' : 'en');
+    });
+  }
+});
+
+// ============================================================
+// Theme Toggle (Light / Dark)
+// ============================================================
+
+let currentTheme = localStorage.getItem('memorix-theme') || 'dark';
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('memorix-theme', theme);
+
+  const sunIcon = document.getElementById('theme-icon-sun');
+  const moonIcon = document.getElementById('theme-icon-moon');
+  const themeLabel = document.getElementById('theme-label');
+  if (sunIcon && moonIcon) {
+    sunIcon.style.display = theme === 'dark' ? 'none' : 'block';
+    moonIcon.style.display = theme === 'dark' ? 'block' : 'none';
+  }
+  if (themeLabel) themeLabel.textContent = theme === 'dark' ? t('themeDark') : t('themeLight');
+
+  // Force reload current page so Canvas graph redraws with new colors
+  try {
+    if (typeof currentPage !== 'undefined' && loaded[currentPage]) {
+      delete loaded[currentPage];
+      loadPage(currentPage);
+    }
+  } catch { /* initial call before loaded is defined */ }
+}
+
+// Apply saved theme immediately
+applyTheme(currentTheme);
+
+onDomReady(() => {
+  const themeBtn = document.getElementById('theme-toggle');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    });
+  }
+});
+
+// ============================================================
+// Router & Navigation
+// ============================================================
+
+const pages = ['dashboard', 'git-memory', 'knowledge', 'graph', 'observations', 'evidence', 'retention', 'config', 'identity', 'sessions', 'team'];
+let currentPage = 'dashboard';
+
+function navigate(page) {
+  if (!pages.includes(page)) return;
+  currentPage = page;
+
+  // Update nav
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+
+  // Update pages
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.toggle('active', p.id === `page-${page}`);
+  });
+
+  // Load page data
+  loadPage(page);
+}
+
+// Nav click handlers
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => navigate(btn.dataset.page));
+});
+
+// ============================================================
+// API Client
+// ============================================================
+
+let selectedProject = ''; // empty = current project (default)
+
+// Update sidebar mode badge — shows standalone/control-plane, port, MCP endpoint
+function updateModeBadge() {
+  const badge = document.getElementById('mode-badge');
+  const label = document.getElementById('mode-badge-label');
+  const portEl = document.getElementById('mode-badge-port');
+  const mcpEl = document.getElementById('mode-badge-mcp');
+  if (!badge || !label || !portEl || !mcpEl) return;
+
+  const isCP = dashboardMode === 'control-plane';
+  label.textContent = isCP ? t('modeControlPlane') : t('modeStandalone');
+  label.className = 'mode-badge-label ' + (isCP ? 'control-plane' : 'standalone');
+  portEl.textContent = ':' + dashboardPort;
+
+  if (isCP && mcpEndpoint) {
+    mcpEl.style.display = '';
+    mcpEl.textContent = t('modeBannerMcp') + ' ' + mcpEndpoint.replace('http://127.0.0.1', '');
+    mcpEl.title = mcpEndpoint;
+    mcpEl.onclick = () => { navigator.clipboard.writeText(mcpEndpoint).catch(() => {}); };
+  } else {
+    mcpEl.style.display = 'none';
+  }
+
+  badge.style.display = 'flex';
+  badge.title = isCP ? t('modeControlPlaneHint') : t('modeStandaloneHint');
+}
+
+async function api(endpoint) {
+  try {
+    const sep = endpoint.includes('?') ? '&' : '?';
+    const url = selectedProject
+      ? `/api/${endpoint}${sep}project=${encodeURIComponent(selectedProject)}`
+      : `/api/${endpoint}`;
+    const res = await fetch(url);
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (endpoint.startsWith('team') && payload?.status) return payload;
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return payload;
+  } catch (err) {
+    console.error(`API error (${endpoint}):`, err);
+    return null;
+  }
+}
+
+// ============================================================
+// Maintenance actions
+// ============================================================
+
+let activeMaintenancePreview = null;
+
+const maintenanceMeta = {
+  cleanup: { title: 'cleanupAction', confirm: 'confirmCleanup', icon: 'lucide:eraser' },
+  consolidate: { title: 'consolidateAction', confirm: 'confirmConsolidate', icon: 'lucide:combine' },
+  deduplicate: { title: 'deduplicateAction', confirm: 'confirmDeduplicate', icon: 'lucide:copy-minus' },
+  retention: { title: 'archiveAction', confirm: 'confirmArchive', icon: 'lucide:archive' },
+};
+
+async function maintenancePost(action, phase, body = {}) {
+  const suffix = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+  const response = await fetch(`/api/maintenance/${action}/${phase}${suffix}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+  if (!response.ok) {
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function showDashboardToast(message, tone = 'success') {
+  const toast = document.getElementById('dashboard-toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.dataset.tone = tone;
+  toast.classList.add('visible');
+  clearTimeout(showDashboardToast.timer);
+  showDashboardToast.timer = setTimeout(() => toast.classList.remove('visible'), 3200);
+}
+
+function maintenanceSummaryEntries(action, summary = {}) {
+  const mappings = {
+    cleanup: [
+      ['delete', 'willDelete'], ['archive', 'willArchive'],
+      ['lowQuality', 'cleanupLowQuality'], ['duplicates', 'cleanupDuplicates'], ['noise', 'cleanupNoiseCount'],
+    ],
+    consolidate: [['clusters', 'willMerge'], ['observations', 'affectedRecords']],
+    deduplicate: [['resolve', 'willResolve'], ['scanned', 'scannedRecords'], ['failedComparisons', 'comparisonFailures']],
+    retention: [['archive', 'willArchive']],
+  };
+  return (mappings[action] || [])
+    .filter(([key]) => summary[key] !== undefined)
+    .map(([key, label]) => ({ label: t(label), value: summary[key] }));
+}
+
+function maintenanceRecord(record, prefix = '') {
+  return `
+    <div class="maintenance-record">
+      <span class="maintenance-record-id">#${record.id}</span>
+      <span class="maintenance-record-title">${prefix}${escapeHtml(record.title || t('untitled'))}</span>
+      <span class="maintenance-record-meta">${escapeHtml(record.entityName || '')}</span>
+    </div>`;
+}
+
+function maintenanceDetails(action, preview) {
+  if (action === 'cleanup') {
+    const lowQuality = (preview.lowQuality || []).map((item) => maintenanceRecord(item)).join('');
+    const duplicateGroups = (preview.duplicateGroups || []).map((group) => `
+      <div class="maintenance-group">
+        ${maintenanceRecord(group.canonical, `${t('canonicalRecord')}: `)}
+        ${(group.duplicates || []).map((item) => maintenanceRecord(item, `${t('willDelete')}: `)).join('')}
+      </div>`).join('');
+    const noise = (preview.noise || []).map((item) => maintenanceRecord(item, `${t('willArchive')}: `)).join('');
+    const records = `${lowQuality}${duplicateGroups}${noise}`;
+    return `
+      <label class="maintenance-toggle">
+        <input id="maintenance-noise-toggle" type="checkbox" ${preview.includeNoise ? 'checked' : ''}>
+        <span>${t('cleanupNoise')}</span>
+      </label>
+      ${records || `<div class="maintenance-empty">${t('maintenanceEmpty')}</div>`}`;
+  }
+  if (action === 'consolidate') {
+    return (preview.clusters || []).map((cluster, index) => `
+      <div class="maintenance-group">
+        <div class="maintenance-group-title">${t('willMerge')} ${index + 1} · ${escapeHtml(cluster.entityName)} · ${Math.round(cluster.similarity * 100)}%</div>
+        ${(cluster.ids || []).map((id, itemIndex) => maintenanceRecord({
+          id,
+          title: (cluster.titles || [])[itemIndex] || '',
+          entityName: cluster.type || '',
+        })).join('')}
+      </div>`).join('');
+  }
+  if (action === 'deduplicate') {
+    return (preview.actions || []).map((item) => `
+      <div class="maintenance-group">
+        ${maintenanceRecord({ id: item.keepId, title: item.keepTitle, entityName: item.entityName }, `${t('canonicalRecord')}: `)}
+        ${maintenanceRecord({ id: item.resolveId, title: item.resolveTitle, entityName: item.reason }, `${t('willResolve')}: `)}
+      </div>`).join('');
+  }
+  return (preview.candidates || []).map((item) => maintenanceRecord({
+    ...item,
+    entityName: `${item.score} · ${item.ageHours}h`,
+  })).join('');
+}
+
+function renderMaintenanceDialog(action, preview) {
+  const dialog = document.getElementById('maintenance-dialog');
+  const body = document.getElementById('maintenance-dialog-body');
+  const footer = document.getElementById('maintenance-dialog-footer');
+  const meta = maintenanceMeta[action];
+  document.getElementById('maintenance-dialog-kicker').textContent = t('maintenancePreview');
+  document.getElementById('maintenance-dialog-title').textContent = t(meta.title);
+
+  if (preview.available === false) {
+    body.innerHTML = `<div class="maintenance-empty"><strong>${t('maintenanceUnavailable')}</strong><span>${escapeHtml(preview.reason || '')}</span></div>`;
+    footer.innerHTML = `<button class="maintenance-secondary" type="button" data-maintenance-close>${t('closeAction')}</button>`;
+  } else {
+    const summary = maintenanceSummaryEntries(action, preview.summary);
+    const hasChanges = action === 'cleanup'
+      ? (preview.summary.delete + preview.summary.archive) > 0
+      : action === 'consolidate'
+        ? preview.summary.clusters > 0
+        : action === 'deduplicate'
+          ? preview.summary.resolve > 0
+          : preview.summary.archive > 0;
+    body.innerHTML = `
+      <div class="maintenance-summary">
+        ${summary.map((item) => `<div class="maintenance-metric"><span>${escapeHtml(item.label)}</span><strong>${item.value}</strong></div>`).join('')}
+      </div>
+      <div class="maintenance-records">
+        ${action === 'cleanup' || hasChanges ? maintenanceDetails(action, preview) : `<div class="maintenance-empty">${t('maintenanceEmpty')}</div>`}
+      </div>`;
+    footer.innerHTML = `
+      <button class="maintenance-secondary" type="button" data-maintenance-close>${t('cancel')}</button>
+      <button class="maintenance-primary" id="maintenance-execute" type="button" ${hasChanges ? '' : 'disabled'}>
+        <span class="iconify" data-icon="${meta.icon}"></span>${t(meta.confirm)}
+      </button>`;
+    document.getElementById('maintenance-execute')?.addEventListener('click', executeMaintenancePreview);
+    document.getElementById('maintenance-noise-toggle')?.addEventListener('change', (event) => {
+      openMaintenancePreview('cleanup', { includeNoise: event.target.checked });
+    });
+  }
+  footer.querySelector('[data-maintenance-close]')?.addEventListener('click', closeMaintenanceDialog);
+  if (!dialog.open) dialog.showModal();
+}
+
+async function openMaintenancePreview(action, options = {}) {
+  const dialog = document.getElementById('maintenance-dialog');
+  const meta = maintenanceMeta[action];
+  document.getElementById('maintenance-dialog-kicker').textContent = t('maintenancePreview');
+  document.getElementById('maintenance-dialog-title').textContent = t(meta.title);
+  document.getElementById('maintenance-dialog-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('maintenance-dialog-footer').innerHTML = '';
+  if (!dialog.open) dialog.showModal();
+
+  try {
+    const preview = await maintenancePost(action, 'preview', action === 'cleanup' ? { includeNoise: options.includeNoise === true } : {});
+    activeMaintenancePreview = { action, preview };
+    renderMaintenanceDialog(action, preview);
+  } catch (error) {
+    activeMaintenancePreview = null;
+    document.getElementById('maintenance-dialog-body').innerHTML = `
+      <div class="maintenance-empty"><strong>${t('maintenanceFailed')}</strong><span>${escapeHtml(error.message)}</span></div>`;
+    document.getElementById('maintenance-dialog-footer').innerHTML = `
+      <button class="maintenance-secondary" type="button" data-maintenance-close>${t('closeAction')}</button>`;
+    document.querySelector('[data-maintenance-close]')?.addEventListener('click', closeMaintenanceDialog);
+  }
+}
+
+async function executeMaintenancePreview() {
+  if (!activeMaintenancePreview) return;
+  const { action, preview } = activeMaintenancePreview;
+  const button = document.getElementById('maintenance-execute');
+  button.disabled = true;
+  button.classList.add('busy');
+  try {
+    await maintenancePost(action, 'execute', { payload: preview.payload, token: preview.token });
+    closeMaintenanceDialog();
+    showDashboardToast(t('maintenanceSuccess'));
+    if (currentPage === 'retention') await loadRetention();
+    else await loadObservations();
+  } catch (error) {
+    button.disabled = false;
+    button.classList.remove('busy');
+    const message = error.status === 409 ? t('maintenanceChanged') : `${t('maintenanceFailed')}: ${error.message}`;
+    showDashboardToast(message, 'error');
+  }
+}
+
+function closeMaintenanceDialog() {
+  activeMaintenancePreview = null;
+  document.getElementById('maintenance-dialog')?.close();
+}
+
+onDomReady(() => {
+  const dialog = document.getElementById('maintenance-dialog');
+  dialog?.querySelector('.maintenance-dialog-close')?.addEventListener('click', closeMaintenanceDialog);
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) closeMaintenanceDialog();
+  });
+});
+
+window.openMaintenancePreview = openMaintenancePreview;
+
+// ============================================================
+// Project Switcher — Custom Dropdown
+// ============================================================
+
+let allProjects = [];
+let projectShowTemp = false; // H4: collapse temp/placeholder by default
+
+async function initProjectSwitcher() {
+  const switcher = document.getElementById('project-switcher');
+  const trigger = document.getElementById('project-trigger');
+  const dropdown = document.getElementById('project-dropdown');
+  const nameEl = document.getElementById('project-name');
+  const countEl = document.getElementById('project-count');
+  const listEl = document.getElementById('project-list');
+  const searchEl = document.getElementById('project-search');
+  if (!trigger || !dropdown) return;
+
+  // Check URL parameter for project override
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlProject = urlParams.get('project');
+
+  // Fetch project list
+  try {
+    const res = await fetch('/api/projects');
+    allProjects = await res.json();
+    if (!Array.isArray(allProjects) || allProjects.length === 0) {
+      nameEl.textContent = t('noProjects');
+      return;
+    }
+
+    // Determine active project
+    // Strategy: prefer URL param > isCurrent (if it has real data) > first project with most observations
+    let active = null;
+    if (urlProject) {
+      const urlMatch = allProjects.find(p => p.id === urlProject);
+      if (urlMatch) {
+        active = urlMatch;
+        selectedProject = urlMatch.id;
+        Object.keys(loaded).forEach(k => delete loaded[k]);
+        loadPage(currentPage);
+      }
+    }
+    if (!active) {
+      const current = allProjects.find(p => p.isCurrent);
+      // Only use isCurrent if it's a real project with data (not __unresolved__ / system dir with 0 obs)
+      if (current && current.count > 0 && current.id !== '__unresolved__') {
+        active = current;
+        selectedProject = current.id;
+      } else {
+        // Auto-select the first project with the most observations (list is pre-sorted by count desc)
+        const firstReal = allProjects.find(p => p.count > 0 && p.id !== '__unresolved__');
+        if (firstReal) {
+          active = firstReal;
+          selectedProject = firstReal.id;
+        } else {
+          active = current || allProjects[0];
+          selectedProject = active?.id || '';
+        }
+      }
+      Object.keys(loaded).forEach(k => delete loaded[k]);
+      loadPage(currentPage);
+    }
+
+    updateTrigger(active);
+    renderProjectList(allProjects, active);
+  } catch {
+    nameEl.textContent = t('error');
+  }
+
+  // Toggle dropdown
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    switcher.classList.toggle('open');
+    if (switcher.classList.contains('open')) {
+      searchEl.value = '';
+      searchEl.focus();
+      renderProjectList(allProjects);
+    }
+  });
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!switcher.contains(e.target)) {
+      switcher.classList.remove('open');
+    }
+  });
+
+  // Search filter
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value.toLowerCase();
+    const filtered = allProjects.filter(p =>
+      p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)
+    );
+    renderProjectList(filtered);
+  });
+
+  // Keyboard: Escape closes
+  searchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') switcher.classList.remove('open');
+  });
+
+  function updateTrigger(project) {
+    const isUnresolved = project.id === '__unresolved__';
+    nameEl.textContent = project.name;
+    nameEl.title = project.id;
+    countEl.textContent = project.count || '';
+    // Visual indicator for unresolved project
+    const existingBadge = trigger.querySelector('.project-resolved-badge');
+    if (existingBadge) existingBadge.remove();
+    if (isUnresolved) {
+      const badge = document.createElement('span');
+      badge.className = 'project-resolved-badge';
+      badge.style.cssText = 'font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(245,158,11,0.12);color:var(--accent-amber);margin-left:6px;';
+      badge.textContent = t('projectUnresolved');
+      trigger.appendChild(badge);
+    }
+  }
+
+  function renderProjectList(projects, activeOverride) {
+    const activeId = activeOverride ? activeOverride.id : (selectedProject || allProjects.find(p => p.isCurrent)?.id || '');
+
+    // H4: Group by kind — current / real / temporary / placeholder
+    const current = projects.find(p => p.id === activeId || (p.isCurrent && !activeId));
+    const real = projects.filter(p => p.kind === 'real' && p !== current);
+    const temporary = projects.filter(p => p.kind === 'temporary');
+    const placeholder = projects.filter(p => p.kind === 'placeholder' && p.id !== '__unresolved__');
+    // Legacy: items without a kind field (pre-1.0.7 API) → treat as real
+    const untagged = projects.filter(p => !p.kind && p !== current);
+    const realCombined = [...real, ...untagged];
+
+    const itemHtml = (p) => {
+      const isUnresolved = p.id === '__unresolved__';
+      const isDirty = p.dirty;
+      const isTemp = p.kind === 'temporary';
+      const isPlaceholder = p.kind === 'placeholder';
+      let badge = '';
+      if (isUnresolved) badge = `<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(245,158,11,0.12);color:var(--accent-amber);margin-left:4px;">${t('projectUnresolved')}</span>`;
+      else if (isPlaceholder) badge = `<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.12);color:var(--accent-red);margin-left:4px;">${t('switcherGroupPlaceholder')}</span>`;
+      else if (isTemp) badge = `<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(148,163,184,0.15);color:var(--text-muted);margin-left:4px;">${t('switcherTempCount')}</span>`;
+      else if (isDirty) badge = `<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(239,68,68,0.12);color:var(--accent-red);margin-left:4px;">${t('tagDirty')}</span>`;
+      const opacity = (isTemp || isPlaceholder) ? 'opacity:0.72;' : '';
+      return `<button class="project-item${p.id === activeId || (p.isCurrent && !activeId) ? ' active' : ''}${isUnresolved ? ' unresolved' : ''}"
+              data-id="${escapeHtml(p.id)}" title="${escapeHtml(p.id)}" style="${opacity}">
+        <span class="project-item-dot"${isUnresolved ? ' style="background:var(--accent-amber);"' : ''}></span>
+        <span class="project-item-name">${escapeHtml(p.name)}${badge}</span>
+        <span class="project-item-count">${p.count}</span>
+      </button>`;
+    };
+
+    const groupHeader = (label, count) =>
+      `<div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;padding:10px 12px 4px;">${label} <span style="color:var(--text-faint);">(${count})</span></div>`;
+
+    const hideCount = temporary.length + placeholder.length;
+    const tempSectionHtml = (temporary.length + placeholder.length) > 0
+      ? `<div style="border-top:1px dashed var(--border);margin-top:6px;padding-top:4px;">
+          <button class="project-item" style="width:100%;border:none;background:transparent;padding:8px 12px;cursor:pointer;color:var(--text-muted);font-size:11px;text-align:left;"
+                  data-toggle-temp="1">
+            <span class="iconify" data-icon="${projectShowTemp ? 'lucide:chevron-down' : 'lucide:chevron-right'}" style="font-size:12px;vertical-align:middle;margin-right:4px;"></span>
+            ${projectShowTemp ? t('switcherHideTemp') : t('switcherShowTemp')} <span style="color:var(--text-faint);">(${hideCount})</span>
+          </button>
+          ${projectShowTemp ? `
+            ${temporary.length > 0 ? groupHeader(t('switcherGroupTemporary'), temporary.length) + temporary.map(itemHtml).join('') : ''}
+            ${placeholder.length > 0 ? groupHeader(t('switcherGroupPlaceholder'), placeholder.length) + placeholder.map(itemHtml).join('') : ''}
+          ` : ''}
+        </div>`
+      : '';
+
+    listEl.innerHTML =
+      (current ? groupHeader(t('switcherGroupCurrent'), 1) + itemHtml(current) : '') +
+      (realCombined.length > 0 ? groupHeader(t('switcherGroupReal'), realCombined.length) + realCombined.map(itemHtml).join('') : '') +
+      tempSectionHtml;
+
+    // Click handlers
+    const tempToggle = listEl.querySelector('[data-toggle-temp]');
+    if (tempToggle) {
+      tempToggle.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        projectShowTemp = !projectShowTemp;
+        renderProjectList(projects, activeOverride);
+      });
+    }
+    listEl.querySelectorAll('.project-item[data-id]').forEach(item => {
+      item.addEventListener('click', async () => {
+        const id = item.dataset.id;
+        const project = allProjects.find(p => p.id === id);
+        if (!project) return;
+
+        selectedProject = project.id;
+        updateTrigger(project);
+        switcher.classList.remove('open');
+
+        // Mark active
+        listEl.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+
+        // Sync to backend so all API endpoints use the new project
+        try {
+          await fetch('/api/set-current-project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: project.id, projectName: project.name }),
+          });
+        } catch { /* best effort */ }
+
+        // Reload pages
+        Object.keys(loaded).forEach(k => delete loaded[k]);
+        loadPage(currentPage);
+      });
+    });
+  }
+}
+
+onDomReady(() => {
+  initProjectSwitcher();
+});
+
+// ============================================================
+// Page Loaders
+// ============================================================
+
+const loaded = {};
+
+async function loadPage(page) {
+  if (loaded[page]) return;
+
+  switch (page) {
+    case 'dashboard': await loadDashboard(); break;
+    case 'git-memory': await loadGitMemory(); break;
+    case 'knowledge': await loadKnowledge(); break;
+    case 'graph': await loadGraph(); break;
+    case 'observations': await loadObservations(); break;
+    case 'evidence': await loadEvidence(); break;
+    case 'retention': await loadRetention(); break;
+    case 'config': await loadConfig(); break;
+    case 'identity': await loadIdentity(); break;
+    case 'sessions': await loadSessions(); break;
+    case 'team': await loadTeam(); break;
+  }
+  loaded[page] = true;
+}
+
+// ============================================================
+// Dashboard Page
+// ============================================================
+
+async function loadDashboard() {
+  const container = document.getElementById('page-dashboard');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const [stats, project] = await Promise.all([api('stats'), api('project')]);
+  if (!stats) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:bar-chart-3" style="font-size:36px;"></span>', t('noData'), t('noDataDesc'));
+    return;
+  }
+
+  // Capture mode info from project API
+  if (project) {
+    dashboardMode = project.mode || 'standalone';
+    dashboardPort = project.port || 3210;
+    mcpEndpoint = project.mcpEndpoint || null;
+  }
+
+  // Update sidebar mode badge (4.2: mode/port/MCP must be visible)
+  updateModeBadge();
+
+  const projectLabel = project ? project.name : '';
+  const sc = stats.sourceCounts || { git: 0, agent: 0, manual: 0 };
+  const totalObs = stats.observations || 0;
+  const gs = stats.gitSummary || { total: 0, recentWeek: 0, recentMemories: [] };
+  const rs = stats.retentionSummary || { active: 0, stale: 0, archive: 0, immune: 0 };
+  const maintenance = stats.maintenance || { pending: 0, running: 0, retrying: 0, failed: 0 };
+  const lifecycle = stats.lifecycle || {};
+  const lifecycleClaims = lifecycle.claims || { needsReview: 0, conflicts: 0 };
+  const pendingProposals = (lifecycle.workspaces || []).reduce((total, workspace) => total + (workspace.pendingProposals || 0), 0);
+  const queuedMaintenance = (maintenance.pending || 0) + (maintenance.retrying || 0);
+  const activeMaintenance = maintenance.running || 0;
+  const failedMaintenance = maintenance.failed || 0;
+  const maintenanceState = failedMaintenance > 0
+    ? { color: 'var(--accent-red)', text: `${failedMaintenance} ${t('maintenanceNeedsAttention')}` }
+    : activeMaintenance > 0
+      ? { color: 'var(--accent-blue)', text: `${activeMaintenance} ${t('maintenanceRunning')}` }
+      : queuedMaintenance > 0
+        ? { color: 'var(--accent-amber)', text: `${queuedMaintenance} ${t('maintenanceQueued')}` }
+        : { color: 'var(--accent-green)', text: t('maintenanceIdle') };
+  const knowledgeState = lifecycleClaims.conflicts > 0 || lifecycleClaims.needsReview > 0
+    ? { color: 'var(--accent-amber)', text: `${lifecycleClaims.conflicts || lifecycleClaims.needsReview} ${t('claimsNeedReview')}` }
+    : pendingProposals > 0
+      ? { color: 'var(--accent-blue)', text: `${pendingProposals} ${t('pendingProposals')}` }
+      : { color: 'var(--accent-green)', text: t('knowledgeReady') };
+  // Standalone dashboards and older control planes do not own the MCP process's
+  // in-memory index. Absence of a proof is not proof that every vector exists.
+  const vectorStatusAvailable = stats.vectorStatus?.available === true;
+
+  const typeIcons = {
+    'session-request': '<span class="iconify" data-icon="lucide:target" style="color:#f87171;"></span>', gotcha: '<span class="iconify" data-icon="lucide:alert-octagon" style="color:#ef4444;"></span>', 'problem-solution': '<span class="iconify" data-icon="lucide:lightbulb" style="color:#fbbf24;"></span>',
+    'how-it-works': '<span class="iconify" data-icon="lucide:info" style="color:#38bdf8;"></span>', 'what-changed': '<span class="iconify" data-icon="lucide:git-branch" style="color:#4ade80;"></span>', discovery: '<span class="iconify" data-icon="lucide:sparkles" style="color:#a78bfa;"></span>',
+    'why-it-exists': '<span class="iconify" data-icon="lucide:help-circle" style="color:#fb923c;"></span>', decision: '<span class="iconify" data-icon="lucide:scale" style="color:#a1887f;"></span>', 'trade-off': '<span class="iconify" data-icon="lucide:scale" style="color:#94a3b8;"></span>',
+  };
+
+  const typeEntries = Object.entries(stats.typeCounts || {}).sort((a, b) => b[1] - a[1]);
+  const maxTypeCount = Math.max(...typeEntries.map(e => e[1]), 1);
+
+  // Source bar percentages
+  const srcTotal = Math.max(sc.git + sc.agent + sc.manual, 1);
+  const gitPct = Math.round(sc.git / srcTotal * 100);
+  const agentPct = Math.round(sc.agent / srcTotal * 100);
+  const manualPct = 100 - gitPct - agentPct;
+
+  const modeTitle = dashboardMode === 'control-plane' ? t('memoryControlPlane') : t('modeStandalone');
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${modeTitle} ${projectLabel ? `<span class="overview-project-badge">${escapeHtml(projectLabel)}</span>` : ''}</h1>
+      <p class="page-subtitle">${totalObs} ${t('memoriesAcross')} ${stats.entities} ${t('entitiesUnit')}${mcpEndpoint ? ` · ${t('modeBannerMcp')}: <span style="color:var(--accent-blue);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:12px;" onclick="navigator.clipboard.writeText('${mcpEndpoint}').catch(()=>{})" title="${mcpEndpoint}">${mcpEndpoint.replace('http://127.0.0.1','')}</span>` : ''}</p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card" data-accent="green">
+        <div class="stat-label">${t('gitMemories')}</div>
+        <div class="stat-value">${sc.git}</div>
+        <div class="stat-sub">${gs.recentWeek} ${t('thisWeek')}</div>
+      </div>
+      <div class="stat-card" data-accent="purple">
+        <div class="stat-label">${t('agentMemories')}</div>
+        <div class="stat-value">${sc.agent}</div>
+        <div class="stat-sub">${t('hooksAndMcp')}</div>
+      </div>
+      <div class="stat-card" data-accent="cyan">
+        <div class="stat-label">${t('entities')}</div>
+        <div class="stat-value">${stats.entities}</div>
+        <div class="stat-sub">${stats.relations} ${t('relations')}</div>
+      </div>
+      <div class="stat-card" data-accent="${stats.embedding?.enabled ? 'blue' : 'amber'}">
+        <div class="stat-label">${t('vectorSearch')}</div>
+        <div class="stat-value" style="font-size: 18px;">${stats.embedding?.enabled ? '<span class="iconify" data-icon="lucide:circle-check" style="font-size:16px;vertical-align:middle;margin-right:3px;color:var(--accent-green);"></span> ' + t('enabled') : t('fulltextOnly')}</div>
+        ${stats.embedding?.provider ? `<div class="stat-sub">${stats.embedding.provider} (${stats.embedding.dimensions}d)</div>` : ''}
+      </div>
+    </div>
+
+    <!-- System Status -->
+    <div class="overview-row">
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('systemStatus')}</span></div>
+        <div class="panel-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px;">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('embeddingProvider')}</div>
+              <div style="font-size:14px;font-weight:600;color:${stats.embedding?.enabled ? 'var(--accent-green)' : stats.embedding?.provider ? 'var(--accent-amber)' : 'var(--text-muted)'};">
+                ${stats.embedding?.enabled ? t('providerReady') : stats.embedding?.provider ? t('providerUnavailable') : t('providerDisabled')}
+              </div>
+              ${stats.embedding?.provider ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${stats.embedding.provider} (${stats.embedding.dimensions}d)</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('backfillPending')}</div>
+              <div style="font-size:14px;font-weight:600;color:${!vectorStatusAvailable ? 'var(--text-muted)' : (stats.vectorStatus?.missing || 0) > 0 ? 'var(--accent-amber)' : 'var(--accent-green)'};">
+                ${!vectorStatusAvailable ? t('vectorStatusSessionLocal') : (stats.vectorStatus?.missing || 0) > 0 ? stats.vectorStatus.missing + ' ' + t('vectorsMissing') : t('noBackfillNeeded')}
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('searchMode')}</div>
+              <div style="font-size:14px;font-weight:600;color:${
+                (stats.searchMode || '').includes('hybrid') ? 'var(--accent-blue)'
+                : (stats.searchMode || '').includes('vector') ? 'var(--accent-purple)'
+                : (stats.searchMode || '').includes('rerank') ? 'var(--accent-green)'
+                : 'var(--accent-amber)'};">
+                ${stats.searchMode || (stats.embedding?.enabled ? 'hybrid' : 'fulltext')}
+              </div>
+              ${stats.embeddingProviderState === 'temporarily_unavailable' ? `<div style="font-size:11px;color:var(--accent-amber);margin-top:2px;">${t('degradedHint')}</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('maintenance')}</div>
+              <div style="font-size:14px;font-weight:600;color:${maintenanceState.color};">${maintenanceState.text}</div>
+              ${queuedMaintenance > 0 && activeMaintenance > 0 ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${queuedMaintenance} ${t('maintenanceQueued')}</div>` : ''}
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">${t('knowledgeLifecycle')}</div>
+              <div style="font-size:14px;font-weight:600;color:${knowledgeState.color};">${knowledgeState.text}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Source Breakdown -->
+    <div class="overview-row">
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('memorySources')}</span></div>
+        <div class="panel-body">
+          <div class="source-bar-container">
+            <div class="source-bar">
+              ${gitPct > 0 ? `<div class="source-bar-seg" style="width:${gitPct}%;background:var(--accent-green);" title="${t('sourceGit')} ${gitPct}%"></div>` : ''}
+              ${agentPct > 0 ? `<div class="source-bar-seg" style="width:${agentPct}%;background:var(--accent-purple);" title="${t('sourceAgent')} ${agentPct}%"></div>` : ''}
+              ${manualPct > 0 ? `<div class="source-bar-seg" style="width:${manualPct}%;background:var(--accent-amber);" title="${t('sourceManual')} ${manualPct}%"></div>` : ''}
+            </div>
+            <div class="source-legend">
+              <span class="source-legend-item"><span class="source-dot" style="background:var(--accent-green)"></span> ${t('sourceGit')} <strong>${sc.git}</strong></span>
+              <span class="source-legend-item"><span class="source-dot" style="background:var(--accent-purple)"></span> ${t('sourceAgent')} <strong>${sc.agent}</strong></span>
+              <span class="source-legend-item"><span class="source-dot" style="background:var(--accent-amber)"></span> ${t('sourceManual')} <strong>${sc.manual}</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('retentionHealth')}</span></div>
+        <div class="panel-body">
+          <div class="retention-mini-grid">
+            <div class="retention-mini-item"><span class="retention-mini-value" style="color:var(--accent-green)">${rs.active}</span><span class="retention-mini-label">${t('active')}</span></div>
+            <div class="retention-mini-item"><span class="retention-mini-value" style="color:var(--accent-amber)">${rs.stale}</span><span class="retention-mini-label">${t('stale')}</span></div>
+            <div class="retention-mini-item"><span class="retention-mini-value" style="color:var(--accent-red)">${rs.archive}</span><span class="retention-mini-label">${t('archiveCandidates')}</span></div>
+            <div class="retention-mini-item"><span class="retention-mini-value" style="color:var(--accent-purple)">${rs.immune}</span><span class="retention-mini-label">${t('immune')}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Type Distribution + Recent Activity -->
+    <div class="overview-row">
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('observationTypes')}</span></div>
+        <div class="panel-body">
+          ${typeEntries.length > 0 ? `
+            <div class="type-distribution" style="display: flex; gap: 20px; align-items: flex-start;">
+              <canvas id="type-pie-chart" width="140" height="140" style="flex-shrink: 0;"></canvas>
+              <div class="type-distribution-list" style="flex: 1;">
+                ${typeEntries.map(([type, count]) => `
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <span style="width: 18px; text-align: center; font-size: 13px;">${typeIcons[type] || '[UNKNOWN]'}</span>
+                    <span style="width: 110px; font-size: 11px; color: var(--text-secondary);">${type}</span>
+                    <div style="flex: 1; height: 5px; background: rgba(128,128,128,0.1); border-radius: 3px; overflow: hidden;">
+                      <div style="width: ${(count / maxTypeCount) * 100}%; height: 100%; background: var(--type-${type}, var(--accent-cyan)); border-radius: 3px;"></div>
+                    </div>
+                    <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); min-width: 22px; text-align: right;">${count}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : `<p style="color: var(--text-muted); font-size: 13px;">${t('noObservationsYet')}</p>`}
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('recentActivity')}</span></div>
+        <div class="panel-body">
+          <ul class="activity-list">
+            ${(stats.recentObservations || []).map(obs => `
+              <li class="activity-item">
+                <span class="activity-id">#${obs.id}</span>
+                <span class="type-badge" data-type="${obs.type}">
+                  <span class="type-icon" data-type="${obs.type}"></span>
+                  ${obs.type}
+                </span>
+                <span class="activity-title">${escapeHtml(obs.title || t('untitled'))}</span>
+                <span class="activity-entity">${escapeHtml(obs.entityName || '')}</span>
+              </li>
+            `).join('')}
+          </ul>
+          ${(stats.recentObservations || []).length === 0 ? `<p style="color: var(--text-muted); font-size: 13px; padding: 12px 0;">${t('noRecentActivity')}</p>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (typeEntries.length > 0) {
+    requestAnimationFrame(() => renderPieChart('type-pie-chart', typeEntries, typeIcons));
+  }
+}
+
+/** Draw a mini donut chart on a canvas */
+function renderPieChart(canvasId, entries, icons) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const size = 140;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+  ctx.scale(dpr, dpr);
+
+  const cx = size / 2, cy = size / 2, r = 54, inner = 34;
+  const total = entries.reduce((s, e) => s + e[1], 0);
+  const colors = [
+    '#06b6d4', '#a855f7', '#f59e0b', '#22c55e',
+    '#3b82f6', '#ef4444', '#ec4899', '#f97316', '#6366f1',
+  ];
+
+  let angle = -Math.PI / 2;
+  entries.forEach(([type, count], i) => {
+    const slice = (count / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + inner * Math.cos(angle), cy + inner * Math.sin(angle));
+    ctx.arc(cx, cy, r, angle, angle + slice);
+    ctx.arc(cx, cy, inner, angle + slice, angle, true);
+    ctx.closePath();
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fill();
+    angle += slice;
+  });
+
+  // Center text
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#fff';
+  ctx.font = 'bold 20px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(total, cx, cy - 6);
+  ctx.font = '10px system-ui';
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#888';
+  ctx.fillText('total', cx, cy + 10);
+}
+
+async function loadKnowledge() {
+  const container = document.getElementById('page-knowledge');
+  container.innerHTML = '<div class="loading knowledge-loading"><div class="spinner"></div><div class="knowledge-loading-text">' + t('loading') + '</div></div>';
+
+  const kb = await api('knowledge');
+  if (!kb) {
+    container.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">${t('knowledgeTitle')}</h1>
+        <p class="page-subtitle">${t('knowledgeSubtitle')}</p>
+      </div>
+      <div class="panel knowledge-error-panel">
+        <div class="panel-body">
+          <div class="knowledge-state-icon"><span class="iconify" data-icon="lucide:book-x"></span></div>
+          <div class="empty-state-title">${t('knowledgeUnavailable')}</div>
+          <div class="empty-state-desc">${t('knowledgeUnavailableDesc')}</div>
+          <button class="team-refresh-btn" id="knowledge-retry-btn" style="margin:16px auto 0;">${t('teamRefresh')}</button>
+        </div>
+      </div>
+    `;
+    const retry = document.getElementById('knowledge-retry-btn');
+    if (retry) retry.addEventListener('click', () => {
+      delete loaded.knowledge;
+      loadPage('knowledge');
+    });
+    return;
+  }
+
+  const sections = normalizeKnowledgeSections(kb.sections || []);
+  const totalItems = sections.reduce((sum, section) => sum + (section.items || []).length, 0);
+  const stats = kb.stats || { observationsUsed: 0, miniSkillsUsed: 0, refs: 0 };
+  const overviewSection = sections.find(s => s.id === 'project-overview');
+  const mainSections = sections.filter(s => s.id !== 'project-overview');
+
+  container.innerHTML = `
+    <div class="knowledge-page-shell">
+      <div class="knowledge-topbar">
+        <div class="page-header knowledge-header">
+          <div class="knowledge-title-block">
+            <h1 class="page-title">${escapeHtml(t('knowledgeTitle'))}</h1>
+            <p class="page-subtitle">${t('knowledgeSubtitle')}</p>
+            <div class="knowledge-project-line" title="${escapeHtml(kb.projectId || '')}">${escapeHtml(kb.projectId || '')}</div>
+          </div>
+          <div class="knowledge-generated">
+            <span>${t('knowledgeGenerated')}</span>
+            <strong>${escapeHtml(formatTime(kb.generatedAt))}</strong>
+          </div>
+        </div>
+
+        <div class="knowledge-stats-grid">
+          <div class="stat-card" data-accent="purple">
+            <div class="stat-label">${t('knowledgeObservationsUsed')}</div>
+            <div class="stat-value">${stats.observationsUsed || 0}</div>
+          </div>
+          <div class="stat-card" data-accent="cyan">
+            <div class="stat-label">${t('knowledgeMiniSkillsUsed')}</div>
+            <div class="stat-value">${stats.miniSkillsUsed || 0}</div>
+          </div>
+          <div class="stat-card" data-accent="green">
+            <div class="stat-label">${t('knowledgeRefs')}</div>
+            <div class="stat-value">${stats.refs || 0}</div>
+          </div>
+        </div>
+
+        <nav class="knowledge-jump" aria-label="${t('knowledgeQuickJump')}">
+          <span class="knowledge-jump-label">${t('knowledgeQuickJump')}</span>
+          ${sections.map(section => `<a href="#${knowledgeAnchor(section.id)}" class="knowledge-jump-chip">${escapeHtml(section.title)} <span>${(section.items || []).length}</span></a>`).join('')}
+        </nav>
+
+        ${overviewSection ? renderKnowledgeOverviewCard(overviewSection) : ''}
+      </div>
+
+      ${totalItems === 0 ? `
+        <div class="panel knowledge-empty-overview">
+          <div class="panel-body">
+            <div class="knowledge-state-icon"><span class="iconify" data-icon="lucide:book-open"></span></div>
+            <div class="empty-state-title">${t('knowledgeEmpty')}</div>
+            <div class="empty-state-desc">${t('knowledgeEmptyDesc')}</div>
+          </div>
+        </div>
+      ` : `
+        <div class="knowledge-sections-region">
+          ${mainSections.map(renderKnowledgeSection).join('')}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function normalizeKnowledgeSections(sections) {
+  const byId = new Map(sections.map(section => [section.id, section]));
+  const order = [
+    ['project-overview', 'knowledgeSectionProjectOverview'],
+    ['core-decisions', 'knowledgeSectionCoreDecisions'],
+    ['operational-knowledge', 'knowledgeSectionOperationalKnowledge'],
+    ['known-gotchas', 'knowledgeSectionKnownGotchas'],
+    ['git-backed-facts', 'knowledgeSectionGitBackedFacts'],
+    ['promoted-skills', 'knowledgeSectionPromotedSkills'],
+  ];
+  return order.map(([id, titleKey]) => {
+    const section = byId.get(id);
+    const localizedTitle = t(titleKey);
+    if (section) return { ...section, title: localizedTitle };
+    return { id, title: localizedTitle, items: [], empty: true };
+  });
+}
+
+function knowledgeEntryLabel(count) {
+  return count === 1 ? t('knowledgeEntry') : t('knowledgeEntries');
+}
+
+function renderKnowledgeOverviewCard(section) {
+  const item = (section.items || [])[0];
+  if (!item) {
+    return `
+      <section class="knowledge-overview-card knowledge-overview-card--empty" id="${knowledgeAnchor(section.id)}">
+        <div class="knowledge-overview-meta">
+          <span class="knowledge-overview-label">${escapeHtml(section.title)}</span>
+          <span class="knowledge-section-meta">0 ${t('knowledgeEntries')}</span>
+        </div>
+        <div class="knowledge-overview-body">
+          <p class="knowledge-summary">${t('knowledgeNoItemsDesc')}</p>
+        </div>
+      </section>
+    `;
+  }
+  return `
+    <section class="knowledge-overview-card" id="${knowledgeAnchor(section.id)}">
+      <div class="knowledge-overview-meta">
+        <span class="knowledge-overview-label">${escapeHtml(section.title)}</span>
+        <span class="knowledge-overview-title" title="${escapeHtml(item.title || '')}">${escapeHtml(item.title || t('untitled'))}</span>
+      </div>
+      <div class="knowledge-overview-body">
+        <p class="knowledge-summary knowledge-summary--overview">${escapeHtml(item.summary || '')}</p>
+        <div class="knowledge-ref-list">${renderKnowledgeRefs(item.refs || [])}</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderKnowledgeSection(section) {
+  const items = section.items || [];
+  return `
+    <section class="panel knowledge-section" id="${knowledgeAnchor(section.id)}">
+      <div class="panel-header knowledge-section-header">
+        <span class="panel-title">${escapeHtml(section.title)}</span>
+        <span class="knowledge-section-meta">${items.length} ${knowledgeEntryLabel(items.length)}</span>
+      </div>
+      <div class="panel-body knowledge-section-body">
+        ${items.length === 0 ? renderKnowledgeEmptySection() : items.map(renderKnowledgeItem).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderKnowledgeItem(item) {
+  const refs = item.refs || [];
+  return `
+    <article class="knowledge-item">
+      <div class="knowledge-item-head">
+        <h3 title="${escapeHtml(item.title || t('untitled'))}">${escapeHtml(item.title || t('untitled'))}</h3>
+        <span class="type-badge" data-type="${escapeHtml(item.type || 'unknown')}">${escapeHtml(item.type || t('unknown'))}</span>
+      </div>
+      ${item.entityName ? `<div class="knowledge-entity" title="${escapeHtml(item.entityName)}">${escapeHtml(item.entityName)}</div>` : ''}
+      <p class="knowledge-summary">${escapeHtml(item.summary || '')}</p>
+      ${refs.length > 0 ? `<div class="knowledge-ref-list">${renderKnowledgeRefs(refs)}</div>` : ''}
+    </article>
+  `;
+}
+
+function renderKnowledgeRefs(refs) {
+  if (refs.length === 0) return '<span class="knowledge-ref-empty">—</span>';
+  return refs.map(ref => {
+    const kind = ref.kind || 'observation';
+    const title = ref.title ? ` title="${escapeHtml(ref.title)}"` : '';
+    return `<span class="knowledge-ref-chip" data-kind="${escapeHtml(kind)}"${title}>${escapeHtml(ref.id || kind)}</span>`;
+  }).join('');
+}
+
+function renderKnowledgeEmptySection() {
+  return `
+    <div class="knowledge-section-empty">
+      <span class="iconify" data-icon="lucide:circle-dashed"></span>
+      <div>
+        <strong>${t('knowledgeNoItems')}</strong>
+        <span>${t('knowledgeNoItemsDesc')}</span>
+      </div>
+    </div>
+  `;
+}
+
+function knowledgeAnchor(id) {
+  return `knowledge-${String(id || 'section').replace(/[^a-z0-9_-]/gi, '-')}`;
+}
+
+// ============================================================
+// Canonical Memory Map
+// The Dashboard uses the evidence-backed projection only.
+// ============================================================
+
+async function loadGraph() {
+  const container = document.getElementById('page-graph');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const [kg, codegraph] = await Promise.all([api('knowledge-graph'), api('codegraph')]);
+  if (!kg || !Array.isArray(kg.nodes) || !Array.isArray(kg.edges)) {
+    container.innerHTML = emptyState(
+      '<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>',
+      t('kgUnavailable'),
+      t('kgUnavailableDesc'),
+    );
+    return;
+  }
+
+  if (kg.nodes.length === 0) {
+    container.innerHTML = emptyState(
+      '<span class="iconify" data-icon="lucide:network" style="font-size:36px;"></span>',
+      t('kgNoData'),
+      t('kgNoDataDesc'),
+    );
+    return;
+  }
+
+  renderSemanticGraph(kg, codegraph);
+}
+
+function renderCodeGraphHealth(status) {
+  if (!status) {
+    return `<div class="codegraph-health codegraph-health--unknown"><strong>${t('codeGraphUnavailable')}</strong></div>`;
+  }
+  const state = status.state === 'ready'
+    ? t('codeGraphStateReady')
+    : status.state === 'partial'
+      ? t('codeGraphStatePartial')
+      : t('codeGraphStateNotIndexed');
+  const semantic = status.semantic || {};
+  const snapshot = status.snapshot || {};
+  const parserErrors = Number(semantic.parserErrors || 0);
+  const snapshotLabel = snapshot.incomplete ? ` · ${t('codeGraphSnapshotIncomplete')}` : '';
+  const errorTitle = (status.parserErrorPaths || []).join(', ');
+  return `
+    <div class="codegraph-health codegraph-health--${escapeHtml(status.state || 'partial')}" title="${escapeHtml(errorTitle)}">
+      <div class="codegraph-health-title"><span class="codegraph-health-dot"></span><strong>${t('codeGraphHealthTitle')}</strong><span>${escapeHtml(state)}${snapshotLabel}</span></div>
+      <div class="codegraph-health-metrics">
+        <span>${Number(semantic.files || 0)} ${t('codeGraphFiles')}</span>
+        <span>${Number(semantic.symbols || 0)} ${t('codeGraphSymbols')}</span>
+        <span>${Number(semantic.edges || 0)} ${t('codeGraphEdges')}</span>
+        ${parserErrors > 0 ? `<span class="codegraph-health-error">${parserErrors} ${t('codeGraphParserErrors')}</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// Deterministic Memory Map Renderer — Apache ECharts 5
+// Force layout, section categories, evidence-based edges
+// ============================================================
+
+function renderSemanticGraph(kg, codegraph) {
+  const container = document.getElementById('page-graph');
+
+  // Section color palette (vivid for both light/dark themes)
+  const sectionPalette = {
+    'core-decisions': '#7B9FD9',
+    'operational-knowledge': '#7CC598',
+    'known-gotchas': '#E08585',
+    'git-backed-facts': '#56D6A6',
+    'promoted-skills': '#C9A8FF',
+  };
+  const defaultSectionColor = '#A893C2';
+
+  function getSectionColor(sectionId) {
+    return sectionPalette[sectionId] || defaultSectionColor;
+  }
+
+  // Edge type styles are rendered by ECharts.
+  const edgeStyleMap = {
+    'supports':     { color: '#69F0AE', arrow: true,  dash: false,  label: t('kgEdgeSupports') },
+    'relates_to':   { color: '#80D8FF', arrow: false, dash: [4, 4], label: t('kgEdgeRelatesTo') },
+    'mentions':     { color: '#D0BCFF', arrow: true,  dash: false,  label: t('kgEdgeMentions') },
+    'derived_from': { color: '#FFB74D', arrow: true,  dash: [6, 3], label: t('kgEdgeDerivedFrom') },
+  };
+
+  // Section label i18n map (matches knowledgeSection* keys)
+  const sectionI18nKeys = {
+    'core-decisions': 'knowledgeSectionCoreDecisions',
+    'operational-knowledge': 'knowledgeSectionOperationalKnowledge',
+    'known-gotchas': 'knowledgeSectionKnownGotchas',
+    'git-backed-facts': 'knowledgeSectionGitBackedFacts',
+    'promoted-skills': 'knowledgeSectionPromotedSkills',
+  };
+  function sectionLabel(sectionId) {
+    const key = sectionI18nKeys[sectionId];
+    return key ? t(key) : sectionId;
+  }
+
+  // State
+  let activeSections = new Set((kg.clusters || []).map(c => c.sectionId));
+  let activeEdgeTypes = new Set(Object.keys(edgeStyleMap).filter(type => type !== 'relates_to'));
+  let selectedNodeId = null;
+  let echartsInstance = null;
+  let echartsResizeObserver = null;
+  let focusedMode = true; // default: show top-N nodes only
+  const FOCUSED_TOP_N = 40; // max nodes in focused view
+  const MAX_EDGES_PER_NODE_FOCUSED = 4; // cap per-node edges (top-K by priority) to keep graph readable
+  const FOCUSED_EDGE_BUDGET = 120; // hard visual budget for first-render readability
+
+  function isLight() { return document.documentElement.getAttribute('data-theme') === 'light'; }
+
+  // Compute degree (edge count) for each node
+  const nodeDegreeMap = new Map();
+  for (const edge of kg.edges) {
+    nodeDegreeMap.set(edge.source, (nodeDegreeMap.get(edge.source) || 0) + 1);
+    nodeDegreeMap.set(edge.target, (nodeDegreeMap.get(edge.target) || 0) + 1);
+  }
+
+  // Section ordering for stable category index
+  const SECTION_ORDER = ['core-decisions', 'operational-knowledge', 'known-gotchas', 'git-backed-facts', 'promoted-skills'];
+
+  // Build ECharts graph data: { categories, nodes, links }
+  function buildEChartsData() {
+    const chartWidth = document.getElementById('echarts-mount')?.clientWidth || 600;
+    const labelLimit = chartWidth < 360 ? 16 : chartWidth < 520 ? 22 : 28;
+
+    // Determine which nodes to show
+    let visibleNodes = kg.nodes.filter(n => activeSections.has(n.sectionId));
+    if (focusedMode && visibleNodes.length > FOCUSED_TOP_N) {
+      visibleNodes.sort((a, b) => {
+        const scoreA = (a.evidenceCount || 0) + (nodeDegreeMap.get(a.id) || 0) * 2;
+        const scoreB = (b.evidenceCount || 0) + (nodeDegreeMap.get(b.id) || 0) * 2;
+        return scoreB - scoreA;
+      });
+      visibleNodes = visibleNodes.slice(0, FOCUSED_TOP_N);
+    }
+    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+
+    // Categories (one per section, ECharts uses index reference from nodes)
+    const categories = SECTION_ORDER.map(sectionId => ({
+      name: sectionLabel(sectionId),
+      sectionId,
+      itemStyle: { color: getSectionColor(sectionId) },
+    }));
+    const categoryIndexBySection = Object.fromEntries(SECTION_ORDER.map((s, i) => [s, i]));
+    const visibleBySection = new Map(SECTION_ORDER.map(sectionId => [sectionId, []]));
+    visibleNodes.forEach(node => {
+      const group = visibleBySection.get(node.sectionId) || [];
+      group.push(node);
+      visibleBySection.set(node.sectionId, group);
+    });
+
+    const sectionCenters = {
+      'core-decisions': { x: -360, y: -170 },
+      'operational-knowledge': { x: 0, y: 0 },
+      'known-gotchas': { x: -340, y: 190 },
+      'git-backed-facts': { x: 360, y: -150 },
+      'promoted-skills': { x: 350, y: 190 },
+    };
+
+    function stableNodePosition(node, index) {
+      const group = visibleBySection.get(node.sectionId) || [];
+      const total = Math.max(1, group.length);
+      const center = sectionCenters[node.sectionId] || { x: 0, y: 0 };
+      const ring = Math.floor(index / 10);
+      const ringIndex = index % 10;
+      const radius = total === 1 ? 0 : 34 + ring * 42;
+      const angleStep = (Math.PI * 2) / Math.min(10, total);
+      const angleOffset = SECTION_ORDER.indexOf(node.sectionId) * 0.55;
+      const angle = ringIndex * angleStep + angleOffset;
+      return {
+        x: Math.round(center.x + Math.cos(angle) * radius),
+        y: Math.round(center.y + Math.sin(angle) * radius),
+      };
+    }
+
+    // Nodes (stable coordinates; dragging a node must not trigger global force rotation)
+    const nodes = visibleNodes.map(node => {
+      const symbolSize = Math.max(14, Math.min(10 + Math.sqrt(node.evidenceCount || 1) * 4, 32));
+      const sectionIndex = (visibleBySection.get(node.sectionId) || []).findIndex(n => n.id === node.id);
+      const pos = stableNodePosition(node, Math.max(0, sectionIndex));
+      return {
+        id: node.id,
+        name: node.label.length > labelLimit
+          ? node.label.slice(0, Math.max(1, labelLimit - 1)) + '\u2026'
+          : node.label,
+        x: pos.x,
+        y: pos.y,
+        category: categoryIndexBySection[node.sectionId] ?? 0,
+        symbolSize,
+        value: node.evidenceCount || 0,
+        sectionId: node.sectionId,
+        nodeType: node.nodeType,
+        entityName: node.entityName || '',
+        evidenceCount: node.evidenceCount || 0,
+        summary: node.summary || '',
+        refs: node.refs || [],
+        fullLabel: node.label,
+        label: { position: pos.x > 180 ? 'left' : 'right' },
+      };
+    });
+
+    // Collect candidate edges (both endpoints visible + active type)
+    const edgePriority = { supports: 3, derived_from: 2, mentions: 1, relates_to: 0 };
+    const candidateEdges = kg.edges.filter(e =>
+      activeEdgeTypes.has(e.edgeType) &&
+      visibleNodeIds.has(e.source) &&
+      visibleNodeIds.has(e.target),
+    );
+
+    // In focused mode, cap each node's edges to top-K strongest by type priority
+    let finalEdges = candidateEdges;
+    if (focusedMode && candidateEdges.length > 0) {
+      // Sort all candidates by priority descending (stronger types first)
+      const sorted = [...candidateEdges].sort(
+        (a, b) => (edgePriority[b.edgeType] ?? 0) - (edgePriority[a.edgeType] ?? 0),
+      );
+      const perNodeCount = new Map();
+      finalEdges = [];
+      for (const e of sorted) {
+        if (finalEdges.length >= FOCUSED_EDGE_BUDGET) break;
+        const sCount = perNodeCount.get(e.source) || 0;
+        const tCount = perNodeCount.get(e.target) || 0;
+        if (sCount >= MAX_EDGES_PER_NODE_FOCUSED || tCount >= MAX_EDGES_PER_NODE_FOCUSED) continue;
+        perNodeCount.set(e.source, sCount + 1);
+        perNodeCount.set(e.target, tCount + 1);
+        finalEdges.push(e);
+      }
+    }
+
+    // Build ECharts link objects
+    const links = finalEdges.map(edge => {
+      const style = edgeStyleMap[edge.edgeType] || {};
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        edgeType: edge.edgeType,
+        edgeLabel: style.label || edge.edgeType,
+        lineStyle: {
+          color: style.color || '#999',
+          opacity: 0.5,
+          width: 1.1,
+          curveness: 0.12,
+          type: Array.isArray(style.dash) ? 'dashed' : 'solid',
+        },
+        symbol: style.arrow ? ['none', 'arrow'] : ['none', 'none'],
+        symbolSize: [4, 7],
+      };
+    });
+
+    return { categories, nodes, links };
+  }
+
+  let lastRenderedCounts = { nodes: 0, edges: 0 };
+
+  // Render the page shell
+  container.innerHTML = `
+    <div class="kg-page-shell">
+      <div class="page-header">
+        <h1 class="page-title">${t('kgTitle')}</h1>
+        <p class="page-subtitle">${t('kgSubtitle')}</p>
+      </div>
+      <div id="codegraph-health-panel">${renderCodeGraphHealth(codegraph)}</div>
+      <div class="graph-layout">
+        <div class="graph-filter-panel" id="kg-filter-panel"></div>
+        <div id="graph-container">
+          <div id="echarts-mount" style="width:100%;height:100%;"></div>
+          <div class="graph-status-bar">
+            <span class="graph-status-item" id="gs-nodes"></span>
+            <span class="graph-status-item" id="gs-edges"></span>
+            <span class="graph-status-item" id="gs-clusters"></span>
+            <div class="graph-zoom-controls">
+              <button class="graph-zoom-btn" id="gz-out">\u2212</button>
+              <button class="graph-zoom-btn" id="gz-fit">\u2B21</button>
+              <button class="graph-zoom-btn" id="gz-in">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="graph-inspector" id="graph-inspector">
+          <div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>${t('graphSelectNode')}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  function initEChartsGraph() {
+    const mountEl = document.getElementById('echarts-mount');
+    if (!mountEl || typeof echarts === 'undefined') return;
+
+    // Ensure container has dimensions before init
+    if (mountEl.clientWidth === 0 || mountEl.clientHeight === 0) {
+      // Defer until layout finishes
+      requestAnimationFrame(() => initEChartsGraph());
+      return;
+    }
+
+    // Dispose previous instance if any
+    if (echartsInstance) {
+      try { echartsInstance.dispose(); } catch (_) { /* noop */ }
+      echartsInstance = null;
+    }
+
+    const data = buildEChartsData();
+    lastRenderedCounts = { nodes: data.nodes.length, edges: data.links.length };
+    const light = isLight();
+    const labelColor = light ? '#1C1B1F' : '#E6E1E5';
+    const labelMutedColor = light ? '#666' : '#999';
+    const tooltipBg = light ? 'rgba(255,255,255,0.96)' : 'rgba(20,20,28,0.96)';
+    const tooltipBorder = light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)';
+
+    echartsInstance = echarts.init(mountEl, null, { renderer: 'canvas' });
+
+    const wrap = (txt) => String(txt ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const option = {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        confine: true,
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        borderWidth: 1,
+        textStyle: { color: labelColor, fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif' },
+        extraCssText: 'box-shadow: 0 4px 16px rgba(0,0,0,0.18); border-radius: 8px; padding: 10px 12px; width: min(320px, calc(100vw - 32px)); max-width: calc(100vw - 32px); box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; word-break: break-word;',
+        formatter: (params) => {
+          if (params.dataType === 'node') {
+            const d = params.data;
+            const summary = d.summary ? String(d.summary).slice(0, 160) : '';
+            return (
+              `<div style="font-weight:600;font-size:13px;margin-bottom:4px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${wrap(d.fullLabel || d.name)}</div>` +
+              `<div style="font-size:11px;color:${labelMutedColor};margin-bottom:6px;">${wrap(d.nodeType || '')}${d.entityName ? ' \u00b7 ' + wrap(d.entityName) : ''}</div>` +
+              `<div style="font-size:11px;color:${labelMutedColor};white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${d.evidenceCount || 0} ${wrap(t('kgInspectorEvidence'))}</div>` +
+              (summary ? `<div style="font-size:11.5px;line-height:1.5;margin-top:8px;color:${labelColor};opacity:0.85;white-space:normal;overflow-wrap:anywhere;word-break:break-word;">${wrap(summary)}\u2026</div>` : '')
+            );
+          }
+          if (params.dataType === 'edge') {
+            return `<div style="font-size:12px;">${wrap(params.data.edgeLabel || params.data.edgeType)}</div>`;
+          }
+          return '';
+        },
+      },
+      legend: [{
+        data: data.categories.map(c => c.name),
+        textStyle: { color: labelColor, fontSize: 11 },
+        top: 8,
+        right: 12,
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 12,
+        icon: 'circle',
+        selectedMode: false,
+      }],
+      animationDuration: 500,
+      animationEasingUpdate: 'quinticInOut',
+      series: [{
+        type: 'graph',
+        layout: 'none',
+        roam: true,
+        draggable: true,
+        zoom: 1,
+        scaleLimit: { min: 0.2, max: 4 },
+        edgeSymbol: ['none', 'arrow'],
+        edgeSymbolSize: [0, 8],
+        categories: data.categories,
+        data: data.nodes,
+        edges: data.links,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: '{b}',
+          color: labelColor,
+          fontSize: 11,
+          fontFamily: 'Inter, system-ui, sans-serif',
+          backgroundColor: light ? 'rgba(255,255,255,0.82)' : 'rgba(15,15,23,0.72)',
+          padding: [2, 5],
+          borderRadius: 3,
+        },
+        labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
+        itemStyle: {
+          opacity: 0.92,
+          borderColor: light ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.2)',
+          borderWidth: 1,
+          shadowColor: light ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.45)',
+          shadowBlur: 8,
+        },
+        emphasis: {
+          focus: 'adjacency',
+          label: { show: true, fontWeight: 700, fontSize: 12 },
+          itemStyle: { borderColor: light ? '#6750A4' : '#D0BCFF', borderWidth: 2 },
+          lineStyle: { width: 2.5, opacity: 1 },
+        },
+        blur: {
+          itemStyle: { opacity: 0.18 },
+          label: { opacity: 0.25 },
+          lineStyle: { opacity: 0.06 },
+        },
+        lineStyle: { opacity: 0.55, curveness: 0.15, width: 1.2 },
+      }],
+    };
+
+    echartsInstance.setOption(option);
+
+    // Click handlers — use ECharts event API (auto-cleaned on dispose) instead of zrender
+    echartsInstance.on('click', (params) => {
+      if (params.dataType === 'node') {
+        const id = params.data?.id;
+        if (id) {
+          selectedNodeId = id;
+          showKGInspector(id);
+        }
+      }
+    });
+    // Click on blank canvas deselects (ECharts emits click with empty target at chart level).
+    // Use `click` event at series level only; do NOT intercept zrender events so roam/pan works.
+    // User reported pan-on-empty-canvas not working when zr click was intercepted.
+
+    // Resize observer
+    if (echartsResizeObserver) {
+      try { echartsResizeObserver.disconnect(); } catch (_) { /* noop */ }
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      echartsResizeObserver = new ResizeObserver(() => {
+        if (echartsInstance) echartsInstance.resize();
+      });
+      echartsResizeObserver.observe(mountEl);
+    }
+
+    window._kgEChart = echartsInstance;
+    window._kgShowInspector = showKGInspector;
+
+    updateStatusBar();
+    bindZoomControls();
+  }
+
+  function bindZoomControls() {
+    const outBtn = document.getElementById('gz-out');
+    const fitBtn = document.getElementById('gz-fit');
+    const inBtn = document.getElementById('gz-in');
+    const setZoom = (factor) => {
+      if (!echartsInstance) return;
+      const opt = echartsInstance.getOption();
+      const cur = (opt.series && opt.series[0] && opt.series[0].zoom) || 1;
+      echartsInstance.setOption({ series: [{ zoom: Math.min(4, Math.max(0.2, cur * factor)) }] });
+    };
+    if (outBtn) outBtn.onclick = () => setZoom(0.75);
+    if (fitBtn) fitBtn.onclick = () => {
+      if (echartsInstance) echartsInstance.setOption({ series: [{ zoom: 1, center: null }] });
+    };
+    if (inBtn) inBtn.onclick = () => setZoom(1.35);
+  }
+
+  function updateStatusBar() {
+    const gsNodes = document.getElementById('gs-nodes');
+    const gsEdges = document.getElementById('gs-edges');
+    const gsClusters = document.getElementById('gs-clusters');
+    const shownNodes = focusedMode ? Math.min(kg.nodes.length, FOCUSED_TOP_N) : kg.nodes.length;
+    const shownLabel = focusedMode && kg.nodes.length > FOCUSED_TOP_N ? `${shownNodes}/${kg.nodes.length}` : `${kg.nodes.length}`;
+    if (gsNodes) gsNodes.textContent = `${shownLabel} ${t('kgNodes')}`;
+    const edgeLabel = lastRenderedCounts.edges < kg.edges.length
+      ? `${lastRenderedCounts.edges}/${kg.edges.length}`
+      : `${kg.edges.length}`;
+    if (gsEdges) gsEdges.textContent = `${edgeLabel} ${t('kgEdges')}`;
+    if (gsClusters) gsClusters.textContent = `${(kg.clusters || []).length} ${t('kgClusters')}`;
+  }
+
+  // Inspector
+  function showKGInspector(nodeId) {
+    const inspector = document.getElementById('graph-inspector');
+    if (!inspector) return;
+    if (!nodeId) {
+      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>' + t('graphSelectNode') + '</div>';
+      return;
+    }
+    const node = kg.nodes.find(n => n.id === nodeId);
+    if (!node) {
+      inspector.innerHTML = '<div class="gi-empty"><div class="gi-empty-icon">\u2B21</div>' + t('graphSelectNode') + '</div>';
+      return;
+    }
+    const color = getSectionColor(node.sectionId);
+    const relatedEdges = kg.edges.filter(e => e.source === nodeId || e.target === nodeId);
+
+    const refsHtml = (node.refs || []).length > 0
+      ? node.refs.map(r => `<span class="knowledge-ref-chip" data-kind="${escapeHtml(r.kind)}">${escapeHtml(r.id)}</span>`).join('')
+      : '<span style="font-size:12px;color:var(--text-muted);">—</span>';
+
+    const edgeHtml = relatedEdges.length > 0
+      ? relatedEdges.map(e => {
+          const dir = e.source === nodeId;
+          const other = dir ? e.target : e.source;
+          const otherNode = kg.nodes.find(n => n.id === other);
+          const style = edgeStyleMap[e.edgeType] || {};
+          return `<div class="gi-rel-item">
+            <span class="gi-rel-arrow">${dir ? '\u2192' : '\u2190'}</span>
+            <span class="gi-rel-type" style="color:${style.color || 'var(--text-muted)'}">${escapeHtml(style.label || e.edgeType)}</span>
+            <span class="gi-rel-target" data-kg-nav="${escapeHtml(other)}">${escapeHtml(otherNode?.label || other)}</span>
+          </div>`;
+        }).join('')
+      : '<div style="font-size:12px;color:var(--text-muted);font-style:italic;">' + t('kgInspectorNoEdges') + '</div>';
+
+    inspector.innerHTML = `
+      <div class="gi-header">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+          <div class="gi-name">${escapeHtml(node.label)}</div>
+        </div>
+        <div class="gi-type">${escapeHtml(node.nodeType)}</div>
+      </div>
+      <div class="gi-stats">
+        <div class="gi-stat"><div class="gi-stat-value">${node.evidenceCount}</div><div class="gi-stat-label">${t('kgInspectorEvidence')}</div></div>
+        <div class="gi-stat"><div class="gi-stat-value">${relatedEdges.length}</div><div class="gi-stat-label">${t('kgInspectorRelatedEdges')}</div></div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorSection')}</div>
+        <div style="font-size:12px;color:${color};font-weight:500;">${escapeHtml(sectionLabel(node.sectionId))}</div>
+      </div>
+      ${node.entityName ? `<div class="gi-section"><div class="gi-section-title">${t('kgInspectorEntity')}</div><div style="font-size:12px;color:var(--accent-cyan);font-family:var(--font-mono);">${escapeHtml(node.entityName)}</div></div>` : ''}
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorSummary')}</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">${escapeHtml(node.summary || '—')}</div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorProvenance')}</div>
+        <div class="knowledge-ref-list">${refsHtml}</div>
+      </div>
+      <div class="gi-section">
+        <div class="gi-section-title">${t('kgInspectorRelatedEdges')} <span class="gi-section-count">${relatedEdges.length}</span></div>
+        ${edgeHtml}
+      </div>
+    `;
+
+    inspector.querySelectorAll('[data-kg-nav]').forEach(el => {
+      el.addEventListener('click', () => {
+        const targetId = el.dataset.kgNav;
+        if (echartsInstance) {
+          try {
+            echartsInstance.dispatchAction({ type: 'highlight', seriesIndex: 0, dataType: 'node', name: kg.nodes.find(n => n.id === targetId)?.label });
+          } catch (_) { /* noop */ }
+        }
+        showKGInspector(targetId);
+      });
+    });
+  }
+
+  // Filter panel
+  function renderKGFilterPanel() {
+    const panel = document.getElementById('kg-filter-panel');
+    if (!panel) return;
+
+    const clusterEntries = (kg.clusters || []).map(c => [c.sectionId, c]);
+    const clusterHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('kgClusterFilter')}</div>
+        <div class="gfp-radio-group">
+          ${clusterEntries.map(([id, cluster]) => `
+            <button class="gfp-check${activeSections.has(id) ? ' active' : ''}" data-section-filter="${escapeHtml(id)}">
+              <span class="gfp-check-box">\u2713</span>
+              <span class="gfp-type-dot" style="background:${getSectionColor(id)}"></span>
+              ${escapeHtml(sectionLabel(cluster.sectionId))}
+              <span class="gfp-check-count">${cluster.nodeCount}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    const edgeTypeEntries = Object.entries(edgeStyleMap);
+    const edgeTypeHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('kgEdgeTypeFilter')}</div>
+        <div class="gfp-radio-group">
+          ${edgeTypeEntries.map(([type, style]) => `
+            <button class="gfp-check${activeEdgeTypes.has(type) ? ' active' : ''}" data-edge-type-filter="${escapeHtml(type)}">
+              <span class="gfp-check-box">\u2713</span>
+              <span style="color:${style.color};font-size:11px;">\u2192</span>
+              ${escapeHtml(style.label)}
+              <span class="gfp-check-count">${kg.edges.filter(e => e.edgeType === type).length}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    const searchHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('graphSearch')}</div>
+        <input type="text" class="gfp-search" id="kg-search" placeholder="${t('graphFindEntity')}" autocomplete="off" />
+      </div>
+    `;
+
+    const viewModeHtml = `
+      <div class="gfp-section">
+        <div class="gfp-label">${t('kgViewMode')}</div>
+        <div class="gfp-depth-row">
+          <button class="gfp-depth-btn${focusedMode ? ' active' : ''}" data-view-mode="focused">${t('kgFocused')}</button>
+          <button class="gfp-depth-btn${!focusedMode ? ' active' : ''}" data-view-mode="full">${t('kgFullGraph')}</button>
+        </div>
+      </div>
+    `;
+
+    panel.innerHTML = searchHtml + viewModeHtml + clusterHtml + edgeTypeHtml;
+
+    // Bind section filters
+    panel.querySelectorAll('[data-section-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.sectionFilter;
+        if (activeSections.has(id)) activeSections.delete(id);
+        else activeSections.add(id);
+        initEChartsGraph();
+        renderKGFilterPanel();
+      });
+    });
+
+    // Bind edge type filters
+    panel.querySelectorAll('[data-edge-type-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.edgeTypeFilter;
+        if (activeEdgeTypes.has(type)) activeEdgeTypes.delete(type);
+        else activeEdgeTypes.add(type);
+        initEChartsGraph();
+        renderKGFilterPanel();
+      });
+    });
+
+    // Bind view mode toggle
+    panel.querySelectorAll('[data-view-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.viewMode;
+        focusedMode = mode === 'focused';
+        initEChartsGraph();
+        renderKGFilterPanel();
+      });
+    });
+
+    // Bind search
+    const searchInput = document.getElementById('kg-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value.toLowerCase();
+        if (!echartsInstance) return;
+        try {
+          echartsInstance.dispatchAction({ type: 'downplay', seriesIndex: 0 });
+        } catch (_) { /* noop */ }
+        if (!q) return;
+        // Highlight matched nodes (which auto-blurs others via emphasis.focus 'adjacency' isn't ideal here;
+        // instead, use 'highlight' on matching dataIndex array for visual emphasis)
+        const data = buildEChartsData();
+        const matchIndexes = [];
+        data.nodes.forEach((n, idx) => {
+          const match = (n.fullLabel || '').toLowerCase().includes(q) ||
+                        (n.nodeType || '').toLowerCase().includes(q) ||
+                        (n.entityName || '').toLowerCase().includes(q);
+          if (match) matchIndexes.push(idx);
+        });
+        if (matchIndexes.length > 0) {
+          try {
+            echartsInstance.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: matchIndexes });
+          } catch (_) { /* noop */ }
+        }
+      });
+    }
+  }
+
+  initEChartsGraph();
+  renderKGFilterPanel();
+}
+
+
+// ============================================================
+// Observations Page
+// ============================================================
+
+let allObservations = [];
+let obsFilter = '';
+let obsTypeFilter = '';
+let batchMode = false;
+let selectedIds = new Set();
+
+function renderBatchToolbar() {
+  const slot = document.getElementById('batch-toolbar-slot');
+  if (!slot) return;
+  if (!batchMode || selectedIds.size === 0) {
+    slot.innerHTML = '';
+    return;
+  }
+  slot.innerHTML = `
+    <div class="batch-toolbar">
+      <span class="batch-count">${selectedIds.size} ${t('selected')}</span>
+      <button class="batch-cancel-btn" onclick="exitBatchMode()">${t('cancel')}</button>
+      <button class="batch-delete-btn" onclick="batchDeleteSelected()"><span class="iconify" data-icon="lucide:trash-2" style="font-size:13px;vertical-align:middle;margin-right:3px;"></span> ${t('deleteSelected')}</button>
+    </div>
+  `;
+}
+
+async function batchDeleteSelected() {
+  if (selectedIds.size === 0) return;
+  const msg = t('batchDeleteConfirm').replace('%count%', selectedIds.size);
+  if (!confirm(msg)) return;
+
+  const sep = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+  let deleted = 0;
+  for (const id of selectedIds) {
+    try {
+      const res = await fetch(`/api/observations/${id}${sep}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) deleted++;
+    } catch { /* ignore individual failures */ }
+  }
+
+  allObservations = allObservations.filter(o => !selectedIds.has(o.id));
+  selectedIds.clear();
+  batchMode = false;
+  renderObsList();
+  renderBatchToolbar();
+
+  // Update counter
+  const subtitle = document.querySelector('#page-observations .page-subtitle');
+  if (subtitle) subtitle.textContent = `${allObservations.length} ${t('observationsStored')}`;
+}
+
+function exitBatchMode() {
+  batchMode = false;
+  selectedIds.clear();
+  renderObsList();
+  renderBatchToolbar();
+}
+
+function toggleObsSelect(id) {
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+  } else {
+    selectedIds.add(id);
+  }
+  renderBatchToolbar();
+  renderObsList();
+}
+
+// Make batch functions globally accessible
+window.exitBatchMode = exitBatchMode;
+window.batchDeleteSelected = batchDeleteSelected;
+window.toggleObsSelect = toggleObsSelect;
+
+async function loadObservations() {
+  const container = document.getElementById('page-observations');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  allObservations = await api('observations') || [];
+
+  if (allObservations.length === 0) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:search" style="font-size:36px;"></span>', t('noObsTitle'), t('noObsDesc'));
+    return;
+  }
+
+  allObservations.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+  const types = [...new Set(allObservations.map(o => o.type).filter(Boolean))];
+
+  container.innerHTML = `
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <h1 class="page-title">${t('observations')}</h1>
+        <p class="page-subtitle">${allObservations.length} ${t('observationsStored')}</p>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="export-btn" id="btn-batch-select" title="${t('selectRecords')}">
+          <span class="iconify" data-icon="lucide:list-checks"></span> ${t('selectRecords')}
+        </button>
+        <button class="export-btn" id="btn-export" title="${t('exportData')}">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v8M4 7l4 4 4-4M2 12v2h12v-2"/></svg>
+          ${t('exportData')}
+        </button>
+      </div>
+    </div>
+
+    <section class="maintenance-strip" aria-labelledby="memory-maintenance-title">
+      <div class="maintenance-strip-heading">
+        <span id="memory-maintenance-title">${t('memoryMaintenance')}</span>
+        <small>${t('previewRequired')}</small>
+      </div>
+      <div class="maintenance-actions">
+        <button type="button" onclick="openMaintenancePreview('cleanup')"><span class="iconify" data-icon="lucide:eraser"></span>${t('cleanupAction')}</button>
+        <button type="button" onclick="openMaintenancePreview('consolidate')"><span class="iconify" data-icon="lucide:combine"></span>${t('consolidateAction')}</button>
+        <button type="button" onclick="openMaintenancePreview('deduplicate')"><span class="iconify" data-icon="lucide:copy-minus"></span>${t('deduplicateAction')}</button>
+      </div>
+    </section>
+
+    <div id="batch-toolbar-slot"></div>
+
+    <div class="search-bar">
+      <input class="search-input" id="obs-search" type="text" placeholder="${t('searchObservations')}" />
+      <button class="filter-btn active" data-type="" id="filter-all">${t('all')}</button>
+      ${types.map(tp => `<button class="filter-btn" data-type="${tp}">${tp}</button>`).join('')}
+    </div>
+
+    <div class="obs-grid" id="obs-list"></div>
+  `;
+
+  // Export handler
+  document.getElementById('btn-export').addEventListener('click', () => {
+    const sep = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+    window.open(`/api/export${sep}`, '_blank');
+  });
+
+  // Manual selection remains separate from the shared cleanup pipeline.
+  document.getElementById('btn-batch-select').addEventListener('click', () => {
+    batchMode = !batchMode;
+    selectedIds.clear();
+    renderObsList();
+    renderBatchToolbar();
+  });
+
+  document.getElementById('obs-search').addEventListener('input', (e) => {
+    obsFilter = e.target.value.toLowerCase();
+    renderObsList();
+  });
+
+  container.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      container.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      obsTypeFilter = btn.dataset.type;
+      renderObsList();
+    });
+  });
+
+  renderObsList();
+}
+
+async function loadEvidence() {
+  const container = document.getElementById('page-evidence');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  const data = await api('evidence') || { cards: [] };
+  const cards = data.cards || [];
+  if (cards.length === 0) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:file-check-2" style="font-size:36px;"></span>', t('evidenceNoCards'), t('evidenceNoCardsDesc'));
+    return;
+  }
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${t('evidence')}</h1>
+      <p class="page-subtitle">${t('evidenceSubtitle')}</p>
+    </div>
+    <div class="evidence-console" role="list">
+      ${cards.map((card) => {
+        const freshness = card.freshness === 'stale' ? t('evidenceStale') : t('evidenceCurrent');
+        const verification = card.verification === 'verified' ? t('evidenceVerified') : card.verification === 'conflicted' ? t('evidenceConflicted') : t('evidenceUnverified');
+        const eventCount = (card.events || []).length;
+        return `
+          <article class="evidence-card" role="listitem">
+            <div class="evidence-card-header">
+              <div class="evidence-card-heading">
+                <span class="evidence-card-kind">${escapeHtml(card.sourceKind || 'memory')}</span>
+                <h2>${escapeHtml(card.title || t('untitled'))}</h2>
+              </div>
+              <div class="evidence-card-state">
+                <span class="evidence-state evidence-${card.freshness === 'stale' ? 'stale' : 'current'}">${escapeHtml(freshness)}</span>
+                <span class="evidence-state evidence-${card.verification === 'verified' ? 'verified' : card.verification === 'conflicted' ? 'conflicted' : 'unverified'}">${escapeHtml(verification)}</span>
+              </div>
+            </div>
+            <p class="evidence-card-summary">${escapeHtml(card.summary || '')}</p>
+            <dl class="evidence-card-meta">
+              <div><dt>${t('evidenceSource')}</dt><dd>${escapeHtml(card.sourceRef || 'unknown')}</dd></div>
+              <div><dt>${t('evidenceLocator')}</dt><dd>${escapeHtml(card.locator || 'not recorded')}</dd></div>
+              <div><dt>${t('evidenceEvents')}</dt><dd>${eventCount}</dd></div>
+            </dl>
+            ${card.staleReason ? `<div class="evidence-card-warning">${escapeHtml(card.staleReason)}</div>` : ''}
+          </article>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderObsList() {
+  const list = document.getElementById('obs-list');
+  if (!list) return;
+
+  const typeIcons = {
+    'session-request': '<span class="iconify" data-icon="lucide:target" style="color:#f87171;"></span>', gotcha: '<span class="iconify" data-icon="lucide:alert-octagon" style="color:#ef4444;"></span>', 'problem-solution': '<span class="iconify" data-icon="lucide:lightbulb" style="color:#fbbf24;"></span>',
+    'how-it-works': '<span class="iconify" data-icon="lucide:info" style="color:#38bdf8;"></span>', 'what-changed': '<span class="iconify" data-icon="lucide:git-branch" style="color:#4ade80;"></span>', discovery: '<span class="iconify" data-icon="lucide:sparkles" style="color:#a78bfa;"></span>',
+    'why-it-exists': '<span class="iconify" data-icon="lucide:help-circle" style="color:#fb923c;"></span>', decision: '<span class="iconify" data-icon="lucide:scale" style="color:#a1887f;"></span>', 'trade-off': '<span class="iconify" data-icon="lucide:scale" style="color:#94a3b8;"></span>',
+  };
+
+  let filtered = allObservations;
+
+  if (obsTypeFilter) {
+    filtered = filtered.filter(o => o.type === obsTypeFilter);
+  }
+
+  if (obsFilter) {
+    filtered = filtered.filter(o =>
+      (o.title || '').toLowerCase().includes(obsFilter) ||
+      (o.narrative || '').toLowerCase().includes(obsFilter) ||
+      (o.entityName || '').toLowerCase().includes(obsFilter) ||
+      (o.facts || []).some(f => f.toLowerCase().includes(obsFilter))
+    );
+  }
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--text-muted);">${t('noMatchingObs')}</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(obs => {
+    const isSelected = selectedIds.has(obs.id);
+    const hl = (text) => obsFilter ? escapeHtml(text).replace(new RegExp(`(${escapeHtml(obsFilter).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>') : escapeHtml(text);
+    return `
+    <div class="obs-card" data-obs-id="${obs.id}" onclick="toggleObsDetail(${obs.id})" style="cursor:pointer;">
+      <div class="obs-card-header">
+        ${batchMode ? `<input type="checkbox" class="obs-checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleObsSelect(${obs.id});" />` : ''}
+        <span class="obs-card-id">#${obs.id}</span>
+        <span class="type-badge" data-type="${obs.type || 'unknown'}">
+          ${typeIcons[obs.type] || '[UNKNOWN]'} ${obs.type || t('unknown')}
+        </span>
+        <span class="obs-card-title">${hl(obs.title || t('untitled'))}</span>
+        <span class="obs-expand-icon">▼</span>
+      </div>
+      <div class="obs-card-meta">
+        <span>[FILES] ${hl(obs.entityName || t('unknown'))}</span>
+        ${obs.createdAt ? `<span>[TIME] ${formatTime(obs.createdAt)}</span>` : ''}
+        ${obs.accessCount ? `<span>[VIEW] ${obs.accessCount}</span>` : ''}
+      </div>
+      <div class="obs-detail" id="obs-detail-${obs.id}" style="display:none;">
+       <div class="obs-detail-inner">
+        ${obs.narrative ? `<div class="obs-detail-section"><label>${t('narrative')}</label><div class="obs-card-narrative">${hl(obs.narrative)}</div></div>` : ''}
+        ${obs.facts && obs.facts.length > 0 ? `<div class="obs-detail-section"><label>${t('facts')}</label><div class="obs-card-facts">${obs.facts.map(f => `<span class="fact-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
+        ${obs.concepts && obs.concepts.length > 0 ? `<div class="obs-detail-section"><label>${t('concepts')}</label><div class="obs-card-facts">${obs.concepts.map(c => `<span class="fact-tag concept-tag">${hl(c)}</span>`).join('')}</div></div>` : ''}
+         ${obs.filesModified && obs.filesModified.length > 0 ? `<div class="obs-detail-section"><label>${t('files')}</label><div class="obs-card-facts">${obs.filesModified.map(f => `<span class="fact-tag file-tag">${hl(f)}</span>`).join('')}</div></div>` : ''}
+         <div class="obs-detail-section evidence-provenance" aria-label="Evidence provenance">
+           <label>Evidence</label>
+           <div class="obs-card-meta">
+             <span>Source: ${escapeHtml(obs.sourceDetail || obs.source || 'unknown')}</span>
+             ${obs.sessionId ? `<span>Session: ${escapeHtml(obs.sessionId)}</span>` : ''}
+             ${obs.status ? `<span>Verification: ${obs.status === 'resolved' ? 'verified' : obs.status === 'archived' ? 'conflicted' : 'unverified'}</span>` : ''}
+           </div>
+         </div>
+        <div class="obs-detail-actions">
+          <button class="delete-btn" onclick="deleteObs(${obs.id}, event)">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9"/></svg>
+            ${t('deleteObs')}
+          </button>
+        </div>
+       </div>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+// ============================================================
+// Retention Page
+// ============================================================
+
+async function loadRetention() {
+  const container = document.getElementById('page-retention');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const data = await api('retention');
+  if (!data || data.items.length === 0) {
+    container.innerHTML = emptyState('[RETENTION]', t('noRetentionData'), t('noRetentionDesc'));
+    return;
+  }
+
+  const { summary, items } = data;
+
+  container.innerHTML = `
+    <div class="page-header page-header-actions">
+      <div>
+        <h1 class="page-title">${t('memoryRetention')}</h1>
+        <p class="page-subtitle">${t('retentionSubtitle')}</p>
+      </div>
+      <button class="export-btn" type="button" onclick="openMaintenancePreview('retention')" ${summary.archive > 0 ? '' : 'disabled'}>
+        <span class="iconify" data-icon="lucide:archive"></span>${t('archiveAction')}
+      </button>
+    </div>
+
+    <div class="retention-summary">
+      <div class="stat-card" data-accent="green">
+        <div class="stat-label">${t('active')}</div>
+        <div class="stat-value">${summary.active}</div>
+      </div>
+      <div class="stat-card" data-accent="amber">
+        <div class="stat-label">${t('stale')}</div>
+        <div class="stat-value">${summary.stale}</div>
+      </div>
+      <div class="stat-card" data-accent="cyan">
+        <div class="stat-label">${t('archiveCandidates')}</div>
+        <div class="stat-value">${summary.archive}</div>
+      </div>
+      <div class="stat-card" data-accent="purple">
+        <div class="stat-label">${t('immune')}</div>
+        <div class="stat-value">${summary.immune}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">${t('allObsByScore')}</span>
+      </div>
+      <div class="panel-body" style="padding: 0;">
+        <table class="retention-table">
+          <thead>
+            <tr>
+              <th>${t('id')}</th>
+              <th>${t('title')}</th>
+              <th>${t('type')}</th>
+              <th>${t('entity')}</th>
+              <th>${t('score')}</th>
+              <th>${t('ageH')}</th>
+              <th>${t('access')}</th>
+              <th>${t('status')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(item => {
+    const scorePercent = Math.min(item.score / 10 * 100, 100);
+    const scoreColor = item.score >= 5 ? 'var(--accent-green)' : item.score >= 3 ? 'var(--accent-amber)' : item.score >= 1 ? 'var(--accent-red)' : 'var(--text-muted)';
+    return `
+                <tr>
+                  <td style="font-family: var(--font-mono); color: var(--text-muted);">#${item.id}</td>
+                  <td style="color: var(--text-primary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.title || t('untitled'))}</td>
+                  <td><span class="type-badge" data-type="${item.type}">${item.type}</span></td>
+                  <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 12px;">${escapeHtml(item.entityName || '')}</td>
+                  <td>
+                    <div class="score-bar"><div class="score-bar-fill" style="width: ${scorePercent}%; background: ${scoreColor};"></div></div>
+                    <span style="font-family: var(--font-mono); font-size: 12px; color: ${scoreColor};">${item.score}</span>
+                  </td>
+                  <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 12px;">${item.ageHours}h</td>
+                  <td style="font-family: var(--font-mono); color: var(--text-muted); font-size: 12px;">${item.accessCount}</td>
+                  <td>${item.isImmune ? `<span class="immune-badge"><span class="iconify" data-icon="lucide:shield" style="font-size:12px;vertical-align:middle;margin-right:3px;"></span>${t('immune')}</span>` : ''}</td>
+                </tr>
+              `;
+  }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// Observation Interactions
+// ============================================================
+
+function toggleObsDetail(id) {
+  const detail = document.getElementById(`obs-detail-${id}`);
+  const card = detail?.closest('.obs-card');
+  if (!detail || !card) return;
+
+  const isOpen = card.classList.contains('expanded');
+
+  if (isOpen) {
+    // Collapse: only animate max-height + opacity (inner div has padding/border)
+    detail.style.transition = 'none';
+    detail.style.maxHeight = detail.scrollHeight + 'px';
+    detail.offsetHeight;
+    detail.style.transition = '';
+    requestAnimationFrame(() => {
+      detail.style.maxHeight = '0';
+      detail.style.opacity = '0';
+    });
+    const onEnd = (e) => {
+      if (e.propertyName !== 'max-height') return;
+      detail.removeEventListener('transitionend', onEnd);
+      detail.style.display = 'none';
+    };
+    detail.addEventListener('transitionend', onEnd);
+    card.classList.remove('expanded');
+  } else {
+    // Expand: only animate max-height + opacity
+    detail.style.transition = 'none';
+    detail.style.display = 'block';
+    detail.style.maxHeight = '0';
+    detail.style.opacity = '0';
+    detail.offsetHeight;
+    detail.style.transition = '';
+    requestAnimationFrame(() => {
+      detail.style.maxHeight = detail.scrollHeight + 'px';
+      detail.style.opacity = '1';
+    });
+    const onEnd = (e) => {
+      if (e.propertyName !== 'max-height') return;
+      detail.removeEventListener('transitionend', onEnd);
+      detail.style.maxHeight = 'none';
+    };
+    detail.addEventListener('transitionend', onEnd);
+    card.classList.add('expanded');
+  }
+
+  // Rotate expand icon
+  const icon = card.querySelector('.obs-expand-icon');
+  if (icon) icon.style.transform = isOpen ? '' : 'rotate(180deg)';
+}
+
+async function deleteObs(id, event) {
+  event?.stopPropagation();
+  const msg = t('deleteConfirm').replace('%id%', id);
+  if (!confirm(msg)) return;
+
+  try {
+    const sep = selectedProject ? `?project=${encodeURIComponent(selectedProject)}` : '';
+    const res = await fetch(`/api/observations/${id}${sep}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      // Remove from local array and re-render
+      allObservations = allObservations.filter(o => o.id !== id);
+      renderObsList();
+      // Update counter in header
+      const subtitle = document.querySelector('#page-observations .page-subtitle');
+      if (subtitle) subtitle.textContent = `${allObservations.length} ${t('observationsStored')}`;
+    } else {
+      alert(data.error || t('deleteFailed'));
+    }
+  } catch (err) {
+    alert(t('deleteFailed') + ': ' + err.message);
+  }
+}
+
+// Make functions globally accessible for onclick handlers
+window.toggleObsDetail = toggleObsDetail;
+window.deleteObs = deleteObs;
+
+// ============================================================
+// Git Memory Page
+// ============================================================
+
+async function loadGitMemory() {
+  const container = document.getElementById('page-git-memory');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const [stats, allObs] = await Promise.all([api('stats'), api('observations')]);
+  if (!stats || !allObs) {
+    container.innerHTML = emptyState('[MERGE]', t('noGitMemory'), t('noGitMemoryDesc'));
+    return;
+  }
+
+  const gitObs = (allObs || []).filter(o => o.source === 'git').sort((a, b) => (b.id || 0) - (a.id || 0));
+  const gs = stats.gitSummary || { total: 0, recentWeek: 0, recentMemories: [] };
+  const sc = stats.sourceCounts || {};
+
+  // Type breakdown of git memories
+  const gitTypes = {};
+  gitObs.forEach(o => { gitTypes[o.type || 'unknown'] = (gitTypes[o.type || 'unknown'] || 0) + 1; });
+  const gitTypeEntries = Object.entries(gitTypes).sort((a, b) => b[1] - a[1]);
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${t('gitMemoryTitle')}</h1>
+      <p class="page-subtitle">${gitObs.length} ${t('gitMemorySubtitle')}</p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card" data-accent="green">
+        <div class="stat-label">${t('totalGitMemories')}</div>
+        <div class="stat-value">${gitObs.length}</div>
+      </div>
+      <div class="stat-card" data-accent="cyan">
+        <div class="stat-label">${t('thisWeek')}</div>
+        <div class="stat-value">${gs.recentWeek}</div>
+      </div>
+      <div class="stat-card" data-accent="purple">
+        <div class="stat-label">${t('uniqueCommits')}</div>
+        <div class="stat-value">${new Set(gitObs.map(o => o.commitHash).filter(Boolean)).size}</div>
+      </div>
+      <div class="stat-card" data-accent="amber">
+        <div class="stat-label">${t('typeCoverage')}</div>
+        <div class="stat-value">${gitTypeEntries.length}</div>
+        <div class="stat-sub">${gitTypeEntries.slice(0, 3).map(([t]) => t).join(', ')}</div>
+      </div>
+    </div>
+
+    ${gitObs.length === 0 ? `
+      <div class="panel">
+        <div class="panel-body" style="text-align:center;padding:48px;">
+          <div style="font-size:36px;margin-bottom:12px;">[MERGE]</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">${t('noGitMemoriesYet')}</div>
+          <div style="font-size:13px;color:var(--text-muted);max-width:400px;margin:0 auto;">
+            ${t('noGitMemoriesHint')}<br>
+            <code style="background:var(--bg-surface);padding:4px 10px;border-radius:6px;margin-top:8px;display:inline-block;font-size:12px;">memorix git-hook-install</code>
+          </div>
+        </div>
+      </div>
+    ` : `
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">${t('recentGitMemories')}</span>
+          <span style="font-size:11px;color:var(--text-muted);">${gitObs.length} ${t('gitMemoryTotal')}</span>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <table class="retention-table">
+            <thead>
+              <tr>
+                <th>${t('id')}</th>
+                <th>${t('commit')}</th>
+                <th>${t('title')}</th>
+                <th>${t('type')}</th>
+                <th>${t('entity')}</th>
+                <th>${t('files')}</th>
+                <th>${t('created')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${gitObs.slice(0, 50).map(obs => `
+                <tr>
+                  <td style="font-family:var(--font-mono);color:var(--text-muted);">#${obs.id}</td>
+                  <td><code class="git-hash">${obs.commitHash ? escapeHtml(obs.commitHash.slice(0, 7)) : '—'}</code></td>
+                  <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(obs.title || t('untitled'))}</td>
+                  <td><span class="type-badge" data-type="${obs.type || 'unknown'}">${obs.type || t('unknown')}</span></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted);">${escapeHtml(obs.entityName || '')}</td>
+                  <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">${(obs.filesModified || []).length || '—'}</td>
+                  <td style="font-size:11px;color:var(--text-muted);">${obs.createdAt ? formatTime(obs.createdAt) : '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `}
+  `;
+}
+
+// ============================================================
+// Config Provenance Page
+// ============================================================
+
+async function loadConfig() {
+  const container = document.getElementById('page-config');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const data = await api('config');
+  if (!data) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:settings" style="font-size:36px;"></span>', t('configUnavailable'), t('configUnavailableDesc'));
+    return;
+  }
+
+  const fileEntries = Object.entries(data.files || {});
+  const values = data.values || [];
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${t('configTitle')}</h1>
+      <p class="page-subtitle">${t('configSubtitle')}</p>
+    </div>
+
+    <div class="overview-row">
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('configSourceMatrix')}</span></div>
+        <div class="panel-body">
+          <div class="config-matrix">
+            ${fileEntries.map(([name, info]) => `
+              <div class="config-file-row">
+                <span class="config-file-status ${info.unavailable ? 'unavailable' : info.exists ? 'exists' : 'missing'}">${info.unavailable ? '—' : info.exists ? '<span class="iconify" data-icon="lucide:check" style="font-size:13px;"></span>' : '<span class="iconify" data-icon="lucide:x" style="font-size:13px;"></span>'}</span>
+                <span class="config-file-name">${escapeHtml(name)}</span>
+                <span class="config-file-path">${info.unavailable ? '<span style="color:var(--accent-amber);font-style:italic;">' + t('configProjectUnavailable') + '</span>' : info.path ? escapeHtml(info.path) : ''}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="config-hint">
+            <strong>memorix.yml</strong> ${t('configHint')} &nbsp;|&nbsp; <strong>.env</strong> ${t('configHintEnv')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">${t('valueProvenance')}</span>
+        <span style="font-size:11px;color:var(--text-muted);">${values.length} ${t('trackedValues')}</span>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <table class="retention-table">
+          <thead>
+            <tr>
+              <th>${t('configKey')}</th>
+              <th>${t('configValue')}</th>
+              <th>${t('configSource')}</th>
+              <th>${t('configStatus')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${values.map(v => {
+              const isWarn = v.source && v.source.includes('move to .env');
+              const isSensitive = v.sensitive;
+              return `
+                <tr>
+                  <td><code class="config-key">${escapeHtml(v.key)}</code></td>
+                  <td style="font-family:var(--font-mono);font-size:12px;">${isSensitive ? '<span class="config-masked">' + escapeHtml(v.value) + '</span>' : escapeHtml(v.value)}</td>
+                  <td><span class="config-source-badge ${isWarn ? 'warn' : ''}">${escapeHtml(v.source)}</span></td>
+                  <td>${isWarn ? '<span class="config-warn-badge"><span class="iconify" data-icon="lucide:alert-triangle" style="font-size:11px;vertical-align:middle;margin-right:3px;"></span> ' + t('moveToEnv') + '</span>' : ''}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================
+// Identity Health Page
+// ============================================================
+
+let identityShowHistorical = false; // H3: historical IDs collapsed by default
+
+async function loadIdentity() {
+  const container = document.getElementById('page-identity');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const data = await api('identity');
+  if (!data) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:shield" style="font-size:36px;"></span>', t('identityUnavailable'), t('identityUnavailableDesc'));
+    return;
+  }
+
+  // Get project resolved state
+  const projectInfo = await api('project');
+  const isResolved = projectInfo?.resolved !== false;
+
+  const healthColor = data.isHealthy ? 'var(--accent-green)' : 'var(--accent-red)';
+  const healthIcon = data.isHealthy ? t('healthy') : t('unhealthy');
+
+  // Layered identity data (H3)
+  const realIds = data.realKnownIds || [];
+  const temporaryIds = data.temporaryKnownIds || [];
+  const placeholderIds = data.placeholderKnownIds || [];
+  const historicalIds = [...temporaryIds, ...placeholderIds];
+  const aliasGroupsReal = typeof data.aliasGroupsReal === 'number' ? data.aliasGroupsReal : (data.aliasGroups || 0);
+  const aliasGroupsAll = data.aliasGroups || 0;
+
+  // Separate dirty IDs into current-project vs historical
+  const currentDirtyIds = (data.dirtyIds || []).filter(id => id === data.currentProjectId || (data.aliases || []).includes(id));
+  const historicalDirtyIds = (data.dirtyIds || []).filter(id => !currentDirtyIds.includes(id));
+
+  container.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">${t('identityTitle')}</h1>
+      <p class="page-subtitle">${t('identitySubtitle')}</p>
+    </div>
+
+    ${!isResolved ? `
+      <div class="panel" style="margin-bottom:16px;border-color:var(--accent-amber);">
+        <div class="panel-body" style="display:flex;align-items:center;gap:12px;padding:12px 16px;">
+          <span class="iconify" data-icon="lucide:alert-triangle" style="font-size:20px;color:var(--accent-amber);"></span>
+          <div>
+            <div style="font-weight:600;color:var(--accent-amber);">${t('projectUnresolved')}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">${t('projectUnresolvedDesc')}</div>
+          </div>
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="stats-grid">
+      <div class="stat-card" data-accent="${data.isHealthy ? 'green' : 'red'}">
+        <div class="stat-label">${t('identityHealthPrimary')}</div>
+        <div class="stat-value" style="font-size:20px;color:${healthColor}">${healthIcon}</div>
+      </div>
+      <div class="stat-card" data-accent="cyan">
+        <div class="stat-label">${t('identityRealProjects')}</div>
+        <div class="stat-value">${realIds.length}</div>
+        <div class="team-stat-sub">${historicalIds.length} ${t('teamHistoricalCount')}</div>
+      </div>
+      <div class="stat-card" data-accent="purple">
+        <div class="stat-label">${t('identityAliasGroupsReal')}</div>
+        <div class="stat-value">${aliasGroupsReal}</div>
+        <div class="team-stat-sub">${aliasGroupsAll} ${t('aliasGroups').toLowerCase()} ${t('identityTotalCount')}</div>
+      </div>
+      <div class="stat-card" data-accent="${currentDirtyIds.length > 0 ? 'red' : 'amber'}">
+        <div class="stat-label">${t('dirtyIds')}</div>
+        <div class="stat-value">${currentDirtyIds.length}</div>
+        <div class="team-stat-sub">${historicalDirtyIds.length} ${t('teamHistoricalCount')}</div>
+      </div>
+    </div>
+
+    <div class="overview-row">
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('identityCurrentProject')}</span></div>
+        <div class="panel-body">
+          <div class="identity-row">
+            <span class="identity-label">${t('currentProjectId')}</span>
+            <code class="identity-value">${escapeHtml(data.currentProjectId || '—')}</code>
+            ${isResolved
+              ? '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(34,197,94,0.12);color:var(--accent-green);margin-left:6px;">' + t('projectResolved') + '</span>'
+              : '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(245,158,11,0.12);color:var(--accent-amber);margin-left:6px;">' + t('projectUnresolved') + '</span>'
+            }
+          </div>
+          <div class="identity-row">
+            <span class="identity-label">${t('canonicalId')}</span>
+            <code class="identity-value">${escapeHtml(data.canonicalId || '—')}</code>
+          </div>
+          <div class="identity-row">
+            <span class="identity-label">${t('aliases')}</span>
+            <div>${(data.aliases || []).map(a => `<code class="identity-alias">${escapeHtml(a)}</code>`).join(' ')}</div>
+          </div>
+          ${currentDirtyIds.length > 0 ? `
+            <div style="margin-top:8px;padding:8px 12px;border-radius:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);">
+              <div style="font-size:12px;font-weight:600;color:var(--accent-red);margin-bottom:4px;"><span class="iconify" data-icon="lucide:alert-triangle" style="font-size:12px;vertical-align:middle;margin-right:3px;"></span> ${t('identityDirtyCurrentWarning')}</div>
+              ${currentDirtyIds.map(id => `<code class="identity-dirty">${escapeHtml(id)}</code>`).join(' ')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="panel" style="flex:1;">
+        <div class="panel-header"><span class="panel-title">${t('healthIssues')}</span></div>
+        <div class="panel-body">
+          ${(data.healthIssues || []).length === 0
+            ? '<div style="color:var(--accent-green);font-size:13px;">' + (isResolved ? t('identityProjectBound') : t('identityProjectUnbound')) + '</div>'
+            : (data.healthIssues || []).map(issue => `
+                <div class="identity-issue">
+                  <span class="iconify" data-icon="lucide:alert-triangle" style="font-size:13px;color:var(--accent-red);vertical-align:middle;"></span>
+                  <span>${escapeHtml(issue)}</span>
+                </div>
+              `).join('')
+          }
+        </div>
+      </div>
+    </div>
+
+    ${(data.dirtyIds || []).length > 0 ? `
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">${t('dirtyProjectIds')}</span></div>
+        <div class="panel-body">
+          ${currentDirtyIds.length > 0 ? `
+            <div style="margin-bottom:12px;">
+              <div style="font-size:12px;font-weight:600;color:var(--accent-red);margin-bottom:6px;"><span class="iconify" data-icon="lucide:alert-triangle" style="font-size:12px;vertical-align:middle;margin-right:3px;"></span> ${t('identityDirtyCurrentWarning')}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                ${currentDirtyIds.map(id => `<code class="identity-dirty">${escapeHtml(id)}</code>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+          ${historicalDirtyIds.length > 0 ? `
+            <div>
+              <div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:6px;">${t('identityDirtyHistoricalNote')}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                ${historicalDirtyIds.map(id => `<code class="identity-dirty" style="opacity:0.6;">${escapeHtml(id)}</code>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">${t('identityRealProjects')}</span>
+        <span style="font-size:11px;color:var(--text-muted);">${realIds.length}</span>
+      </div>
+      <div class="panel-body">
+        ${realIds.length === 0
+          ? '<div style="color:var(--text-muted);font-size:12px;">—</div>'
+          : `<div style="display:flex;flex-direction:column;gap:6px;">
+              ${realIds.map(id => {
+                const isDirty = (data.dirtyIds || []).includes(id);
+                const isCurrent = id === data.currentProjectId;
+                const isCanonical = id === data.canonicalId;
+                return `<div class="identity-id-row">
+                  <code class="identity-id ${isDirty ? 'dirty' : ''}">${escapeHtml(id)}</code>
+                  ${isCurrent ? '<span class="identity-tag current">' + t('tagCurrent') + '</span>' : ''}
+                  ${isCanonical ? '<span class="identity-tag canonical">' + t('tagCanonical') + '</span>' : ''}
+                  ${isDirty ? '<span class="identity-tag dirty">' + t('tagDirty') + '</span>' : ''}
+                </div>`;
+              }).join('')}
+            </div>`
+        }
+      </div>
+    </div>
+
+    ${historicalIds.length > 0 ? `
+      <div class="panel">
+        <div class="panel-header" style="cursor:pointer;" onclick="identityShowHistorical = !identityShowHistorical; delete loaded['identity']; loadIdentity();">
+          <span class="panel-title">
+            <span class="iconify" data-icon="${identityShowHistorical ? 'lucide:chevron-down' : 'lucide:chevron-right'}" style="font-size:14px;vertical-align:middle;"></span>
+            ${t('identityHistoricalFold')}
+          </span>
+          <span style="font-size:11px;color:var(--text-muted);">
+            ${temporaryIds.length} ${t('identityTemporary').toLowerCase()} · ${placeholderIds.length} ${t('identityPlaceholder').toLowerCase()}
+          </span>
+        </div>
+        ${identityShowHistorical ? `
+          <div class="panel-body">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;font-style:italic;">${t('identityHistoricalNote')}</div>
+            ${temporaryIds.length > 0 ? `
+              <div style="margin-bottom:12px;">
+                <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">${t('identityTemporary')} (${temporaryIds.length})</div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  ${temporaryIds.map(id => `<div class="identity-id-row" style="opacity:0.65;"><code class="identity-id">${escapeHtml(id)}</code><span class="identity-tag" style="background:rgba(148,163,184,0.15);color:var(--text-muted);">temp</span></div>`).join('')}
+                </div>
+              </div>
+            ` : ''}
+            ${placeholderIds.length > 0 ? `
+              <div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">${t('identityPlaceholder')} (${placeholderIds.length})</div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  ${placeholderIds.map(id => `<div class="identity-id-row" style="opacity:0.5;"><code class="identity-id dirty">${escapeHtml(id)}</code><span class="identity-tag dirty">placeholder</span></div>`).join('')}
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+      </div>
+    ` : ''}
+  `;
+}
+
+// ============================================================
+// Utilities
+// ============================================================
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatTime(isoString) {
+  try {
+    const d = new Date(isoString);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return isoString;
+  }
+}
+
+function emptyState(icon, title, desc) {
+  return `
+    <div class="empty-state">
+      <div class="empty-state-icon">${icon}</div>
+      <div class="empty-state-title">${title}</div>
+      <div class="empty-state-desc">${desc}</div>
+    </div>
+  `;
+}
+
+// ============================================================
+// Sessions Page
+// ============================================================
+
+async function loadSessions() {
+  const container = document.getElementById('page-sessions');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  const sessions = await api('sessions');
+  if (!sessions || sessions.length === 0) {
+    container.innerHTML = emptyState('<span class="iconify" data-icon="lucide:clipboard-list" style="font-size:36px;"></span>', t('noSessions'), t('noSessionsDesc'));
+    return;
+  }
+
+  // Sort by startedAt descending (newest first)
+  sessions.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+  const activeCount = sessions.filter(s => s.status === 'active').length;
+  const completedCount = sessions.filter(s => s.status === 'completed').length;
+
+  let html = `
+    <div class="page-header">
+      <h1 class="page-title">${t('sessions')}</h1>
+      <p class="page-subtitle">${t('sessionsSubtitle')}</p>
+    </div>
+
+    <div class="retention-summary">
+      <div class="stat-card" data-accent="green">
+        <div class="stat-label">${t('sessionActive')}</div>
+        <div class="stat-value">${activeCount}</div>
+      </div>
+      <div class="stat-card" data-accent="blue">
+        <div class="stat-label">${t('sessionCompleted')}</div>
+        <div class="stat-value">${completedCount}</div>
+      </div>
+      <div class="stat-card" data-accent="purple">
+        <div class="stat-label">${t('sessionsTotal')}</div>
+        <div class="stat-value">${sessions.length}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">${t('sessionsTimeline')}</span></div>
+      <div class="panel-body" style="padding: 0;">
+        <table class="retention-table">
+          <thead>
+            <tr>
+              <th>${t('status')}</th>
+              <th>ID</th>
+              <th>${t('sessionAgent')}</th>
+              <th>${t('sessionStarted')}</th>
+              <th>${t('sessionEnded')}</th>
+              <th>${t('sessionSummary')}</th>
+            </tr>
+          </thead>
+          <tbody>
+  `;
+
+  for (const s of sessions) {
+    const statusBadge = s.status === 'active'
+      ? '<span class="badge" style="background:var(--color-green);color:#fff"><span class="iconify" data-icon="lucide:circle-dot" style="font-size:11px;vertical-align:middle;margin-right:3px;"></span> ' + t('sessionActive') + '</span>'
+      : '<span class="badge" style="background:var(--color-blue);color:#fff"><span class="iconify" data-icon="lucide:circle-check" style="font-size:11px;vertical-align:middle;margin-right:3px;"></span> ' + t('sessionCompleted') + '</span>';
+    const agent = s.agent ? escapeHtml(s.agent) : '—';
+    const started = formatTime(s.startedAt);
+    const ended = s.endedAt ? formatTime(s.endedAt) : '—';
+    const summary = s.summary
+      ? escapeHtml(s.summary.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80)) + (s.summary.length > 80 ? '...' : '')
+      : '—';
+
+    html += `
+      <tr>
+        <td>${statusBadge}</td>
+        <td><code>${escapeHtml(s.id)}</code></td>
+        <td>${agent}</td>
+        <td>${started}</td>
+        <td>${ended}</td>
+        <td>${summary}</td>
+      </tr>
+    `;
+  }
+
+  html += '</tbody></table></div></div>';
+  container.innerHTML = html;
+}
+
+// ============================================================
+// Team Page
+// ============================================================
+
+let teamRefreshTimer = null;
+
+function teamTimeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return sec + t('timeAgoS');
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min + t('timeAgoM');
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + t('timeAgoH');
+  return Math.floor(hr / 24) + t('timeAgoD');
+}
+
+function teamLockTTL(expiresAt) {
+  if (!expiresAt) return '';
+  const remaining = new Date(expiresAt).getTime() - Date.now();
+  if (remaining <= 0) return t('timeExpired');
+  const min = Math.floor(remaining / 60000);
+  return min + t('timeLeft');
+}
+
+let teamScope = 'project'; // 'project' | 'global'
+let teamTierFilter = 'active'; // 'active' | 'recent' | 'historical' | 'all'
+let teamShowHistorical = false; // collapsed by default
+
+async function loadTeam() {
+  const container = document.getElementById('page-team');
+  if (!container.innerHTML || container.innerHTML.includes('spinner')) {
+    container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  }
+
+  const data = await api('team?scope=' + teamScope);
+  if (!data || data.unavailable || data.status === 'error' || data.status === 'degraded') {
+    const isDegraded = data?.status === 'degraded';
+    const statusTitle = isDegraded ? t('teamStatusDegraded') : (data?.status === 'error' ? t('teamStatusError') : t('teamNoData'));
+    const statusDescription = isDegraded ? t('teamStatusDegradedDesc') : (data?.status === 'error' ? t('teamStatusErrorDesc') : t('teamNoDataHint'));
+    container.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">${t('teamTitle')}</h1>
+        <p class="page-subtitle">${t('teamSubtitle')}</p>
+      </div>
+      <div class="panel">
+        <div class="panel-body" style="text-align:center;padding:48px;">
+          <div style="font-size:36px;margin-bottom:12px;"><span class="iconify" data-icon="lucide:users" style="font-size:36px;"></span></div>
+          <div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">${statusTitle}</div>
+          <div style="font-size:13px;color:var(--text-muted);max-width:480px;margin:0 auto;line-height:1.6;">
+            ${statusDescription}<br>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const statusIcons = {
+    pending: 'lucide:circle-dashed',
+    in_progress: 'lucide:loader',
+    completed: 'lucide:circle-check',
+    failed: 'lucide:circle-x',
+  };
+  const statusLabels = { pending: t('taskPending'), in_progress: t('taskInProgress'), completed: t('taskCompleted'), failed: t('taskFailed') };
+
+  // Ensure arrays exist and fields are safe
+  const safeAgents = (data.agents || []).map(a => ({ ...a, id: a.id || a.agent_id || '', name: a.name || t('unknown'), status: a.status || 'inactive', unread: a.unread || 0, activityTier: a.activityTier || (a.status === 'active' ? 'active' : 'historical') }));
+  const safeLocks = (data.locks || []).map(l => ({ ...l, file: l.file || '', lockedBy: l.lockedBy || l.locked_by || '', lockedAt: l.lockedAt || l.locked_at, expiresAt: l.expiresAt || l.expires_at }));
+  const safeTasks = (data.tasks || []).map(tk => ({ ...tk, id: tk.id || tk.task_id || '', status: tk.status || 'pending', assignee: tk.assignee || tk.assignee_agent_id, deps: tk.deps || [], required_role: tk.required_role || tk.requiredRole || null, preferred_role: tk.preferred_role || tk.preferredRole || null }));
+  const safeRoles = (data.roles || []).map(r => ({ ...r, roleId: r.role_id || r.roleId || '', label: r.label || '', description: r.description || '', preferredAgentTypes: r.preferred_agent_types || r.preferredAgentTypes || '[]', maxConcurrent: r.max_concurrent || r.maxConcurrent || 1 }));
+  const safeOccupancy = (data.roleOccupancy || []).map(o => ({ ...o, role: { ...o.role, roleId: o.role.role_id || o.role.roleId || '', label: o.role.label || '', maxConcurrent: o.role.max_concurrent || o.role.maxConcurrent || 1, preferredAgentTypes: o.role.preferred_agent_types || o.role.preferredAgentTypes || '[]' }, activeAgents: (o.activeAgents || []).map(a => ({ ...a, name: a.name || 'unknown', role: a.role || '' })), vacant: o.vacant || 0 }));
+  const safeHandoffs = (data.handoffs || []).map(h => ({ ...h, id: h.id || '', sender_agent_id: h.sender_agent_id || '', to_role: h.to_role || '', handoff_status: h.handoff_status || h.handoffStatus || 'open', content: h.content || '', created_at: h.created_at || h.createdAt || 0 }));
+
+  // H1/H2: headline semantics — active is primary, historical is secondary
+  const totalAgents = typeof data.totalAgents === 'number' ? data.totalAgents : safeAgents.length;
+  const activeCount = typeof data.activeCount === 'number' ? data.activeCount : safeAgents.filter(a => a.status === 'active').length;
+  const recentCount = typeof data.recentCount === 'number' ? data.recentCount : safeAgents.filter(a => a.activityTier === 'recent').length;
+  const historicalCount = typeof data.historicalCount === 'number' ? data.historicalCount : safeAgents.filter(a => a.activityTier === 'historical').length;
+  const totalUnread = data.totalUnread || safeAgents.reduce((sum, a) => sum + (a.unread || 0), 0);
+  const tasksByStatus = { pending: 0, in_progress: 0, completed: 0, failed: 0 };
+  safeTasks.forEach(tk => { tasksByStatus[tk.status] = (tasksByStatus[tk.status] || 0) + 1; });
+
+  // Apply tier filter for the Agents panel
+  const tierMatches = (tier) => {
+    if (teamTierFilter === 'all') return true;
+    if (teamTierFilter === 'active') return tier === 'active';
+    if (teamTierFilter === 'recent') return tier === 'recent';
+    if (teamTierFilter === 'historical') return tier === 'historical';
+    return true;
+  };
+  const filteredAgents = safeAgents.filter(a => {
+    if (!tierMatches(a.activityTier)) return false;
+    if (!teamShowHistorical && a.activityTier === 'historical' && teamTierFilter !== 'historical') return false;
+    return true;
+  });
+
+  const scopeLabel = teamScope === 'global' ? t('projectScopeGlobal') : t('projectScopeProject');
+  const scopeDesc = teamScope === 'global' ? t('projectScopeGlobalDesc') : t('projectScopeProjectDesc');
+
+  // Resume data from API
+  const openTasks = data.openTasks || 0;
+  const availableTasks = data.availableTasks || 0;
+  const openHandoffs = data.openHandoffs || 0;
+  const activeSessions = data.activeSessions || 0;
+  const hasPending = openTasks > 0 || openHandoffs > 0 || totalUnread > 0 || safeLocks.length > 0;
+
+  let html = `
+    <div class="team-header">
+      <div class="team-header-left">
+        <div class="team-header-icon">
+          <span class="iconify" data-icon="lucide:users"></span>
+        </div>
+        <div>
+          <h1 class="page-title">${scopeLabel}</h1>
+          <p class="page-subtitle">${scopeDesc}</p>
+        </div>
+      </div>
+      <div class="team-header-right">
+        <div style="display:flex;gap:2px;margin-right:12px;">
+          <button class="filter-btn${teamScope === 'project' ? ' active' : ''}" onclick="teamScope='project';delete loaded['team'];loadTeam();" style="padding:6px 14px;font-size:12px;">${t('teamProjectBtn')}</button>
+          <button class="filter-btn${teamScope === 'global' ? ' active' : ''}" onclick="teamScope='global';delete loaded['team'];loadTeam();" style="padding:6px 14px;font-size:12px;">${t('teamGlobalBtn')}</button>
+        </div>
+        <span class="team-refresh-time" id="team-refresh-indicator"></span>
+        <button class="team-refresh-btn" onclick="loadTeam()">
+          <span class="iconify" data-icon="lucide:refresh-cw" style="font-size:14px;"></span>
+          ${t('teamRefresh')}
+        </button>
+      </div>
+    </div>
+
+    <!-- Resume: Continue This Project -->
+    <div class="panel" style="margin-bottom:16px;border-left:3px solid ${hasPending ? 'var(--accent-amber)' : 'var(--accent-green)'};">
+      <div class="panel-header">
+        <span class="panel-title"><span class="iconify" data-icon="lucide:play-circle" style="font-size:15px;vertical-align:middle;margin-right:6px;"></span>${t('resumeTitle')}</span>
+        <span class="team-panel-count" style="color:var(--text-muted);font-size:11px;">${t('resumeDesc')}</span>
+      </div>
+      <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;padding:16px;">
+        ${hasPending ? `
+          ${openTasks > 0 ? `<div style="text-align:center;padding:12px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:24px;font-weight:700;color:var(--accent-amber);">${openTasks}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${t('resumeOpenTasks')}</div>
+            ${availableTasks > 0 ? `<div style="font-size:10px;color:var(--accent-green);margin-top:2px;">${availableTasks} ${t('resumeAvailableTasks')}</div>` : ''}
+          </div>` : ''}
+          ${openHandoffs > 0 ? `<div style="text-align:center;padding:12px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:24px;font-weight:700;color:var(--accent-cyan);">${openHandoffs}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${t('resumeOpenHandoffs')}</div>
+          </div>` : ''}
+          ${totalUnread > 0 ? `<div style="text-align:center;padding:12px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:24px;font-weight:700;color:var(--accent-green);">${totalUnread}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${t('resumeUnreadMessages')}</div>
+          </div>` : ''}
+          ${safeLocks.length > 0 ? `<div style="text-align:center;padding:12px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:24px;font-weight:700;color:var(--accent-red);">${safeLocks.length}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${t('resumeActiveLocks')}</div>
+          </div>` : ''}
+          ${activeSessions > 0 ? `<div style="text-align:center;padding:12px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border);">
+            <div style="font-size:24px;font-weight:700;color:var(--accent-cyan);">${activeSessions}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${t('resumeActiveAgents')}</div>
+          </div>` : ''}
+        ` : `
+          <div style="grid-column:1/-1;text-align:center;padding:24px;">
+            <div style="font-size:28px;margin-bottom:8px;"><span class="iconify" data-icon="lucide:check-circle-2" style="font-size:28px;color:var(--accent-green);"></span></div>
+            <div style="font-size:14px;font-weight:600;color:var(--accent-green);">${t('resumeAllClear')}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">${t('resumeAllClearDesc')}</div>
+          </div>
+        `}
+      </div>
+    </div>
+
+    <!-- Stats: clearly labeled counts -->
+    <div class="stats-grid">
+      <div class="stat-card" data-accent="cyan">
+        <div class="team-stat-icon"><span class="iconify" data-icon="lucide:bot"></span></div>
+        <div class="stat-label">${t('teamActiveAgents')}</div>
+        <div class="stat-value">${activeCount}</div>
+        <div class="team-stat-sub">${activeSessions} ${t('sessionsCount')} · ${historicalCount} ${t('teamHistoricalTotal')}</div>
+      </div>
+      <div class="stat-card" data-accent="amber">
+        <div class="team-stat-icon"><span class="iconify" data-icon="lucide:lock"></span></div>
+        <div class="stat-label">${t('teamLockedFiles')}</div>
+        <div class="stat-value">${safeLocks.length}</div>
+      </div>
+      <div class="stat-card" data-accent="purple">
+        <div class="team-stat-icon"><span class="iconify" data-icon="lucide:list-checks"></span></div>
+        <div class="stat-label">${t('teamTasks')}</div>
+        <div class="stat-value">${safeTasks.length}</div>
+        <div class="team-stat-sub">${tasksByStatus.pending} ${t('teamPending')} · ${tasksByStatus.in_progress} ${t('teamActive')} · ${tasksByStatus.completed} ${t('teamDone')}</div>
+      </div>
+      <div class="stat-card" data-accent="green">
+        <div class="team-stat-icon"><span class="iconify" data-icon="lucide:mail"></span></div>
+        <div class="stat-label">${t('teamMessages')}</div>
+        <div class="stat-value">${totalUnread}</div>
+        <div class="team-stat-sub">${totalUnread > 0 ? totalUnread + ' ' + t('teamUnread') : t('teamAllRead')}</div>
+      </div>
+    </div>
+
+    ${safeRoles.length > 0 ? `
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-header">
+        <span class="panel-title"><span class="iconify" data-icon="lucide:shield" style="font-size:15px;vertical-align:middle;margin-right:6px;"></span>${t('teamRoles') || 'Roles'}</span>
+        <span class="team-panel-count">${safeRoles.length} ${t('teamDefined') || 'defined'}</span>
+      </div>
+      <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;padding:16px;">
+        ${safeOccupancy.map(({ role, activeAgents, vacant }) => {
+          const agentTypes = JSON.parse(role.preferredAgentTypes || '[]');
+          const fillPct = role.maxConcurrent > 0 ? Math.min(100, Math.round(activeAgents.length / role.maxConcurrent * 100)) : 0;
+          const barColor = fillPct >= 100 ? 'var(--accent-red)' : fillPct > 50 ? 'var(--accent-amber)' : 'var(--accent-green)';
+          return `
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escapeHtml(role.label)}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">${role.description ? escapeHtml(role.description) : ''}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+                <div style="width:${fillPct}%;height:100%;background:${barColor};border-radius:3px;"></div>
+              </div>
+              <span style="font-size:11px;color:var(--text-muted);">${activeAgents.length}/${role.maxConcurrent}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-secondary);">
+              ${activeAgents.length > 0 ? activeAgents.map(a => escapeHtml(a.name)).join(', ') : '<span style="color:var(--text-muted);">vacant</span>'}
+            </div>
+            ${vacant > 0 ? '<div style="font-size:10px;color:var(--accent-green);margin-top:4px;">' + vacant + ' slot' + (vacant > 1 ? 's' : '') + ' open</div>' : ''}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
+    <div class="team-grid">
+      <div class="panel">
+        <div class="panel-header" style="flex-wrap:wrap;gap:8px;">
+          <span class="panel-title">${t('teamAgents')}</span>
+          <div style="display:flex;gap:2px;margin-left:auto;">
+            <button class="filter-btn${teamTierFilter === 'active' ? ' active' : ''}" onclick="teamTierFilter='active';delete loaded['team'];loadTeam();" style="padding:4px 10px;font-size:11px;">${t('teamTierActive')} (${activeCount})</button>
+            <button class="filter-btn${teamTierFilter === 'recent' ? ' active' : ''}" onclick="teamTierFilter='recent';delete loaded['team'];loadTeam();" style="padding:4px 10px;font-size:11px;">${t('teamTierRecent')} (${recentCount})</button>
+            <button class="filter-btn${teamTierFilter === 'historical' ? ' active' : ''}" onclick="teamTierFilter='historical';delete loaded['team'];loadTeam();" style="padding:4px 10px;font-size:11px;">${t('teamTierHistorical')} (${historicalCount})</button>
+            <button class="filter-btn${teamTierFilter === 'all' ? ' active' : ''}" onclick="teamTierFilter='all';delete loaded['team'];loadTeam();" style="padding:4px 10px;font-size:11px;">${t('teamTierAll')} (${totalAgents})</button>
+          </div>
+        </div>
+        <div class="panel-body team-scrollable">
+          ${filteredAgents.length === 0
+            ? '<div class="team-empty"><span class="team-empty-icon"><span class="iconify" data-icon="lucide:user-x"></span></span><span class="team-empty-text">' +
+              (teamTierFilter === 'active' ? t('teamNoActiveNow') :
+               teamTierFilter === 'recent' ? t('teamNoRecent') :
+               teamScope === 'project' ? t('teamNoAgentsProject') : t('teamNoAgentsGlobal')) + '</span>' +
+              (teamTierFilter === 'active' && historicalCount > 0 ? '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">' + historicalCount + ' ' + t('teamHistoricalHint') + '</div>' : '') +
+              '</div>'
+            : filteredAgents.map(a => {
+                const tier = a.activityTier;
+                const isHistorical = tier === 'historical';
+                const tierColor = tier === 'active' ? 'var(--accent-green)' : tier === 'recent' ? 'var(--accent-amber)' : 'var(--text-muted)';
+                const tierBg = tier === 'active' ? 'rgba(105,240,174,0.12)' : tier === 'recent' ? 'rgba(255,171,64,0.12)' : 'rgba(148,163,184,0.08)';
+                const tierLabel = tier === 'active' ? t('teamTierActive') : tier === 'recent' ? t('teamTierRecent') : t('teamTierHistorical');
+                return `
+              <div class="team-agent-row${tier !== 'active' ? ' inactive' : ''}"${isHistorical ? ' style="opacity:0.55;"' : ''}>
+                <div class="team-agent-status ${tier === 'active' ? 'active' : 'offline'}"></div>
+                <div class="team-agent-info">
+                  <div class="team-agent-name">${escapeHtml(a.name)} <span style="font-size:9px;padding:1px 5px;border-radius:4px;font-weight:500;margin-left:4px;background:${tierBg};color:${tierColor};">${tierLabel}</span></div>
+                  <div class="team-agent-meta">
+                    <span>${a.role ? escapeHtml(a.role) : t('teamNoRole')}</span>
+                    ${a.capabilities && a.capabilities.length ? a.capabilities.map(c => '<span class="team-cap-tag">' + escapeHtml(c) + '</span>').join('') : ''}
+                  </div>
+                  <div class="team-agent-time">${t('teamJoined')} ${teamTimeAgo(a.joinedAt)} · ${t('teamSeen')} ${teamTimeAgo(a.lastSeenAt)}${a.leftAt ? ' · ' + t('teamLeft') + ' ' + teamTimeAgo(a.leftAt) : ''}</div>
+                </div>
+                ${a.unread > 0 ? '<span class="team-unread-badge">' + a.unread + '</span>' : ''}
+                <span class="team-agent-id">${(a.id || '').slice(0, 8)}</span>
+              </div>`;
+              }).join('')
+          }
+          ${teamTierFilter === 'active' && !teamShowHistorical && historicalCount > 0 ? `
+            <div style="padding:12px;text-align:center;border-top:1px dashed var(--border);margin-top:8px;opacity:0.6;">
+              <button class="filter-btn" onclick="teamShowHistorical=true;delete loaded['team'];loadTeam();" style="font-size:11px;color:var(--text-muted);">
+                <span class="iconify" data-icon="lucide:chevron-down" style="font-size:12px;vertical-align:middle;"></span>
+                ${t('teamShowHistorical')} (${historicalCount})
+              </button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">${t('teamLocks')}</span>
+          <span class="team-panel-count">${safeLocks.length} ${t('teamActiveCount')}</span>
+        </div>
+        <div class="panel-body team-scrollable">
+          ${safeLocks.length === 0
+            ? '<div class="team-empty"><span class="team-empty-icon"><span class="iconify" data-icon="lucide:lock-open"></span></span><span class="team-empty-text">' + t('teamNoFilesLocked') + '</span></div>'
+            : safeLocks.map(l => {
+                const owner = safeAgents.find(a => a.id === l.lockedBy);
+                const ttl = teamLockTTL(l.expiresAt);
+                return '<div class="team-lock-row">' +
+                  '<div class="team-lock-icon"><span class="iconify" data-icon="lucide:file-lock-2"></span></div>' +
+                  '<div class="team-lock-info">' +
+                    '<div class="team-lock-file">' + escapeHtml(l.file) + '</div>' +
+                    '<div class="team-lock-meta">' +
+                      '<span>' + (owner ? escapeHtml(owner.name) : (l.lockedBy || '').slice(0, 8)) + '</span>' +
+                      '<span>' + teamTimeAgo(l.lockedAt) + '</span>' +
+                      (ttl ? '<span class="team-lock-ttl">' + ttl + '</span>' : '') +
+                    '</div>' +
+                  '</div>' +
+                '</div>';
+              }).join('')
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">${t('teamTaskStatus')}</span>
+        <span class="team-panel-count">${data.availableTasks || 0} ${t('teamAvailableToClaim')}</span>
+      </div>
+      <div class="panel-body">
+        ${safeTasks.length === 0
+          ? '<div class="team-empty"><span class="team-empty-icon"><span class="iconify" data-icon="lucide:clipboard-list"></span></span><span class="team-empty-text">' + t('teamNoTasksCreated') + '</span></div>'
+          : '<table class="team-task-table"><thead><tr><th>Status</th><th>ID</th><th>Description</th><th>Assignee</th><th>Role</th><th>Deps</th><th>Updated</th></tr></thead><tbody>' +
+            safeTasks.map(tk => {
+              const assignee = tk.assignee ? (safeAgents.find(a => a.id === tk.assignee)?.name || (tk.assignee || '').slice(0, 8)) : '<span style="color:var(--text-muted);">—</span>';
+              const roleTag = tk.required_role ? '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(139,92,246,0.15);color:#a78bfa;font-weight:500;">' + escapeHtml(tk.required_role) + '</span>' : (tk.preferred_role ? '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(56,189,248,0.12);color:#38bdf8;font-weight:500;">' + escapeHtml(tk.preferred_role) + '</span>' : '—');
+              return '<tr>' +
+                '<td><span class="team-task-status" data-status="' + tk.status + '"><span class="iconify" data-icon="' + (statusIcons[tk.status] || 'lucide:circle') + '" style="font-size:13px;"></span> ' + (statusLabels[tk.status] || tk.status) + '</span></td>' +
+                '<td><span class="team-task-id">' + (tk.id || '').slice(0, 8) + '</span></td>' +
+                '<td>' + escapeHtml(tk.description) + (tk.result ? '<div class="team-task-result"><span class="iconify" data-icon="lucide:corner-down-right" style="font-size:11px;"></span> ' + escapeHtml(tk.result.slice(0, 80)) + '</div>' : '') + '</td>' +
+                '<td style="font-size:12px;">' + assignee + '</td>' +
+                '<td>' + roleTag + '</td>' +
+                '<td style="text-align:center;color:var(--text-muted);">' + ((tk.deps || []).length > 0 ? (tk.deps || []).length : '—') + '</td>' +
+                '<td style="font-size:11px;color:var(--text-muted);">' + teamTimeAgo(tk.updatedAt) + '</td>' +
+              '</tr>';
+            }).join('') +
+            '</tbody></table>'
+        }
+      </div>
+    </div>
+
+    ${safeHandoffs.length > 0 ? `
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-header">
+        <span class="panel-title"><span class="iconify" data-icon="lucide:arrow-right-left" style="font-size:15px;vertical-align:middle;margin-right:6px;"></span>${t('teamHandoffs') || 'Handoffs'}</span>
+        <span class="team-panel-count">${safeHandoffs.filter(h => h.handoff_status === 'open').length} ${t('teamOpen') || 'open'}</span>
+      </div>
+      <div class="panel-body team-scrollable">
+        ${safeHandoffs.map(h => {
+          const sender = safeAgents.find(a => a.id === h.sender_agent_id);
+          const statusColor = h.handoff_status === 'open' ? 'var(--accent-amber)' : h.handoff_status === 'claimed' ? 'var(--accent-cyan)' : h.handoff_status === 'completed' ? 'var(--accent-green)' : 'var(--text-muted)';
+          return '<div class="team-lock-row">' +
+            '<div style="display:flex;align-items:center;gap:6px;">' +
+              '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + statusColor + '22;color:' + statusColor + ';font-weight:500;text-transform:uppercase;">' + escapeHtml(h.handoff_status) + '</span>' +
+              '<span style="font-size:12px;font-weight:500;">' + (sender ? escapeHtml(sender.name) : (h.sender_agent_id || '').slice(0, 8)) + '</span>' +
+              '<span style="font-size:11px;color:var(--text-muted);">→</span>' +
+              '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(139,92,246,0.15);color:#a78bfa;font-weight:500;">' + escapeHtml(h.to_role) + '</span>' +
+            '</div>' +
+            '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">' + escapeHtml((h.content || '').slice(0, 120)) + '</div>' +
+            '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">' + teamTimeAgo(h.created_at) + '</div>' +
+          '</div>';
+        }).join('')}
+      </div>
+    </div>` : ''}
+  `;
+
+  container.innerHTML = html;
+
+  // Show last refresh time
+  const indicator = document.getElementById('team-refresh-indicator');
+  if (indicator) indicator.textContent = new Date().toLocaleTimeString();
+
+  // Auto-refresh every 5 seconds while Team page is active
+  if (teamRefreshTimer) clearInterval(teamRefreshTimer);
+  teamRefreshTimer = setInterval(() => {
+    if (currentPage === 'team') loadTeam();
+    else { clearInterval(teamRefreshTimer); teamRefreshTimer = null; }
+  }, 5000);
+}
+
+// ============================================================
+// Init
+// ============================================================
+
+// Apply initial language to nav tooltips
+setLang(currentLang);
+
+loadPage('dashboard');

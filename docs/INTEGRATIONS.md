@@ -1,0 +1,234 @@
+# Integration Surfaces
+
+Memorix is a shared project memory layer. Agents connect through the interfaces they already support: plugin packages, MCP, project instructions, hooks, skills, or the bundled memcode terminal agent.
+
+## Capability Registry
+
+The canonical adapter registry lives in `src/integrations/registry.ts`. Each
+supported agent has one capability manifest with schema version `1`. The
+manifest describes its MCP transport and command, shipped or generated
+artifacts, hook lifecycle events, rules/skills/guidance surfaces, project and
+global scope, install/repair/doctor/uninstall support, host-version evidence,
+runtime requirements, and the source files that generate and document it.
+
+`memorix setup` derives its complete-install target list from this registry.
+Agents with a narrower integration lane remain in the registry: Qwen is the
+current hooks-only example and is installed with
+`memorix hooks install --agent qwen`. Run the registry validation test when
+adding an agent; a new target is not complete until it has a manifest and its
+installer lane is explicit.
+
+`memorix doctor agents --json` includes the same manifest version, expected
+transport, observed transport, expected artifact categories, lifecycle support,
+and registry source for each checked target. A `skipped` parity field means the
+host-specific artifact is not inspected by the generic doctor lane; it is not
+silently treated as installed. When a host exposes stable project/global paths,
+the report also includes concrete `artifactChecks` for rules and hooks with the
+path, scope, existence, and status. Package and skill roots remain manifest
+expectations until their install root is stable across host launch modes.
+
+For most users, start with:
+
+```bash
+memorix setup --agent <agent> --global
+```
+
+That command installs the recommended Memorix package or config for the target agent. Manual `integrate`, `hooks`, and raw MCP config remain available when you need a fallback setup.
+
+---
+
+## What Gets Installed
+
+| Surface | User-facing purpose | Typical install path |
+| --- | --- | --- |
+| Plugin or bundle package | Bundles Memorix MCP, skills, hooks, commands, and usage guidance where the agent supports plugins or compatible bundles | `memorix setup --agent claude --global`, `codex --global`, `copilot --global`, `antigravity --global`, `openclaw --global`, or `hermes --global` |
+| Package or extension | Bundles Memorix for agents that use package or extension systems | `memorix setup --agent pi --global`, `omp --global`, or `gemini-cli --global` |
+| Local plugin | Installs a local plugin file where the agent loads plugins directly | `memorix setup --agent opencode --global` |
+| MCP server | Gives an agent live tools for search, recall, storage, reasoning, and coordination | bundled by setup, host MCP config, or `memorix serve` |
+| Usage guidance | Tells the agent when and how to use memory | `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Kiro/Trae rules, DeepSeek Harness AGENTS.md |
+| Hooks | Captures useful session events when the agent exposes hook events | bundled by plugin packages or generated hook files |
+| Skills | Turns durable project knowledge into reusable task guidance | plugin skills, `memorix skills`, `memorix_promote` |
+| memcode | Opens a terminal coding agent that already uses Memorix memory | `memorix`, `memcode` |
+| HTTP service | Runs one shared MCP endpoint plus dashboard | `memorix background start` |
+
+HTTP is not required for normal agent setup. Use it when you intentionally want a shared background process, dashboard, VPS Docker deployment, or multiple clients using the same MCP endpoint. Local verification runs the Node service directly; Docker is not required on a developer machine.
+
+CLI, MCP, and HTTP have separate jobs:
+
+- CLI is the direct command surface. Use it for setup, diagnostics, memory operations, Git Memory, import/export, dashboard commands, and orchestration.
+- Stdio MCP is the normal agent/IDE bridge. It gives the agent live Memorix tools by launching `memorix serve`.
+- HTTP MCP is the shared service bridge. Use it for one endpoint shared by multiple clients, dashboard, Docker, or supervised foreground debugging.
+
+Generated guidance also has scope:
+
+- Project guidance (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Cursor/Windsurf/Kiro/Trae rules, DeepSeek Harness AGENTS.md) may say the repository is configured for Memorix.
+- Plugin or skill package guidance is workspace-safe. It says to use Memorix when the active workspace has Memorix tools available.
+- `--global` writes user-level plugin, config, and hook surfaces where the host supports them.
+- Running the same setup command without `--global` is the repo-local path for one project only.
+- Hooks are only global where the host provides a global hook surface. If the host only supports project hooks, Memorix uses that project scope instead.
+
+---
+
+## Agent Support Matrix
+
+| Agent | Recommended install | Official entry | What gets installed | Notes |
+| --- | --- | --- | --- | --- |
+| Claude Code | `memorix setup --agent claude --global` | Claude Code plugin marketplace | Local `memorix-local` marketplace, plugin-bundled stdio MCP, skills, hooks, plus `CLAUDE.md` guidance | Setup attempts `claude plugin marketplace add` and `claude plugin install memorix@memorix-local`. |
+| Codex | `memorix setup --agent codex --global` | Codex Personal marketplace plugin | User plugin under `~/plugins/memorix`, Personal marketplace entry, plugin-bundled stdio MCP, skills, and hooks | Setup attempts `codex plugin add memorix@personal`. It leaves project `.codex` files and model/approval/sandbox settings alone. `memorix doctor agents --agent codex --scope global` verifies the bundle, marketplace, and enabled state, then reports any one-time hook review Codex still requires; start a new thread after setup. |
+| CodeBuddy Code | `memorix setup --agent codebuddy --global` | CodeBuddy local marketplace plugin | `~/.codebuddy/memorix-local` marketplace with `.codebuddy-plugin`, bundled stdio MCP, skills, and hooks | Setup attempts `codebuddy plugin marketplace add` then user-scope install. It does not alter existing CodeBuddy settings, permissions, or model configuration; review third-party hooks in CodeBuddy's `/hooks` flow before enabling them. |
+| GitHub Copilot CLI | `memorix setup --agent copilot --global` | Copilot CLI plugin package | Local plugin under `~/.copilot/plugins/local/memorix` with MCP, skills, and hooks | Setup attempts `copilot plugin install <local-path>` when Copilot CLI is available. |
+| Cursor | `memorix setup --agent cursor --global` | Cursor MCP and rules config | Cursor MCP config, `.cursor/rules/memorix.mdc`, skills, and hook guidance | Reload Cursor after setup so it can pick up project config changes. |
+| Grok Build | `memorix setup --agent grok --global` | `~/.grok/hooks/memorix.json` + `~/.grok/AGENTS.md` | Lifecycle hooks on SessionStart, SessionEnd, UserPromptSubmit, PostToolUse, PostToolUseFailure, PreCompact, PostCompact, Stop, and StopFailure, plus Grok project/global guidance | Uses Grok's own JSON hook directory. MCP stays host-owned unless you pass `--mcp http`, which writes `[mcp_servers.memorix]` with `url = "http://localhost:3211/mcp"` in Grok `config.toml`. Global hooks are trusted; project hooks require Grok `/hooks-trust`. Set `GROK_HOME` to use a custom Grok home. The command is `memorix hook --agent grok`. |
+| Qwen Code | `memorix hooks install --agent qwen` | Qwen Code `.qwen/settings.json` hooks | Qwen `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PostToolUse`, `PreCompact`, `PostCompact`, and `Stop` hooks, plus `QWEN.md` guidance | The installer preserves existing Qwen settings and user hooks, and uses `memorix hook --agent qwen`. Project hooks require a trusted Qwen workspace. iFlow is not supported because the official iFlow CLI service was retired in April 2026. |
+| Gemini CLI | `memorix setup --agent gemini-cli --global` | Gemini CLI extension | Extension under `~/.gemini/extensions/memorix` with MCP, `GEMINI.md` context, hooks, commands, and skills | Antigravity CLI has an official Gemini CLI migration path, but Gemini CLI remains an active standalone Google CLI target. |
+| OpenCode | `memorix setup --agent opencode --global` | OpenCode local plugin file | Global setup writes `~/.config/opencode/plugins/memorix.js`, `~/.config/opencode/opencode.json`, skills, and `AGENTS.md` guidance; repo-local setup writes the `.opencode/` equivalents. | The generated plugin keeps the v1 named export, adds the v1 `server` field to its dual default export, and exposes the v2 `id`/`setup` contract. OpenCode 1.x lifecycle/file/command/message events use the generic `event` hook; v2 subscriptions use the host session ID when forwarding hooks. |
+| OpenClaw | `memorix setup --agent openclaw --global` | OpenClaw compatible bundle | `~/.openclaw/extensions/memorix` with `.mcp.json`, skills, and OpenClaw `HOOK.md`/`handler.ts` hook pack | Setup attempts `openclaw plugins install <path> --force` and `openclaw hooks enable memorix` when OpenClaw is available. |
+| Hermes Agent | `memorix setup --agent hermes --global` | Hermes plugin | Hermes home (`%LOCALAPPDATA%\hermes` on native Windows, `~/.hermes` elsewhere, or `HERMES_HOME`), plugin enablement in `config.yaml`, and `mcp_servers.memorix` | The plugin registers hooks, a slash command, a CLI command, and skills through Hermes' plugin context. Existing YAML keys are preserved. |
+| Oh-my-Pi | `memorix setup --agent omp --global` | Oh-my-Pi `omp.extensions` package | `.omp/packages/memorix` or `~/.omp/agent/packages/memorix`, plus `.omp/mcp.json` or `~/.omp/agent/mcp.json` | Setup attempts `omp plugin link <path>`. This target uses Oh-my-Pi's package/extension manifest, not Pi's legacy package manifest. |
+| Pi | `memorix setup --agent pi --global` | Pi package + native MCP (Pi 1.0+) | Extension and official skills registered through `pi install <path> --approve`, plus `~/.pi/agent/mcp.json` | Project setup writes `.pi/packages/memorix` and `.pi/mcp.json`; trust the project in Pi. Default stdio runs `memorix serve --mode lite`; `--mcp http` selects the shared endpoint. Run `pi mcp list`, then `/reload`. |
+| Windsurf | `memorix setup --agent windsurf --global` | Windsurf MCP/rules/hooks config | stdio MCP config, `.windsurf/rules/memorix.md`, hook config | Uses Windsurf's current config surfaces. |
+| Kiro | `memorix setup --agent kiro --global` | Kiro MCP/steering/hooks config | MCP config, `.kiro/steering/memorix.md`, `.kiro/hooks/*.kiro.hook` | Uses Kiro steering and hook files. |
+| Antigravity | `memorix setup --agent antigravity --global` | **Primary supported target** | Plugin under `~/.gemini/config/plugins/memorix` or `.agents/plugins/memorix`, with `plugin.json`, `mcp_config.json`, `hooks.json`, rules, and skills | Uses Antigravity's official plugin layout. Dedicated MCP configs live at `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`; legacy Gemini settings are read only for compatibility. |
+| Trae | `memorix setup --agent trae --global` | Trae MCP/rules config | MCP config and `.trae/rules/project_rules.md` | Current support is MCP plus project rules. |
+| DeepSeek Harness | `memorix setup --agent dsh --global` | DeepSeek Harness MCP patch | Memorix `@deepseek-ai/dsh-mcp-client` row in `$DSH_HOME/cordis.patch.yml` (default `~/.dsh/cordis.patch.yml`), guidance in the harness `AGENTS.md`, and official skills under `$DSH_HOME/skills` | Tools appear as `mcp__memorix__*`. No hooks surface. Project-local setup writes project `AGENTS.md` guidance and `.dsh/skills`; the MCP row always lives in the harness-level patch file. |
+| WorkBuddy | `memorix setup --agent workbuddy [--global]` | WorkBuddy MCP config | Memorix MCP server row in `<project>/.workbuddy/mcp.json` (project install) or `~/.workbuddy/mcp.json` (global), plus `AGENTS.md` guidance | Tools appear as `mcp__memorix__*`. No hooks surface. |
+| memcode | `memorix` or `memcode` | Bundled terminal agent | Built-in Memorix memory access | memcode uses the same project memory pool; it is not a separate memory silo. |
+| Any MCP client | Manual MCP config | MCP stdio or HTTP | `memorix serve` or `memorix background start` | Use stdio first unless you need a shared HTTP endpoint. |
+
+---
+
+## One-Command Setup
+
+Install Memorix:
+
+```bash
+npm install -g memorix
+memorix init --global
+```
+
+Then install the agent integration you use:
+
+```bash
+memorix setup --agent claude --global
+memorix setup --agent codex --global
+memorix setup --agent copilot --global
+memorix setup --agent cursor --global
+memorix setup --agent pi --global
+memorix setup --agent gemini-cli --global
+memorix setup --agent opencode --global
+memorix setup --agent windsurf --global
+memorix setup --agent kiro --global
+memorix setup --agent antigravity --global
+memorix setup --agent trae --global
+memorix setup --agent openclaw --global
+memorix setup --agent hermes --global
+memorix setup --agent codebuddy --global
+memorix setup --agent omp --global
+memorix setup --agent dsh --global
+```
+
+Use `memorix setup --agent all --global` only when you intentionally want every supported agent integration generated for the current machine/user scope.
+
+---
+
+## Manual MCP Fallback
+
+If an agent only needs a raw stdio MCP entry:
+
+```json
+{
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+Avoid `npx` in persistent MCP configs. Use the globally installed `memorix` binary so startup is predictable.
+
+For npm-based MCP clients or registry testers, the complete package command is
+`npx -y memorix serve`. Do not omit `serve`: bare `memorix` is the interactive
+memcode entry in a human terminal.
+
+For HTTP mode:
+
+```bash
+memorix background start
+```
+
+Endpoint:
+
+```text
+http://localhost:3211/mcp
+```
+
+In HTTP mode, bind each project session with `memorix_session_start(projectRoot=...)` when the client can provide the workspace path.
+
+---
+
+## Manual Generation Commands
+
+These commands remain useful for controlled fallback setups:
+
+```bash
+memorix integrate --agent cursor
+memorix integrate --agent gemini-cli
+memorix hooks install --agent qwen
+memorix setup --agent openclaw --global
+memorix setup --agent hermes --global
+memorix setup --agent omp --global
+memorix hooks install --agent cursor
+memorix hooks install --agent opencode
+```
+
+Use them when you do not want the full setup package, or when you are updating one generated integration file by hand.
+
+`memorix integrate --agent <agent>` writes usage guidance and MCP settings where supported. `memorix setup --agent openclaw|hermes|omp` installs the official package or plugin entry that those hosts expose, plus MCP config where needed. `memorix hooks install --agent <agent>` installs fallback automatic capture only where the agent exposes standalone hook files; package-owned hooks stay managed by `memorix setup`.
+
+Shared files such as `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` are appended or updated carefully so existing project instructions are not replaced wholesale.
+
+---
+
+## Skills And Project Knowledge
+
+Memorix ships an official skill set for agents that support skills:
+
+- `memorix-memory`
+- `memorix-reasoning`
+- `memorix-sessions`
+- `memorix-git-memory`
+- `memorix-mini-skills`
+- `memorix-orchestrate`
+- `memorix-troubleshooting`
+
+These skills are operational guidance for agents: when to search, when to store, when to use CLI fallbacks, when Git Memory is evidence, and when orchestration coordination is appropriate.
+
+Memorix can also promote durable observations into reusable mini-skills. Use this when a project pattern, gotcha, or workflow should become guidance that agents can rediscover later.
+
+Useful commands and tools:
+
+```bash
+memorix skills
+```
+
+MCP tools:
+
+- `memorix_skills`
+- `memorix_promote`
+- `memorix_rules_sync`
+
+Plugin and package integrations include the official Memorix skill set where the agent supports skills.
+
+---
+
+## What Memorix Provides
+
+Memorix does three things:
+
+1. Stores project memory locally and makes it searchable.
+2. Exposes that memory through plugin packages, MCP, CLI, SDK, hooks, rules, and skills.
+3. Provides memcode as a bundled terminal agent for users who want a Memorix-powered coding session in the terminal.
+
+Different agents expose different extension points. When an agent supports plugins, Memorix uses plugins. When it uses rules or instruction files, Memorix writes those. When it only speaks MCP, MCP is the integration.

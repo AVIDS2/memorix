@@ -1,0 +1,449 @@
+import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
+import { detectProject } from '../project/detector.js';
+import {
+  getGlobalConfigTomlPath,
+  getGlobalYamlPath,
+  getLegacyConfigJsonPath,
+  getProjectConfigTomlPath,
+  getProjectYamlPath,
+} from './config-paths.js';
+import { loadFileConfig } from './legacy-loader.js';
+import { loadTomlConfig, type MemorixTomlConfig } from './toml-loader.js';
+import { loadYamlConfig, type MemorixYamlConfig } from './yaml-loader.js';
+import { loadDotenv } from './dotenv-loader.js';
+
+export interface ResolvedLaneOptions {
+  projectRoot?: string | null;
+  homeDir?: string;
+}
+
+export interface ResolvedMemorixConfig {
+  agent: {
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+  };
+  memory: {
+    inject?: 'full' | 'minimal' | 'silent';
+    formation?: 'active' | 'shadow' | 'fallback';
+    autoCleanup?: boolean;
+    syncAdvisory?: boolean;
+    llm: {
+      provider?: string;
+      model?: string;
+      baseUrl?: string;
+      apiKey?: string;
+    };
+  };
+  embedding: {
+    provider?: 'off' | 'fastembed' | 'transformers' | 'api' | 'auto' | string;
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    dimensions?: number;
+  };
+  rerank: {
+    provider: 'off' | 'http';
+    model?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    /** False when a Memory LLM key exists and the rerank URL is a different host without a dedicated key. */
+    canSendRequest: boolean;
+  };
+  git: {
+    autoHook?: boolean;
+    ingestOnCommit?: boolean;
+    maxDiffSize?: number;
+    skipMergeCommits?: boolean;
+    excludePatterns?: string[];
+    noiseKeywords?: string[];
+  };
+  codegraph: {
+    excludePatterns?: string[];
+    maxFileBytes?: number;
+    autoRefresh: 'auto' | 'always' | 'never';
+    externalContext: 'auto' | 'off';
+    externalCommand?: string;
+    externalTimeoutMs?: number;
+  };
+  server: {
+    transport?: 'stdio' | 'http';
+    dashboard?: boolean;
+    dashboardPort?: number;
+    port?: number;
+  };
+  sources: {
+    toml: string[];
+    legacy: string[];
+    env: string[];
+  };
+}
+
+export function getResolvedConfig(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig {
+  const homeDir = options.homeDir ?? homedir();
+  const projectRoot = options.projectRoot === undefined ? detectProject()?.rootPath ?? null : options.projectRoot;
+
+  // Make .env a first-class config source so every consumer of this resolved
+  // config (embedding API key, LLM base URL, etc.) sees values from
+  // ~/.memorix/.env / <project>/.env. loadDotenv() is idempotent — guarded by
+  // a module-level `dotenvLoaded` flag — so repeat calls within one process
+  // are essentially free, and it never overrides an already-set process env.
+  loadDotenv(projectRoot === null ? undefined : projectRoot ?? undefined, { userHomeDir: homeDir });
+
+  const toml = loadTomlConfig({ projectRoot: projectRoot ?? null, homeDir });
+  const yaml = loadYamlConfig(projectRoot ?? null, { homeDir });
+  const legacy = loadFileConfig(homeDir);
+  const embeddingBaseUrl = first(process.env.MEMORIX_EMBEDDING_BASE_URL, toml.embedding?.base_url, yaml.embedding?.baseUrl, legacy.embeddingApi?.baseUrl);
+  const openRouterEmbeddingApiKey = isOpenRouterUrl(embeddingBaseUrl) ? process.env.OPENROUTER_API_KEY : undefined;
+  const requestyEmbeddingApiKey = isRequestyUrl(embeddingBaseUrl) ? process.env.REQUESTY_API_KEY : undefined;
+  const memoryLlmProvider = first(
+    process.env.MEMORIX_LLM_PROVIDER,
+    toml.memory?.llm?.provider,
+    yaml.llm?.provider,
+    legacy.llm?.provider,
+  );
+  const memoryLlmModel = first(
+    process.env.MEMORIX_LLM_MODEL,
+    toml.memory?.llm?.model,
+    yaml.llm?.model,
+    legacy.llm?.model,
+  );
+  const memoryLlmBaseUrl = first(
+    process.env.MEMORIX_LLM_BASE_URL,
+    toml.memory?.llm?.base_url,
+    yaml.llm?.baseUrl,
+    legacy.llm?.baseUrl,
+  );
+  const openRouterMemoryLlmApiKey = isOpenRouterMemoryLane(memoryLlmProvider, memoryLlmBaseUrl)
+    ? process.env.OPENROUTER_API_KEY
+    : undefined;
+  const isAtlasCloud = memoryLlmProvider === 'atlascloud';
+  const isRequesty = memoryLlmProvider === 'requesty';
+  const isApiRoute = memoryLlmProvider === 'apiroute';
+  const isCheaperInference = memoryLlmProvider === 'cheaperinference';
+  const isRuncrate = memoryLlmProvider === 'runcrate';
+  const usesPresetKeyOnly = isAtlasCloud || isRequesty || isApiRoute || isCheaperInference || isRuncrate;
+  const memoryLlmApiKey = first(
+    process.env.MEMORIX_LLM_API_KEY,
+    process.env.MEMORIX_API_KEY,
+    toml.memory?.llm?.api_key,
+    yaml.llm?.apiKey,
+    legacy.llm?.apiKey,
+    // Never borrow another provider's credentials for these gateway presets.
+    isAtlasCloud ? process.env.ATLASCLOUD_API_KEY
+      : isRequesty ? process.env.REQUESTY_API_KEY
+        : isApiRoute ? process.env.API_ROUTE_API_KEY
+          : isCheaperInference ? process.env.CHEAPER_INFERENCE_API_KEY
+            : isRuncrate ? process.env.RUNCRATE_API_KEY : process.env.OPENAI_API_KEY,
+    usesPresetKeyOnly ? undefined : process.env.ANTHROPIC_API_KEY,
+    usesPresetKeyOnly ? undefined : openRouterMemoryLlmApiKey,
+  );
+
+  const resolved: ResolvedMemorixConfig = {
+    agent: {
+      provider: first(
+        process.env.MEMORIX_AGENT_PROVIDER,
+        process.env.MEMORIX_AGENT_LLM_PROVIDER,
+        toml.agent?.provider,
+        yaml.agent?.provider,
+        legacy.agent?.provider,
+      ),
+      model: first(
+        process.env.MEMORIX_AGENT_MODEL,
+        process.env.MEMORIX_AGENT_LLM_MODEL,
+        toml.agent?.model,
+        yaml.agent?.model,
+        legacy.agent?.model,
+      ),
+      baseUrl: first(
+        process.env.MEMORIX_AGENT_BASE_URL,
+        process.env.MEMORIX_AGENT_LLM_BASE_URL,
+        toml.agent?.base_url,
+        yaml.agent?.baseUrl,
+        legacy.agent?.baseUrl,
+      ),
+      apiKey: first(
+        process.env.MEMORIX_AGENT_API_KEY,
+        process.env.MEMORIX_AGENT_LLM_API_KEY,
+        toml.agent?.api_key,
+        yaml.agent?.apiKey,
+        legacy.agent?.apiKey,
+      ),
+    },
+    memory: {
+      inject: first(toml.memory?.inject, yaml.behavior?.sessionInject),
+      formation: first(toml.memory?.formation, yaml.behavior?.formationMode),
+      autoCleanup: firstBool(toml.memory?.auto_cleanup, yaml.behavior?.autoCleanup),
+      syncAdvisory: firstBool(toml.memory?.sync_advisory, yaml.behavior?.syncAdvisory),
+      llm: {
+        provider: memoryLlmProvider,
+        model: memoryLlmModel,
+        baseUrl: memoryLlmBaseUrl,
+        apiKey: memoryLlmApiKey,
+      },
+    },
+    embedding: {
+      provider: first(process.env.MEMORIX_EMBEDDING, toml.embedding?.provider, yaml.embedding?.provider, legacy.embedding, 'off'),
+      model: first(process.env.MEMORIX_EMBEDDING_MODEL, toml.embedding?.model, yaml.embedding?.model, legacy.embeddingApi?.model),
+      baseUrl: embeddingBaseUrl,
+      apiKey: first(process.env.MEMORIX_EMBEDDING_API_KEY, toml.embedding?.api_key, yaml.embedding?.apiKey, legacy.embeddingApi?.apiKey, openRouterEmbeddingApiKey, requestyEmbeddingApiKey),
+      dimensions: firstNumber(parseNumber(process.env.MEMORIX_EMBEDDING_DIMENSIONS), toml.embedding?.dimensions, yaml.embedding?.dimensions, legacy.embeddingApi?.dimensions),
+    },
+    rerank: resolveRerankLane({
+      toml,
+      yaml,
+      memoryLlmApiKey,
+      memoryLlmBaseUrl,
+    }),
+    git: {
+      autoHook: firstBool(toml.git?.auto_hook, yaml.git?.autoHook),
+      ingestOnCommit: firstBool(toml.git?.ingest_on_commit, yaml.git?.ingestOnCommit),
+      maxDiffSize: firstNumber(toml.git?.max_diff_size, yaml.git?.maxDiffSize),
+      skipMergeCommits: firstBool(toml.git?.skip_merge_commits, yaml.git?.skipMergeCommits),
+      excludePatterns: firstArray(toml.git?.exclude_patterns, yaml.git?.excludePatterns),
+      noiseKeywords: firstArray(toml.git?.noise_keywords, yaml.git?.noiseKeywords),
+    },
+    codegraph: {
+      excludePatterns: firstArray(toml.codegraph?.exclude_patterns, yaml.codegraph?.excludePatterns),
+      maxFileBytes: firstNumber(toml.codegraph?.max_file_bytes, yaml.codegraph?.maxFileBytes),
+      autoRefresh: first(toml.codegraph?.auto_refresh, yaml.codegraph?.autoRefresh, 'auto')!,
+      externalContext: first(
+        normalizeExternalContext(process.env.MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT),
+        toml.codegraph?.external_context,
+        yaml.codegraph?.externalContext,
+        'auto',
+      )!,
+      externalCommand: first(
+        process.env.MEMORIX_CODEGRAPH_EXTERNAL_COMMAND,
+        toml.codegraph?.external_command,
+        yaml.codegraph?.externalCommand,
+      ),
+      externalTimeoutMs: firstNumber(
+        parseNumber(process.env.MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS),
+        toml.codegraph?.external_timeout_ms,
+        yaml.codegraph?.externalTimeoutMs,
+      ),
+    },
+    server: {
+      transport: first(toml.server?.transport, yaml.server?.transport),
+      dashboard: firstBool(toml.server?.dashboard, yaml.server?.dashboard),
+      dashboardPort: firstNumber(toml.server?.dashboard_port, yaml.server?.dashboardPort),
+      port: firstNumber(toml.server?.port, yaml.server?.port),
+    },
+    sources: {
+      toml: getExistingConfigSources([
+        getGlobalConfigTomlPath(homeDir),
+        ...(projectRoot ? [getProjectConfigTomlPath(projectRoot)] : []),
+      ]),
+      legacy: getExistingConfigSources([
+        getGlobalYamlPath(homeDir),
+        ...(projectRoot ? [getProjectYamlPath(projectRoot)] : []),
+        getLegacyConfigJsonPath(homeDir),
+      ]),
+      env: getEnvSourceNames(),
+    },
+  };
+
+  return resolved;
+}
+
+export function getResolvedConfigForCwd(cwd = process.cwd()): ResolvedMemorixConfig {
+  const project = detectProject(cwd);
+  return getResolvedConfig({ projectRoot: project?.rootPath ?? null });
+}
+
+export function getResolvedAgentLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['agent'] {
+  const resolved = getResolvedConfig(options);
+  return {
+    ...resolved.agent,
+    provider: resolved.agent.provider ?? resolved.memory.llm.provider,
+    model: resolved.agent.model ?? resolved.memory.llm.model,
+    baseUrl: resolved.agent.baseUrl ?? resolved.memory.llm.baseUrl,
+    apiKey: resolved.agent.apiKey ?? resolved.memory.llm.apiKey,
+  };
+}
+
+export function getResolvedMemoryLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['memory'] {
+  return getResolvedConfig(options).memory;
+}
+
+export function getResolvedEmbeddingLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['embedding'] {
+  return getResolvedConfig(options).embedding;
+}
+
+export function getResolvedRerankLane(options: ResolvedLaneOptions = {}): ResolvedMemorixConfig['rerank'] {
+  return getResolvedConfig(options).rerank;
+}
+
+export function resetResolvedConfigCache(): void {
+  // Kept as a public test helper. File-level caches live in individual loaders.
+}
+
+function first<T>(...values: Array<T | null | undefined | ''>): T | undefined {
+  return values.find((value): value is T => value !== undefined && value !== null && value !== '');
+}
+
+function firstBool(...values: Array<boolean | undefined>): boolean | undefined {
+  return values.find((value): value is boolean => value !== undefined);
+}
+
+function firstNumber(...values: Array<number | undefined | null>): number | undefined {
+  return values.find((value): value is number => value !== undefined && value !== null && Number.isFinite(value));
+}
+
+function firstArray<T>(...values: Array<T[] | undefined>): T[] | undefined {
+  return values.find((value): value is T[] => Array.isArray(value));
+}
+
+function parseNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getExistingConfigSources(paths: string[]): string[] {
+  return paths.filter((filePath) => existsSync(filePath));
+}
+
+function getEnvSourceNames(): string[] {
+  return [
+    'MEMORIX_AGENT_PROVIDER',
+    'MEMORIX_AGENT_MODEL',
+    'MEMORIX_AGENT_API_KEY',
+    'MEMORIX_AGENT_BASE_URL',
+    'MEMORIX_AGENT_LLM_PROVIDER',
+    'MEMORIX_AGENT_LLM_MODEL',
+    'MEMORIX_AGENT_LLM_API_KEY',
+    'MEMORIX_AGENT_LLM_BASE_URL',
+    'MEMORIX_LLM_PROVIDER',
+    'MEMORIX_LLM_MODEL',
+    'MEMORIX_LLM_API_KEY',
+    'MEMORIX_LLM_BASE_URL',
+    'MEMORIX_API_KEY',
+    'MEMORIX_EMBEDDING',
+    'MEMORIX_EMBEDDING_API_KEY',
+    'MEMORIX_EMBEDDING_BASE_URL',
+    'MEMORIX_EMBEDDING_MODEL',
+    'MEMORIX_EMBEDDING_DIMENSIONS',
+    'MEMORIX_RERANK_PROVIDER',
+    'MEMORIX_RERANK_MODEL',
+    'MEMORIX_RERANK_BASE_URL',
+    'MEMORIX_RERANK_API_KEY',
+    'MEMORIX_CODEGRAPH_EXTERNAL_CONTEXT',
+    'MEMORIX_CODEGRAPH_EXTERNAL_COMMAND',
+    'MEMORIX_CODEGRAPH_EXTERNAL_TIMEOUT_MS',
+    'OPENROUTER_API_KEY',
+    'REQUESTY_API_KEY',
+    'API_ROUTE_API_KEY',
+    'CHEAPER_INFERENCE_API_KEY',
+    'RUNCRATE_API_KEY',
+    'ATLASCLOUD_API_KEY',
+  ].filter((name) => process.env[name]);
+}
+
+function isOpenRouterUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase() === 'openrouter.ai' || url.hostname.toLowerCase().endsWith('.openrouter.ai');
+  } catch {
+    return /(^|\.)openrouter\.ai(?::|\/|$)/i.test(value);
+  }
+}
+
+function isRequestyUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase() === 'requesty.ai' || url.hostname.toLowerCase().endsWith('.requesty.ai');
+  } catch {
+    return /(^|\.)requesty\.ai(?::|\/|$)/i.test(value);
+  }
+}
+
+function isOpenRouterMemoryLane(provider: string | undefined, baseUrl: string | undefined): boolean {
+  return provider?.trim().toLowerCase() === 'openrouter' || isOpenRouterUrl(baseUrl);
+}
+
+function normalizeExternalContext(value: string | undefined): 'auto' | 'off' | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'auto' || normalized === 'off') return normalized;
+  return undefined;
+}
+
+function normalizeRerankProvider(value: string | undefined): 'off' | 'http' {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'http') return 'http';
+  return 'off';
+}
+
+function resolveRerankLane(args: {
+  toml: MemorixTomlConfig;
+  yaml: MemorixYamlConfig;
+  memoryLlmApiKey?: string;
+  memoryLlmBaseUrl?: string;
+}): ResolvedMemorixConfig['rerank'] {
+  const provider = normalizeRerankProvider(first(
+    process.env.MEMORIX_RERANK_PROVIDER,
+    args.toml.rerank?.provider,
+    args.yaml.rerank?.provider,
+    'off',
+  ));
+  const model = first(
+    process.env.MEMORIX_RERANK_MODEL,
+    args.toml.rerank?.model,
+    args.yaml.rerank?.model,
+  );
+  const explicitBaseUrl = first(
+    process.env.MEMORIX_RERANK_BASE_URL,
+    args.toml.rerank?.base_url,
+    args.yaml.rerank?.baseUrl,
+  );
+  const baseUrl = provider === 'http'
+    ? first(explicitBaseUrl, args.memoryLlmBaseUrl)
+    : explicitBaseUrl;
+  const dedicatedApiKey = first(
+    process.env.MEMORIX_RERANK_API_KEY,
+    args.toml.rerank?.api_key,
+    args.yaml.rerank?.apiKey,
+  );
+  const sameEndpoint = provider === 'http' && sameTrustedEndpoint(baseUrl, args.memoryLlmBaseUrl);
+  const inheritedApiKey = sameEndpoint ? args.memoryLlmApiKey : undefined;
+  const apiKey = first(dedicatedApiKey, inheritedApiKey);
+  const canSendRequest = provider === 'http' && Boolean(baseUrl)
+    && (Boolean(apiKey) || !args.memoryLlmApiKey || sameEndpoint);
+
+  return { provider, model, baseUrl, apiKey, canSendRequest };
+}
+
+/**
+ * True when two API roots are the same host+path after trailing-slash
+ * and optional `/rerank` normalization. Used so a Memory LLM bearer is
+ * never sent to a different rerank provider.
+ */
+function sameTrustedEndpoint(left?: string, right?: string): boolean {
+  const a = normalizeTrustedEndpoint(left);
+  const b = normalizeTrustedEndpoint(right);
+  return Boolean(a && b && a === b);
+}
+
+function normalizeTrustedEndpoint(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    const protocol = url.protocol.toLowerCase();
+    const hostname = url.hostname.toLowerCase();
+    const port = url.port;
+    let pathname = url.pathname.replace(/\/+$/, '');
+    if (pathname.toLowerCase().endsWith('/rerank')) {
+      pathname = pathname.slice(0, -'/rerank'.length).replace(/\/+$/, '');
+    }
+    return `${protocol}//${hostname}${port ? `:${port}` : ''}${pathname}`;
+  } catch {
+    const fallback = trimmed.replace(/\/+$/, '').replace(/\/rerank$/i, '').replace(/\/+$/, '');
+    return fallback.toLowerCase() || undefined;
+  }
+}

@@ -1,0 +1,623 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+  buildAutoProjectContext,
+  formatAutoProjectContextPrompt,
+  formatAutoProjectContextSummary,
+} from '../../src/codegraph/auto-context.js';
+import { CodeGraphStore } from '../../src/codegraph/store.js';
+import { getAllObservations, initObservations, storeObservation } from '../../src/memory/observations.js';
+import { endSession, startSession } from '../../src/memory/session.js';
+import { createManualLongTermMemory, qualifyLongTermMemory } from '../../src/memory/long-term.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+import { initObservationStore, resetObservationStore } from '../../src/store/obs-store.js';
+import { resetDb } from '../../src/store/orama-store.js';
+import { MaintenanceJobStore } from '../../src/runtime/maintenance-jobs.js';
+import { initSessionStore, resetSessionStore } from '../../src/store/session-store.js';
+import { CompactionCheckpointStore } from '../../src/store/compaction-checkpoint-store.js';
+import { resetTeamStore } from '../../src/team/team-store.js';
+
+describe('auto project context', () => {
+  const originalCwd = process.cwd();
+  const originalEmbedding = process.env.MEMORIX_EMBEDDING;
+  let sandboxRoot = '';
+  let repoDir = '';
+  let dataDir = '';
+
+  beforeEach(async () => {
+    sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-auto-context-'));
+    repoDir = path.join(sandboxRoot, 'repo');
+    dataDir = path.join(sandboxRoot, 'data');
+    mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.length > 0; }\n', 'utf8');
+    writeFileSync(path.join(repoDir, 'src', 'worker.py'), 'def dispatch_job(name: str):\n    return name.upper()\n', 'utf8');
+    execFileSync('git', ['init'], { cwd: repoDir, stdio: 'ignore', windowsHide: true });
+    process.chdir(repoDir);
+    process.env.MEMORIX_EMBEDDING = 'off';
+    await initObservationStore(dataDir);
+    await initObservations(dataDir);
+  }, 30_000);
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    if (originalEmbedding === undefined) {
+      delete process.env.MEMORIX_EMBEDDING;
+    } else {
+      process.env.MEMORIX_EMBEDDING = originalEmbedding;
+    }
+    resetObservationStore();
+    resetSessionStore();
+    resetTeamStore();
+    await resetDb();
+    closeAllDatabases();
+    rmSync(sandboxRoot, { recursive: true, force: true });
+  });
+
+  it('auto-refreshes code memory and formats an agent-ready project context', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware owns token verification',
+      narrative: 'When editing login behavior, start with src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+    await initSessionStore(dataDir);
+    const prior = await startSession(repoDir, 'local/repo', {
+      sessionId: 'prior-auth-work',
+      agent: 'claude-code',
+    });
+    await endSession(
+      repoDir,
+      prior.session.id,
+      'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.',
+    );
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'continue auth work',
+    });
+
+    expect(context.refresh.performed).toBe(true);
+    expect(context.overview.code.files).toBe(2);
+    expect(context.overview.code.languages).toEqual([
+      { language: 'python', files: 1 },
+      { language: 'typescript', files: 1 },
+    ]);
+    expect(context.overview.suggestedReads).toContain('src/auth.ts');
+    expect(context.overview.suggestedReads.length).toBeLessThanOrEqual(8);
+    expect(context.overview.code.latestSnapshot).toMatchObject({
+      provider: 'lite',
+      sourceEpoch: 1,
+      worktreeState: 'dirty',
+    });
+    expect(context.explain.sources[0]).toMatchObject({
+      title: 'authMiddleware owns token verification',
+      path: 'src/auth.ts',
+      status: 'current',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Memorix Autopilot Brief');
+    expect(text).toContain('Start here');
+    expect(text).toContain('Reliable memory');
+    expect(text).toContain('Code state:');
+    expect(text).toContain('continue auth work');
+    expect(text).toContain('src/auth.ts');
+    expect(text).toContain('Resume from prior work');
+    expect(context.continuation).toMatchObject({
+      previousSession: expect.objectContaining({
+        summary: 'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.',
+      }),
+      memories: [expect.objectContaining({ title: 'authMiddleware owns token verification' })],
+    });
+    const summary = formatAutoProjectContextSummary(context);
+    expect(summary).toContain('Resume from prior work');
+    expect(summary).toContain('Keep JWT refresh behind AUTH_REFRESH_V2');
+    expect(summary).toContain('authMiddleware owns token verification');
+    expect(text).not.toContain('SQLite');
+    expect(text).toBe(context.workset.prompt);
+    expect(context.workset.budget.tokenCount).toBeLessThanOrEqual(context.workset.budget.maxTokens);
+    expect(context.workset.receipt.target).toBe('project-context');
+  });
+
+  it('keeps approved long-term memory visible in prompt and summary formats', async () => {
+    const candidate = await createManualLongTermMemory({
+      dataDir,
+      projectId: 'local/repo',
+      scope: 'project',
+      kind: 'procedural',
+      title: 'Release verification procedure',
+      content: 'Run focused tests and package smoke before publishing.',
+      tags: ['release', 'verify'],
+    });
+    await qualifyLongTermMemory({
+      dataDir,
+      id: candidate.memory.id,
+      reason: 'Verified in the release workflow.',
+    });
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'Prepare a release with focused verification.',
+    });
+
+    expect(context.workset.durableMemory).toEqual([
+      expect.objectContaining({ title: 'Release verification procedure', state: 'qualified' }),
+    ]);
+    expect(formatAutoProjectContextPrompt(context)).toContain('Release verification procedure');
+    const summary = formatAutoProjectContextSummary(context);
+    expect(summary).toContain('Durable memory');
+    expect(summary).toContain('Release verification procedure');
+  });
+
+  it('adds a bounded exact code-evolution card only when continuing across complete snapshots', async () => {
+    const project = { id: 'local/repo', name: 'repo', rootPath: repoDir };
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'Authentication middleware behavior',
+      narrative: 'authMiddleware in src/auth.ts checks active tokens.',
+      filesModified: ['src/auth.ts'],
+      projectId: project.id,
+    });
+    await buildAutoProjectContext({
+      project,
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'continue auth work',
+    });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token === "active"; }\n', 'utf8');
+    const continuation = await buildAutoProjectContext({
+      project,
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      continuation: 'always',
+      task: 'continue auth work',
+    });
+
+    expect(continuation.workset.codeEvolution).toMatchObject({
+      changes: expect.arrayContaining([expect.objectContaining({ path: 'src/auth.ts', kind: 'modified' })]),
+      affectedMemoryCount: 1,
+    });
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('Code changes since prior scan');
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('modified: src/auth.ts');
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('stored memory link(s) reference this changed code');
+  });
+
+  it('does not source an unqualified automatic capture in an agent brief', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'what-changed',
+      title: 'Automatic auth hook capture',
+      narrative: 'The hook observed an edit in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+      sourceDetail: 'hook',
+      valueCategory: 'contextual',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'continue auth work',
+    });
+
+    expect(context.explain.sources.map((source) => source.title)).not.toContain('Automatic auth hook capture');
+    expect(formatAutoProjectContextPrompt(context)).not.toContain('Automatic auth hook capture');
+  });
+
+  it('adds only a recent, source-labelled compact checkpoint to an explicit continuation', async () => {
+    const checkpoints = new CompactionCheckpointStore(dataDir);
+    const completed = checkpoints.complete({
+      projectId: 'local/repo',
+      sessionId: 'pi-session',
+      agent: 'pi',
+      sourceEvent: 'pi.session_compact',
+      sourceKey: 'pi-entry-auto-context',
+      summary: 'Finish the focused authentication regression before changing the token refresh retry.',
+      completedAt: new Date().toISOString(),
+    });
+
+    const continuation = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'continue the authentication regression',
+    });
+    const ordinaryTask = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'add an unrelated status endpoint',
+    });
+    const sameHostSession = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'continue the authentication regression',
+      excludeCompactionCheckpointFor: { sessionId: 'pi-session', agent: 'pi' },
+    });
+
+    expect(continuation.workset.continuation?.compactCheckpoint).toMatchObject({
+      id: completed.id,
+      agent: 'pi',
+      captureKind: 'native-summary',
+    });
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('Recent host compact checkpoint (pi, native-summary, unknown)');
+    expect(formatAutoProjectContextPrompt(continuation)).toContain('focused authentication regression');
+    expect(formatAutoProjectContextPrompt(ordinaryTask)).not.toContain('Recent host compact checkpoint');
+    expect(formatAutoProjectContextPrompt(sameHostSession)).not.toContain('Recent host compact checkpoint');
+  });
+
+  it('queues candidate qualification after a foreground Code Memory refresh', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'what-changed',
+      title: 'Automatic auth hook capture',
+      narrative: 'The hook observed an edit in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+      sourceDetail: 'hook',
+      valueCategory: 'contextual',
+      admissionState: 'candidate',
+      admissionReason: 'file mutation awaits Code Memory qualification',
+    });
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'continue auth work',
+    });
+
+    expect(new MaintenanceJobStore(dataDir).list({ projectId: 'local/repo' })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'observation-qualify',
+        dedupeKey: 'observation-qualify',
+        payload: expect.objectContaining({ source: 'foreground-refresh' }),
+      }),
+    ]));
+  });
+
+  it('uses a validated local semantic outline without adding raw external code', async () => {
+    mkdirSync(path.join(repoDir, '.codegraph'), { recursive: true });
+    const runner = {
+      run: vi.fn(async ({ args }: { args: string[] }) => {
+        if (args[0] === 'status') {
+          return {
+            ok: true,
+            stdout: JSON.stringify({
+              initialized: true,
+              projectPath: repoDir,
+              fileCount: 2,
+              nodeCount: 2,
+              edgeCount: 1,
+              languages: ['typescript'],
+              pendingChanges: { added: 0, modified: 0, removed: 0 },
+              worktreeMismatch: null,
+            }),
+          };
+        }
+        return {
+          ok: true,
+          stdout: JSON.stringify({
+            entryPoints: [{
+              id: 'function:require-auth',
+              kind: 'function',
+              name: 'requireAuthenticatedUser',
+              filePath: 'src/auth.ts',
+              startLine: 1,
+              endLine: 1,
+            }],
+            nodes: [{
+              id: 'function:validate-token',
+              kind: 'function',
+              name: 'validateToken',
+              filePath: 'src/auth.ts',
+              startLine: 1,
+              endLine: 1,
+            }],
+            edges: [{ source: 'function:require-auth', target: 'function:validate-token', kind: 'calls', line: 1 }],
+            codeBlocks: [],
+            relatedFiles: ['src/auth.ts'],
+            stats: { nodeCount: 2, edgeCount: 1, fileCount: 1 },
+          }),
+        };
+      }),
+    };
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'trace authentication validation',
+      externalRunner: runner,
+    });
+
+    expect(context.providerQuality).toMatchObject({ selected: 'external', selectedQuality: 'semantic' });
+    expect(context.workset.provenance.codeProvider).toMatchObject({ selected: 'external' });
+    expect(context.workset.startHere[0]).toBe('src/auth.ts');
+    expect(context.workset.prompt).toContain('Semantic code outline');
+    expect(context.workset.prompt).toContain('requireAuthenticatedUser calls validateToken');
+    expect(context.workset.prompt).not.toContain('const secret');
+  });
+
+  it('queues an MCP-style refresh instead of scanning code inside the request', async () => {
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'auth memory has a file hint',
+      narrative: 'Start from src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+    const enqueueRefresh = vi.fn();
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      enqueueRefresh,
+      task: 'inspect the cold project without blocking on indexing',
+    });
+
+    expect(enqueueRefresh).toHaveBeenCalledTimes(1);
+    expect(context.refresh).toMatchObject({ performed: false, reason: 'queued' });
+    expect(context.overview.code.files).toBe(0);
+    expect(context.overview.suggestedReads).toContain('src/auth.ts');
+    expect(context.workset.prompt).toContain('Code Memory refresh queued');
+    expect(context.explain.sources[0]).toMatchObject({
+      path: 'src/auth.ts',
+      status: 'unbound',
+    });
+  });
+
+  it('collects the project graph once per context request', async () => {
+    const store = new CodeGraphStore();
+    await store.init(dataDir);
+    store.replaceProjectIndex('local/repo', {
+      files: [],
+      symbols: [],
+      edges: [],
+    });
+    const listProjectObservationRefs = vi.spyOn(CodeGraphStore.prototype, 'listProjectObservationRefs');
+    const listReferencedSymbols = vi.spyOn(CodeGraphStore.prototype, 'listReferencedSymbols');
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'never',
+      task: 'inspect project context performance',
+    });
+
+    expect(listProjectObservationRefs).toHaveBeenCalledTimes(1);
+    expect(listReferencedSymbols).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts current project facts ahead of a stale active-work note', async () => {
+    writeFileSync(
+      path.join(repoDir, 'package.json'),
+      JSON.stringify({ name: 'repo', version: '9.9.9' }, null, 2),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [9.9.9] - 2026-07-02\n\n### Fixed\n- Current release facts.\n',
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'ACTIVE_WORK.md'),
+      [
+        '# Active Work',
+        '',
+        '> The single living work-status document.',
+        '',
+        '## Current State',
+        '- **Phase**: Release hardening',
+        '- **Branch**: feat/memcode-agent',
+        '- **Last updated**: 2026-06-18',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'continue release work',
+      now: new Date('2026-07-02T12:00:00Z'),
+    });
+
+    expect(context.currentFacts.packageVersion).toBe('9.9.9');
+    expect(context.currentFacts.latestChangelog).toEqual({ version: '9.9.9', date: '2026-07-02' });
+    expect(context.currentFacts.staleNotes[0]).toMatchObject({
+      path: 'ACTIVE_WORK.md',
+      lastUpdated: '2026-06-18',
+      branchHint: 'feat/memcode-agent',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Current project facts');
+    expect(text).toContain('Package version: 9.9.9');
+    expect(text).toContain('Latest changelog: 9.9.9 (2026-07-02)');
+    expect(text).toContain('Historical note:');
+    expect(text).toContain('ACTIVE_WORK.md');
+    expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
+  });
+
+  it('shapes bugfix tasks toward failing tests and focused verification', async () => {
+    mkdirSync(path.join(repoDir, 'tests'), { recursive: true });
+    writeFileSync(
+      path.join(repoDir, 'tests', 'auth.test.ts'),
+      "import { authMiddleware } from '../src/auth';\nit('rejects empty tokens', () => expect(authMiddleware('')).toBe(false));\n",
+      'utf8',
+    );
+    await storeObservation({
+      entityName: 'auth',
+      type: 'gotcha',
+      title: 'auth regression is covered by auth.test.ts',
+      narrative: 'When fixing auth regressions, reproduce the failing auth test before changing middleware.',
+      filesModified: ['tests/auth.test.ts'],
+      projectId: 'local/repo',
+    });
+    await storeObservation({
+      entityName: 'auth',
+      type: 'decision',
+      title: 'authMiddleware owns token verification',
+      narrative: 'Auth fixes usually land in src/auth.ts.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'fix failing auth regression test',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: bugfix');
+    expect(text).toContain('run the smallest failing test or repro first');
+    expect(text.indexOf('tests/auth.test.ts')).toBeLessThan(text.indexOf('src/auth.ts'));
+  });
+
+  it('shapes release tasks toward package metadata, changelog, and build verification', async () => {
+    writeFileSync(
+      path.join(repoDir, 'package.json'),
+      JSON.stringify({ name: 'repo', version: '1.1.7', scripts: { build: 'tsc' } }, null, 2),
+      'utf8',
+    );
+    writeFileSync(
+      path.join(repoDir, 'CHANGELOG.md'),
+      '# Changelog\n\n## [1.1.7] - 2026-07-07\n\n### Changed\n- Task-lensed briefs.\n',
+      'utf8',
+    );
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'prepare 1.1.7 release',
+      now: new Date('2026-07-07T12:00:00Z'),
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: release');
+    expect(text).toContain('Package version: 1.1.7');
+    expect(text).toContain('CHANGELOG.md');
+    expect(text).toContain('package.json');
+    expect(text).toContain('run build, tests, package smoke, and publish dry-run where available');
+    expect(text.indexOf('Current project facts')).toBeLessThan(text.indexOf('Start here'));
+  });
+
+  it('shapes onboarding tasks toward docs and hides unrelated suspect details', async () => {
+    writeFileSync(path.join(repoDir, 'README.md'), '# Repo\n\nStart with this overview.\n', 'utf8');
+    await storeObservation({
+      entityName: 'auth',
+      type: 'gotcha',
+      title: 'authMiddleware bug workaround changed login flow',
+      narrative: 'This old auth workaround is unrelated to onboarding.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'fix auth bug',
+    });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.trim().length > 0; }\n', 'utf8');
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'understand and onboard onto this project',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: onboarding');
+    expect(text).toContain('README.md');
+    expect(text).toContain('1 suspect');
+    expect(text).toContain('Other unrelated warning details are hidden for this task.');
+    expect(text).not.toContain('authMiddleware bug workaround changed login flow');
+  });
+
+  it('keeps explicitly mentioned suspect source details visible under onboarding', async () => {
+    writeFileSync(path.join(repoDir, 'README.md'), '# Repo\n\nStart with this overview.\n', 'utf8');
+    await storeObservation({
+      entityName: 'auth',
+      type: 'gotcha',
+      title: 'authMiddleware changed login flow',
+      narrative: 'Inspect src/auth.ts before relying on the old auth behavior.',
+      filesModified: ['src/auth.ts'],
+      projectId: 'local/repo',
+    });
+
+    await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'fix auth bug',
+    });
+    writeFileSync(path.join(repoDir, 'src', 'auth.ts'), 'export function authMiddleware(token: string) { return token.trim().length > 0; }\n', 'utf8');
+
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'always',
+      task: 'understand src/auth.ts before onboarding',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: onboarding');
+    expect(text).toContain('#1 suspect: authMiddleware changed login flow');
+  });
+
+  it('classifies plural test tasks as test lens instead of feature lens', async () => {
+    const context = await buildAutoProjectContext({
+      project: { id: 'local/repo', name: 'repo', rootPath: repoDir },
+      dataDir,
+      observations: getAllObservations(),
+      refresh: 'auto',
+      task: 'add tests for auth',
+    });
+
+    const text = formatAutoProjectContextPrompt(context);
+    expect(text).toContain('Task lens: test');
+    expect(text).toContain('run the exact focused test file or test name first');
+  });
+});

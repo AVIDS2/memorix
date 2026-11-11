@@ -1,0 +1,5900 @@
+/**
+ * Memorix MCP Server
+ *
+ * Registers all MCP tools and handles the server lifecycle.
+ *
+ * Tool sources:
+ * - memorix_store / memorix_search / memorix_detail / memorix_timeline:
+ *     Memorix extensions using claude-mem's 3-layer Progressive Disclosure
+ * - create_entities / create_relations / add_observations / delete_entities /
+ *   delete_observations / delete_relations / search_nodes / open_nodes / read_graph:
+ *     MCP Official Memory Server compatible interface (P1)
+ *
+ * Extensibility:
+ * - New tools can be registered via server.registerTool()
+ * - Rules and workspace sync tools are available only in the explicit full profile
+ * - New agent format adapters plug in without changing this file
+ */
+
+import { createHash } from 'node:crypto';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { KnowledgeGraphManager } from './memory/graph.js';
+import { initObservations, storeObservation, prepareSearchIndex, migrateProjectIds, getObservation, getAllObservations } from './memory/observations.js';
+import { withFreshIndex } from './memory/freshness.js';
+import { initObservationStore, getObservationStore } from './store/obs-store.js';
+import { initMiniSkillStore } from './store/mini-skill-store.js';
+import { initSessionStore } from './store/session-store.js';
+import { checkProjectAttribution, auditProjectObservations } from './memory/attribution-guard.js';
+import { createAutoRelations } from './memory/auto-relations.js';
+import { extractEntities } from './memory/entity-extractor.js';
+import { scopeKnowledgeGraphToProject } from './memory/graph-scope.js';
+import { canManageObservation, canReadObservation, filterReadableObservations, resolveObservationVisibility } from './memory/visibility.js';
+import { compactSearch, compactTimeline, compactDetail } from './compact/engine.js';
+import { formatEntryRef } from './compact/index-format.js';
+import { buildGraphContextPacket, formatGraphContextPrompt } from './memory/graph-context.js';
+import { detectProject } from './project/detector.js';
+import { homeProjectRootError, isHomeDirectory, writeLastProjectRoot } from './project/launch-root.js';
+import { registerAlias, initAliasRegistry, resolveAliases, autoMergeByBaseName } from './project/aliases.js';
+import { getProjectDataDir } from './store/persistence.js';
+import { EvidenceCardStore } from './store/evidence-store.js';
+import { MemoryFeedbackStore } from './memory/feedback.js';
+import type { ObservationType, RuleSource, AgentTarget, MCPServerEntry, ObservationReader } from './types.js';
+import { RulesSyncer } from './rules/syncer.js';
+import { WorkspaceSyncEngine } from './workspace/engine.js';
+import {
+  resolveToolProfile,
+  isToolInProfile,
+  describeProfile,
+  type ToolProfile,
+} from './server/tool-profile.js';
+import { initLLM, isLLMEnabled, getLLMConfig } from './llm/provider.js';
+import { compactOnWrite } from './llm/memory-manager.js';
+import { applyDeduplicationPlan, planMemoryDeduplication } from './memory/deduplication.js';
+import type { ExistingMemory } from './llm/memory-manager.js';
+import { runFormation, getMetricsSummary, getBeforeAfterMetrics } from './memory/formation/index.js';
+import type { FormationConfig, SearchHit, FormedMemory, FormationStage, FormationStageEvent } from './memory/formation/types.js';
+import { parseFormationTimeoutMs } from './server/formation-timeout.js';
+import { withTimeout, withTimeoutSignal } from './timeout.js';
+import { sanitizeCredentials } from './memory/secret-filter.js';
+import { getSurfacedIds, recordSurfacedIds } from './search/surfaced-registry.js';
+import {
+  createProjectBindingController,
+  type ProjectBindingController,
+  type ProjectBindingHandle,
+  type ProjectBindingSource,
+  type ProjectBindingTransport,
+} from './server/request-context.js';
+import { getMcpServerInfo, registerMcpDiscovery } from './server/mcp-compat.js';
+import { createRuntimeContext, type RuntimeContext } from './core/runtime-context.js';
+import { getResolvedConfig } from './config/resolved-config.js';
+
+// ── Timeout budgets for LLM-heavy paths ──────────────────────────
+const FORMATION_TIMEOUT_MS = parseFormationTimeoutMs(process.env.MEMORIX_FORMATION_TIMEOUT_MS); // Formation pipeline (extract+resolve+evaluate)
+const COMPACT_ON_WRITE_TIMEOUT_MS = 12_000; // Legacy compact-on-write fallback path
+const COMPRESSION_TIMEOUT_MS = 5_000;  // Narrative compression
+
+function formatFormationStageDurations(stageDurationsMs: Partial<Record<FormationStage, number>>): string {
+  const orderedStages: FormationStage[] = ['extract', 'resolve', 'evaluate'];
+  const parts = orderedStages
+    .filter(stage => stageDurationsMs[stage] !== undefined)
+    .map(stage => `${stage}=${stageDurationsMs[stage]}ms`);
+  return parts.join(', ');
+}
+
+/** Valid observation types for input validation */
+const OBSERVATION_TYPES: [string, ...string[]] = [
+  'session-request',
+  'gotcha',
+  'problem-solution',
+  'reasoning',
+  'how-it-works',
+  'what-changed',
+  'discovery',
+  'why-it-exists',
+  'decision',
+  'trade-off',
+  'probe',
+];
+
+/**
+ * Defensive parameter coercion for Claude Code CLI + non-Anthropic models (e.g. GLM).
+ * Claude Code CLI has a known bug (#5504, #26027) where JSON objects/arrays
+ * get serialized as strings. GLM models amplify this by producing string-encoded
+ * arrays/numbers in tool calls. These helpers ensure Memorix works regardless.
+ */
+function coerceNumberArray(val: unknown): number[] {
+  if (Array.isArray(val)) return val.map(Number);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map(Number);
+    } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+function coerceObservationRefs(val: unknown): Array<{ id: number; projectId?: string }> {
+  if (Array.isArray(val)) {
+    const refs: Array<{ id: number; projectId?: string }> = [];
+    for (const item of val) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const id = Number(record['id']);
+      if (!Number.isFinite(id) || id <= 0) continue;
+
+      const projectId = typeof record['projectId'] === 'string' ? record['projectId'] : undefined;
+      refs.push(projectId ? { id, projectId } : { id });
+    }
+    return refs;
+  }
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return coerceObservationRefs(parsed);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function coerceNumber(val: unknown, fallback: number): number {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    const n = Number(val);
+    if (!Number.isNaN(n)) return n;
+  }
+  return fallback;
+}
+
+function coerceStringArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+function coerceObject<T>(val: unknown): T | null {
+  if (typeof val === 'object' && val !== null && !Array.isArray(val)) return val as T;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (typeof parsed === 'object' && parsed !== null) return parsed as T;
+    } catch { /* not valid JSON */ }
+  }
+  return null;
+}
+
+function coerceObjectArray<T>(val: unknown): T[] {
+  if (Array.isArray(val)) {
+    return val.map(item => {
+      if (typeof item === 'string') {
+        try { return JSON.parse(item); } catch { return item; }
+      }
+      return item;
+    });
+  }
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* not valid JSON */ }
+  }
+  return [];
+}
+
+function createDeterministicInstanceId(projectId: string, agentType: string, agentName?: string): string {
+  const digest = createHash('sha256')
+    .update(projectId)
+    .update('\n')
+    .update(agentType)
+    .update('\n')
+    .update(agentName ?? '')
+    .digest('hex')
+    .slice(0, 24);
+  return `auto-${digest}`;
+}
+
+/**
+ * Create and configure the Memorix MCP Server.
+ */
+/** Optional shared TeamStore — passed by serve-http so all sessions share state */
+export interface SharedTeamStore {
+  teamStore: import('./team/team-store.js').TeamStore;
+}
+
+export interface CreateMemorixServerOptions {
+  allowUntrackedFallback?: boolean;
+  deferProjectInitUntilBound?: boolean;
+  /**
+   * Register tools and return before loading the full project memory runtime.
+   * Intended for stdio clients and registries where MCP initialize/tools/list must
+   * complete quickly even when the local memory corpus is large.
+   */
+  deferProjectRuntimeInit?: boolean;
+  dashboardMode?: 'standalone' | 'control-plane';
+  dashboardPort?: number;
+  toolProfile?: ToolProfile;
+  /**
+   * Product-scoped project binding. HTTP transports may keep it beside a
+   * legacy session adapter today; no project operation reads session headers.
+   */
+  projectBinding?: ProjectBindingController;
+  /** Transport label used only in the privacy-safe binding receipt. */
+  bindingTransport?: ProjectBindingTransport;
+  /** Active stateless project handle metadata used only for diagnostics. */
+  bindingHandle?: ProjectBindingHandle;
+}
+
+/**
+ * These read-only tools operate directly on the project-scoped SQLite stores.
+ * They are safe before the in-memory observation/Orama runtime is hydrated,
+ * which keeps the first MCP request from turning deferred initialization into
+ * a hidden synchronous barrier.
+ */
+export const BOOTSTRAP_SAFE_TOOL_NAMES = new Set([
+  'memorix_project_context',
+  'memorix_codegraph_status',
+  'memorix_graph_context',
+  'memorix_context_pack',
+  'memorix_session_start',
+]);
+
+const AUTOPILOT_RETRIEVAL_BOUNDARY_TTL_MS = 2 * 60 * 1000;
+const READ_ONLY_TASK_PATTERN = /\b(?:do not|don't|never)\s+(?:modify|edit|change|write)\b|\bread[- ]only\b|(?:不要|不准|勿|禁止).{0,6}(?:修改|编辑|写入)|只读/i;
+
+export function shouldAwaitProjectRuntime(toolName: string): boolean {
+  return !BOOTSTRAP_SAFE_TOOL_NAMES.has(toolName);
+}
+
+export async function createMemorixServer(
+  cwd?: string,
+  existingServer?: McpServer,
+  sharedTeam?: SharedTeamStore,
+  options: CreateMemorixServerOptions = {},
+): Promise<{
+  server: McpServer;
+  graphManager: KnowledgeGraphManager;
+  projectId: string;
+  deferredInit: () => Promise<void>;
+  activateProjectRuntime: () => Promise<void>;
+  switchProject: (newCwd: string, source?: ProjectBindingSource) => Promise<boolean>;
+  getProjectDataDir: () => string;
+  isExplicitlyBound: () => boolean;
+  getRequestContext: () => import('./server/request-context.js').MemorixRequestContext;
+  handleTransportClose: () => void;
+}> {
+  // Detect current project — strict .git-based detection
+  const allowUntrackedFallback = options.allowUntrackedFallback ?? true;
+  const deferProjectInitUntilBound = options.deferProjectInitUntilBound ?? false;
+  const deferProjectRuntimeInit = options.deferProjectRuntimeInit ?? false;
+  const dashboardMode = options.dashboardMode ?? (sharedTeam ? 'control-plane' : 'standalone');
+  const configuredDashboardPort = options.dashboardPort ?? (dashboardMode === 'control-plane' ? 3211 : 3210);
+  const toolProfile = resolveToolProfile({
+    explicit: options.toolProfile,
+    envValue: process.env.MEMORIX_MODE,
+    fallback: sharedTeam ? 'team' : 'lite',
+  });
+  const teamFeaturesEnabled = isToolInProfile('team_manage', toolProfile);
+  const projectBinding = options.projectBinding ?? createProjectBindingController(cwd ?? process.cwd());
+  const detectedProjectRaw = detectProject(cwd);
+  const detectedProject = detectedProjectRaw && !isHomeDirectory(detectedProjectRaw.rootPath)
+    ? detectedProjectRaw
+    : null;
+  let rawProject: import('./types.js').ProjectInfo;
+  let projectResolved = true;
+  let projectResolutionError: string | null = null;
+  let currentAgentId: string | undefined; // Session-scoped coordination identity for attribution after explicit join
+  let teamStore!: import('./team/team-store.js').TeamStore;
+  let initTeamStoreForProject: ((dataDir: string) => Promise<import('./team/team-store.js').TeamStore>) | undefined;
+  if (detectedProject) {
+    rawProject = detectedProject;
+  } else {
+    const basePath = cwd ?? process.cwd();
+    const name = (await import('node:path')).basename(basePath) || 'unknown';
+    projectResolved = false;
+    projectResolutionError =
+      `No git project could be resolved from "${basePath}". ` +
+      'This client did not provide a usable workspace root, so project-scoped tools are disabled until a git-backed project is detected.';
+    rawProject = allowUntrackedFallback
+      ? { id: `untracked/${name}`, name, rootPath: basePath }
+      : { id: '__unresolved__', name, rootPath: basePath };
+    if (!allowUntrackedFallback && !deferProjectInitUntilBound) {
+      console.error(`[memorix] WARNING: ${projectResolutionError}`);
+    } else if (allowUntrackedFallback) {
+      console.error(`[memorix] WARNING: No .git found in "${basePath}" - project isolation degraded`);
+      console.error(`[memorix] Run "git init" in your project for proper isolation.`);
+    }
+  }
+
+  // Migrate legacy per-project subdirectories into flat base directory (one-time, silent)
+  try {
+    const { migrateSubdirsToFlat } = await import('./store/persistence.js');
+    const migrated = await migrateSubdirsToFlat();
+    if (migrated) {
+      console.error(`[memorix] Migrated per-project subdirectories into flat storage`);
+    }
+  } catch { /* migration is optional */ }
+
+  let projectDir = await getProjectDataDir(rawProject.id);
+
+  // Register aliases only for git-backed projects. Unresolved sessions should not
+  // silently create canonical IDs or pollute alias mappings.
+  let project = rawProject;
+  if (projectResolved) {
+    initAliasRegistry(projectDir);
+    const canonicalId = await registerAlias(rawProject);
+    project = { ...rawProject, id: canonicalId };
+    if (canonicalId !== rawProject.id) {
+      console.error(`[memorix] Alias resolved: ${rawProject.id} -> ${canonicalId}`);
+    }
+  }
+  if (projectResolved) {
+    projectBinding.recordResolvedProject(project.id, project.rootPath);
+    writeLastProjectRoot(project.rootPath);
+  }
+
+  let runtimeContext: RuntimeContext;
+  const refreshRuntimeContext = (): void => {
+    runtimeContext = createRuntimeContext({
+      projectId: project.id,
+      projectRoot: project.rootPath,
+      dataDir: projectDir,
+      config: getResolvedConfig({ projectRoot: project.rootPath }),
+    });
+  };
+
+  const registerMaintenanceTarget = async (): Promise<void> => {
+    if (!projectResolved) return;
+    try {
+      const { MaintenanceTargetStore } = await import('./runtime/maintenance-targets.js');
+      new MaintenanceTargetStore(projectDir).register({
+        projectId: project.id,
+        projectRoot: project.rootPath,
+        dataDir: projectDir,
+      });
+    } catch {
+      // Maintenance target registration is optional until an isolated worker
+      // needs it; normal MCP tools must remain usable without it.
+    }
+  };
+  await registerMaintenanceTarget();
+
+  // Initialize project root for YAML config resolution — ensures all config getters
+  // (getLLMApiKey, getGitConfig, etc.) pick up project-level memorix.yml, not just user-level.
+  // Also load .env from project root for secrets (API keys, base URLs).
+  try {
+    const { initProjectRoot } = await import('./config/yaml-loader.js');
+    initProjectRoot(project.rootPath);
+    const { loadDotenv } = await import('./config/dotenv-loader.js');
+    loadDotenv(project.rootPath);
+  } catch { /* config init is best-effort */ }
+  refreshRuntimeContext();
+
+  // Initialize lightweight components. Full observation/graph indexing can be
+  // deferred for stdio so MCP initialize/tools/list are not blocked by a large
+  // local memory corpus or embedding provider startup.
+  await initObservationStore(projectDir);
+  await initMiniSkillStore(projectDir);
+  await initSessionStore(projectDir);
+  {
+    const store = getObservationStore();
+    console.error(`[memorix] ObservationStore backend: ${store.getBackendName()}, generation: ${store.getGeneration()}`);
+  }
+  let graphManager = new KnowledgeGraphManager(projectDir, project.id);
+  if (!deferProjectRuntimeInit) {
+    await graphManager.init();
+    await initObservations(projectDir);
+  }
+
+  const lightweightUnresolvedSession = !projectResolved && deferProjectInitUntilBound;
+  let projectRuntimeInitPromise: Promise<void> | null = null;
+  let runtimeHydratedForDir: string | null = null;
+
+  const initializeProjectRuntime = async (logPrefix: 'startup' | 'switch'): Promise<void> => {
+    await initObservationStore(projectDir);
+    await initMiniSkillStore(projectDir);
+    await initSessionStore(projectDir);
+    graphManager = new KnowledgeGraphManager(projectDir, project.id);
+    await graphManager.init();
+    await initObservations(projectDir);
+
+    const indexed = await prepareSearchIndex();
+    if (indexed > 0) {
+      console.error(`[memorix] Prepared search index for ${indexed} observations in project: ${project.id}`);
+    }
+
+    const llmConfig = initLLM();
+    if (llmConfig) {
+      console.error(`[memorix] LLM enhanced mode: ${llmConfig.provider}/${llmConfig.model}`);
+    } else {
+      console.error(`[memorix] LLM mode: off (set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable)`);
+    }
+
+    if (logPrefix === 'startup') {
+      console.error(`[memorix] Tool profile: ${describeProfile(toolProfile)}`);
+    }
+
+    if (logPrefix === 'startup') {
+      console.error(`[memorix] Project: ${project.id} (${project.name})`);
+      console.error(`[memorix] Data dir: ${projectDir}`);
+    } else {
+      console.error(`[memorix] Project switched to: ${project.id} (${project.name})`);
+      console.error(`[memorix] Data dir: ${projectDir}`);
+    }
+  };
+
+  if (!lightweightUnresolvedSession && !deferProjectRuntimeInit) {
+  // Auto-merge obvious alias groups by scanning observed projectIds in data.
+  // This detects splits like local/foo + user/foo (legacy data migration)
+  try {
+    const { getAllObservations } = await import('./memory/observations.js');
+    const store = getObservationStore();
+    const observedIds = store.listProjectIds
+      ? await store.listProjectIds()
+      : [...new Set(getAllObservations().map(o => o.projectId))];
+    const merged = await autoMergeByBaseName(observedIds);
+    if (merged > 0) {
+      console.error(`[memorix] Auto-merged ${merged} alias group(s) by base name`);
+    }
+  } catch { /* auto-merge is optional */ }
+
+  // Migrate existing observations to canonical project ID for ALL alias groups.
+  // This normalizes split projectIds like local/foo + user/foo → canonical.
+  try {
+    const { getAllAliasGroups } = await import('./project/aliases.js');
+    const groups = await getAllAliasGroups();
+    let totalMigrated = 0;
+    for (const group of groups) {
+      if (group.aliases.length > 1) {
+        const migrated = await migrateProjectIds(group.aliases, group.canonical);
+        if (migrated > 0) {
+          console.error(`[memorix] Migrated ${migrated} observations → ${group.canonical}`);
+          totalMigrated += migrated;
+        }
+      }
+    }
+    if (totalMigrated > 0) {
+      console.error(`[memorix] Total migrated: ${totalMigrated} observations across ${groups.filter(g => g.aliases.length > 1).length} project(s)`);
+    }
+  } catch { /* migration is optional */ }
+
+  await initializeProjectRuntime('startup');
+    runtimeHydratedForDir = projectDir;
+  } else {
+    // Intentionally silent — serve-http.ts deferred logging handles session lifecycle visibility.
+    // Noisy per-probe 'awaiting binding' log was removed to reduce terminal spam.
+  }
+
+  const ensureProjectRuntimeInitialized = async (): Promise<void> => {
+    if (!projectResolved) return;
+    if (runtimeHydratedForDir === projectDir) {
+      if (projectRuntimeInitPromise) await projectRuntimeInitPromise;
+      return;
+    }
+    if (!projectRuntimeInitPromise) {
+      const targetDir = projectDir;
+      projectRuntimeInitPromise = (async () => {
+        // Auto-merge obvious alias groups by scanning observed projectIds in data.
+        try {
+          const { getAllObservations } = await import('./memory/observations.js');
+          await initObservations(projectDir);
+          const store = getObservationStore();
+          const observedIds = store.listProjectIds
+            ? await store.listProjectIds()
+            : [...new Set(getAllObservations().map(o => o.projectId))];
+          const merged = await autoMergeByBaseName(observedIds);
+          if (merged > 0) {
+            console.error(`[memorix] Auto-merged ${merged} alias group(s) by base name`);
+          }
+        } catch { /* auto-merge is optional */ }
+
+        // Migrate existing observations to canonical project ID for ALL alias groups.
+        try {
+          const { getAllAliasGroups } = await import('./project/aliases.js');
+          const groups = await getAllAliasGroups();
+          let totalMigrated = 0;
+          for (const group of groups) {
+            if (group.aliases.length > 1) {
+              const migrated = await migrateProjectIds(group.aliases, group.canonical);
+              if (migrated > 0) {
+                console.error(`[memorix] Migrated ${migrated} observations → ${group.canonical}`);
+                totalMigrated += migrated;
+              }
+            }
+          }
+          if (totalMigrated > 0) {
+            console.error(`[memorix] Total migrated: ${totalMigrated} observations across ${groups.filter(g => g.aliases.length > 1).length} project(s)`);
+          }
+        } catch { /* migration is optional */ }
+
+        await initializeProjectRuntime(runtimeHydratedForDir ? 'switch' : 'startup');
+        runtimeHydratedForDir = targetDir;
+      })().catch((err) => {
+        projectRuntimeInitPromise = null;
+        throw err;
+      });
+    }
+    await projectRuntimeInitPromise;
+  };
+
+  /**
+   * Restore process-wide stores/config before a pooled modern runtime handles
+   * a tool call. The durable database is shared, but project-root config and
+   * the in-memory observation facade are process-global legacy state.
+   */
+  const activateProjectRuntime = async (): Promise<void> => {
+    if (!projectResolved) return;
+
+    await initObservationStore(projectDir);
+    await initMiniSkillStore(projectDir);
+    await initSessionStore(projectDir);
+    await initObservations(projectDir, { skipCorpusLoad: true });
+
+    try {
+      const { initProjectRoot } = await import('./config/yaml-loader.js');
+      const { resetDotenv, loadDotenv } = await import('./config/dotenv-loader.js');
+      initProjectRoot(project.rootPath);
+      resetDotenv();
+      loadDotenv(project.rootPath);
+    } catch {
+      // Config activation is best-effort; durable project scoping remains explicit.
+    }
+    refreshRuntimeContext();
+    initLLM({ projectRoot: project.rootPath });
+  };
+
+  let maintenanceWorker: { stop(): void } | null = null;
+  const startProjectMaintenanceWorker = async (autoCleanup = false): Promise<void> => {
+    maintenanceWorker?.stop();
+    const [{ MaintenanceJobStore, MaintenanceJobWorker }, maintenance, observations, lifecycle] = await Promise.all([
+      import('./runtime/maintenance-jobs.js'),
+      import('./runtime/project-maintenance.js'),
+      import('./memory/observations.js'),
+      import('./runtime/lifecycle.js'),
+    ]);
+    const queue = new MaintenanceJobStore(projectDir);
+    const vectorStatus = observations.getVectorStatus(project.id);
+    if (vectorStatus.missing > 0) {
+      queue.enqueue({
+        projectId: project.id,
+        kind: 'vector-backfill',
+        dedupeKey: 'vector-backfill',
+        payload: { limit: 12 },
+      });
+    }
+    if (autoCleanup) {
+      queue.enqueue({
+        projectId: project.id,
+        kind: 'retention-archive',
+        dedupeKey: 'startup-retention',
+      });
+      queue.enqueue({
+        projectId: project.id,
+        kind: 'consolidation',
+        dedupeKey: 'startup-consolidation',
+      });
+      lifecycle.enqueueLongTermMaintenance({
+        dataDir: projectDir,
+        projectId: project.id,
+        source: 'startup',
+        queue,
+      });
+    }
+
+    // This check is only a small SQLite metadata query. The actual directory
+    // walk runs in the isolated maintenance process below.
+    try {
+      const { CodeGraphStore } = await import('./codegraph/store.js');
+      const codeStore = new CodeGraphStore();
+      await codeStore.init(projectDir);
+      const status = codeStore.status(project.id);
+      const indexedAt = status.indexedAt ? Date.parse(status.indexedAt) : Number.NaN;
+      const needsRefresh = status.files === 0
+        || !Number.isFinite(indexedAt)
+        || Date.now() - indexedAt > 10 * 60_000;
+      if (needsRefresh) {
+        lifecycle.enqueueCodegraphRefresh({
+          dataDir: projectDir,
+          projectId: project.id,
+          source: 'startup',
+          maxFiles: 5_000,
+          queue,
+        });
+      }
+    } catch {
+      // Code Memory is optional; a failed metadata probe must not affect MCP.
+    }
+
+    const worker = options.dashboardMode === 'control-plane'
+      // Vector embeddings live in this process's Orama index, so a control
+      // plane session may only run vector recovery for its own project. The
+      // shared HTTP worker handles the other job kinds in isolated processes.
+      ? new MaintenanceJobWorker(
+        queue,
+        maintenance.createProjectMaintenanceHandler(project.id, projectDir, project.rootPath),
+        { projectId: project.id, kinds: ['vector-backfill'], pollIntervalMs: 2_000 },
+      )
+      : new MaintenanceJobWorker(
+        queue,
+        maintenance.createProjectMaintenanceDispatcher(project.id, projectDir, project.rootPath),
+        { projectId: project.id, pollIntervalMs: 2_000 },
+      );
+    worker.start();
+    maintenanceWorker = worker;
+  };
+
+  const requireResolvedProject = (action: string) => {
+    if (projectResolved) return null;
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          `Cannot ${action} yet.\n` +
+          `${projectResolutionError ?? 'No git-backed project is currently bound to this session.'}\n\n` +
+          'To bind this session to a project, call memorix_session_start with the projectRoot parameter:\n' +
+          '  memorix_session_start({ projectRoot: "/path/to/your/project" })\n\n' +
+          'The path should point to a directory containing a .git folder.',
+      }],
+      isError: true as const,
+    };
+  };
+
+  // Create MCP server (or use existing one from roots-aware flow)
+  const serverInfo = getMcpServerInfo();
+  const server = existingServer ?? new McpServer(serverInfo);
+  registerMcpDiscovery(server, serverInfo);
+
+  const originalRegisterTool = server.registerTool.bind(server);
+  server.registerTool = ((name: string, ...args: unknown[]) => {
+    if (!isToolInProfile(name, toolProfile)) {
+      return undefined as never;
+    }
+      const maybeConfig = args[0];
+      const maybeHandler = args[1];
+      if (typeof maybeHandler === 'function' && typeof maybeConfig === 'object' && maybeConfig !== null) {
+        const wrappedHandler = async (...handlerArgs: unknown[]) => {
+        if (shouldAwaitProjectRuntime(name)) {
+          await ensureProjectRuntimeInitialized();
+        }
+        return await maybeHandler(...handlerArgs);
+      };
+      return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, maybeConfig, wrappedHandler, ...args.slice(2)) as never;
+    }
+    return (originalRegisterTool as (...innerArgs: unknown[]) => unknown)(name, ...args) as never;
+  }) as typeof server.registerTool;
+
+  const getRequestContext = () => projectBinding.requestContext(currentAgentId);
+  const getObservationReader = (scope: 'project' | 'global' = 'project'): ObservationReader => {
+    const requestContext = getRequestContext();
+    let isTeamMember = false;
+    if (teamFeaturesEnabled && requestContext.actorId) {
+      try {
+        const agent = teamStore.getAgent(requestContext.actorId);
+        isTeamMember = agent?.project_id === project.id && agent.status === 'active';
+      } catch {
+        // A missing coordination store must never grant team visibility.
+      }
+    }
+    return {
+      ...(scope === 'project' ? { projectId: requestContext.projectId ?? project.id } : {}),
+      ...(requestContext.actorId ? { agentId: requestContext.actorId } : {}),
+      isTeamMember,
+    };
+  };
+
+  // A complete Autopilot brief is the normal retrieval boundary for one coding
+  // turn. Keep accidental search/detail loops cheap, while preserving an
+  // explicit escape hatch when a caller really needs deeper history.
+  let autopilotRetrievalBoundary: {
+    projectId: string;
+    issuedAt: number;
+    coveredObservationIds: Set<number>;
+    readOnly: boolean;
+  } | null = null;
+  const getActiveAutopilotRetrievalBoundary = () => {
+    const boundary = autopilotRetrievalBoundary;
+    if (!boundary) return null;
+    if (boundary.projectId === project.id && Date.now() - boundary.issuedAt <= AUTOPILOT_RETRIEVAL_BOUNDARY_TTL_MS) {
+      return boundary;
+    }
+    autopilotRetrievalBoundary = null;
+    return null;
+  };
+  const requireExplicitAutopilotExpansion = (toolName: string, purpose?: string) => {
+    if (!getActiveAutopilotRetrievalBoundary() || purpose?.trim()) return null;
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          'Memorix Autopilot retrieval boundary: the latest `memorix_project_context` already supplied the default bounded brief for this coding turn, so no additional memory was retrieved. ' +
+          'Verify the current project first. To intentionally expand beyond that brief, call `' + toolName + '` again with `purpose` naming the specific missing fact or the user\'s explicit request.',
+      }],
+    };
+  };
+  const blockCoveredAutopilotEvidence = (toolName: string, observationIds: number[], force?: boolean) => {
+    const boundary = getActiveAutopilotRetrievalBoundary();
+    if (!boundary || force || observationIds.length === 0 || !observationIds.every(id => boundary.coveredObservationIds.has(id))) {
+      return null;
+    }
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          'Memorix Autopilot retrieval boundary: every requested memory is already represented in the latest project brief, so no duplicate detail was retrieved. ' +
+          'Inspect the current project or seek a new source. Retry with `force: true` only when the user explicitly asks to read the underlying record in full.',
+      }],
+    };
+  };
+  const blockReadOnlyAutopilotWrite = (overrideReadOnly?: boolean) => {
+    const boundary = getActiveAutopilotRetrievalBoundary();
+    if (!boundary?.readOnly || overrideReadOnly) return null;
+    return {
+      content: [{
+        type: 'text' as const,
+        text:
+          'Memorix write boundary: the latest task is read-only or asks not to modify files, so no memory was stored. ' +
+          'Persist a record only when the user explicitly asks to save it, then retry with `overrideReadOnly: true`.',
+      }],
+    };
+  };
+
+  // ================================================================
+  // Memorix Extended Tools (3-layer Progressive Disclosure)
+  // ================================================================
+
+  /**
+   * memorix_store — Store a new observation
+   *
+   * Primary write API. Agents call this to persist knowledge.
+   * Auto-assigns ID, counts tokens, indexes for search.
+   */
+  server.registerTool(
+    'memorix_store',
+    {
+      title: 'Store Memory',
+      description:
+        'Store a new observation/memory. Automatically indexed for search. ' +
+        'Use type to classify: gotcha ([GOTCHA] critical pitfall), decision ([DECISION] architecture choice), ' +
+        'problem-solution ([FIX] bug fix), how-it-works ([INFO] explanation), what-changed ([CHANGE] change), ' +
+        'discovery ([DISCOVERY] insight), why-it-exists ([WHY] rationale), trade-off ([TRADEOFF] compromise), ' +
+         'session-request ([SESSION] original goal). ' +
+         'Project visibility is the default. Personal or team visibility requires an explicitly joined coordination identity. ' +
+         'Set longTerm only when the caller explicitly wants an additional source-backed long-term candidate; it is never injected until an operator records a review through the CLI. ' +
+         'For a read-only task, do not store unless the user explicitly asks to save a record.',
+      inputSchema: {
+        entityName: z.string().describe('The entity this observation belongs to (e.g., "auth-module", "port-config")'),
+        type: z.enum(OBSERVATION_TYPES).describe('Observation type for classification'),
+        title: z.string().describe('Short descriptive title (~5-10 words)'),
+        narrative: z.string().describe('Full description of the observation'),
+        facts: z.array(z.string()).optional().describe('Structured facts (e.g., "Default timeout: 60s")'),
+        filesModified: z.array(z.string()).optional().describe('Files involved'),
+        concepts: z.array(z.string()).optional().describe('Related concepts/keywords'),
+        topicKey: z.string().optional().describe(
+          'Optional topic identifier for upserts (e.g., "architecture/auth-model"). ' +
+          'If an observation with the same topicKey already exists in this project, it will be UPDATED instead of creating a new one. ' +
+          'Use memorix_suggest_topic_key to generate a stable key. Good for evolving decisions, architecture docs, etc.',
+        ),
+        progress: z.object({
+          feature: z.string().describe('Feature or task name'),
+          status: z.enum(['in-progress', 'completed', 'blocked']).describe('Current status'),
+          completion: z.number().optional().describe('Completion percentage 0-100'),
+        }).optional().describe('Progress tracking for task/feature observations'),
+        relatedCommits: z.array(z.string()).optional().describe('Git commit hashes this memory relates to (links ground truth ↔ reasoning)'),
+        relatedEntities: z.array(z.string()).optional().describe('Other entity names this memory cross-references'),
+        visibility: z.enum(['personal', 'project', 'team']).optional().describe(
+          'Retrieval scope. Project is the normal shared default; personal/team require memorix_session_start with joinTeam=true.',
+        ),
+        longTerm: z.object({
+          kind: z.enum(['episodic', 'semantic', 'procedural']).describe('Cognitive kind for an additional long-term candidate.'),
+          scope: z.enum(['project', 'user', 'team']).optional().default('project').describe('Long-term scope. User capture is private source evidence and needs a bound agent identity.'),
+          tags: z.array(z.string()).optional().describe('Small set of retrieval tags for the candidate.'),
+          applicability: z.string().optional().describe('When this durable fact or procedure applies.'),
+        }).optional().describe('Optional explicit request to create a source-backed long-term candidate alongside this observation. Candidates are not automatically injected.'),
+        overrideReadOnly: z.boolean().optional().describe(
+          'Use only when the user explicitly asks to save memory during a read-only or no-modification task.',
+        ),
+        attachments: z.array(z.object({
+          modality: z.enum(['image', 'audio', 'video', 'document']),
+          url: z.string().describe(
+            'Public HTTPS provenance reference without query parameters or fragments. ' +
+            'Memorix does not fetch this URL: attachment metadata is persisted and BM25-searchable, while observation vectors remain text-only.',
+          ),
+          mimeType: z.string().optional(),
+          name: z.string().optional(),
+        })).optional().describe('Safe public provenance references. They are stored as metadata for lexical retrieval; raw inline media is never stored.'),
+      },
+    },
+    async ({ entityName: rawEntityName, type: rawType, title: rawTitle, narrative, facts, filesModified, concepts, topicKey, progress, relatedCommits, relatedEntities, visibility, longTerm, overrideReadOnly, attachments }) => {
+      const unresolved = requireResolvedProject('store memory in the current project');
+      if (unresolved) return unresolved;
+      const readOnlyBoundary = blockReadOnlyAutopilotWrite(overrideReadOnly);
+      if (readOnlyBoundary) return readOnlyBoundary;
+      // Keep visibility undefined for an ordinary upsert. storeObservation then
+      // preserves an existing targeted/personal record instead of silently
+      // widening it to project scope. A long-term scope is explicit and must
+      // still set the source observation's corresponding visibility.
+      const requestedVisibility = (
+        longTerm?.scope === 'user'
+          ? 'personal'
+          : longTerm?.scope === 'team'
+            ? 'team'
+            : visibility
+      ) as 'personal' | 'project' | 'team' | undefined;
+      const effectiveVisibility = requestedVisibility ?? 'project';
+      const reader = getObservationReader();
+      if (effectiveVisibility !== 'project' && !currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: 'Personal or team memory requires memorix_session_start with joinTeam=true so Memorix can bind an owner.' }],
+          isError: true as const,
+        };
+      }
+      if (effectiveVisibility === 'team' && !reader.isTeamMember) {
+        return {
+          content: [{ type: 'text' as const, text: 'Team memory requires an active coordination membership in the current project.' }],
+          isError: true as const,
+        };
+      }
+      if (longTerm?.scope === 'team' && !reader.isTeamMember) {
+        return {
+          content: [{ type: 'text' as const, text: 'Team long-term memory requires an active coordination membership in the current project.' }],
+          isError: true as const,
+        };
+      }
+      try {
+      return await withFreshIndex(async () => {
+
+      // Mutable copies — Formation Pipeline may improve these
+      let entityName = rawEntityName;
+      let type = rawType;
+      let title = rawTitle;
+      // Defensive coercion: Claude Code CLI + GLM may send string-encoded arrays
+      let safeFacts = facts ? coerceStringArray(facts) : undefined;
+      const safeFiles = filesModified ? coerceStringArray(filesModified) : undefined;
+      const safeConcepts = concepts ? coerceStringArray(concepts) : undefined;
+
+      // ── Determine decision maker based on Formation mode ─────────────
+      // Priority: env var override > config.json > default (active)
+      // - shadow: Formation observes only, old compact decides
+      // - active: Formation decides storage behavior (new/merge/evolve/discard) [default]
+      // - fallback: old compact decides (safe rollback)
+      let formationMode: 'shadow' | 'active' | 'fallback' = 'active';
+      if (process.env.MEMORIX_FORMATION_MODE) {
+        formationMode = process.env.MEMORIX_FORMATION_MODE as typeof formationMode;
+      } else {
+        try {
+          const { getBehaviorConfig } = await import('./config/behavior.js');
+          formationMode = getBehaviorConfig({ projectRoot: project.rootPath }).formationMode;
+        } catch { /* default to active */ }
+      }
+      const useFormation = formationMode === 'active';
+
+      // ── Formation Pipeline (active mode: decides storage) ─────────────
+      let formationResult: FormedMemory | null = null;
+      let formationNote = '';
+      if (useFormation && !topicKey && !progress && !longTerm) {
+        let currentFormationStage: FormationStage | 'setup' = 'setup';
+        const completedFormationStages: Partial<Record<FormationStage, number>> = {};
+        const formationStartTime = Date.now();
+        const onFormationStageEvent = (event: FormationStageEvent): void => {
+          if (event.status === 'start') {
+            currentFormationStage = event.stage;
+            return;
+          }
+          currentFormationStage = event.stage;
+          if (event.stageDurationMs !== undefined) {
+            completedFormationStages[event.stage] = event.stageDurationMs;
+    }
+  };
+
+        try {
+          const formationConfig: FormationConfig = {
+            mode: 'active',
+            useLLM: isLLMEnabled(),
+            minValueScore: 0.3,
+            searchMemories: async (q: string, limit: number, pid: string, signal?: AbortSignal): Promise<SearchHit[]> => {
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader, signal });
+              if (result.entries.length === 0) return [];
+              const details = await compactDetail(result.entries.map(e => e.id), { reader });
+              return details.documents.map((d, i) => ({
+                id: Number(d.id.replace('obs-', '')),
+                observationId: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                entityName: d.entityName,
+                type: d.type,
+                score: result.entries[i]?.score ?? 0,
+              }));
+            },
+            getObservation: (id: number) => {
+              const o = getObservation(id);
+              if (!o || o.projectId !== project.id || !canReadObservation(o, reader)) return null;
+              return {
+                id: o.id,
+                entityName: o.entityName,
+                type: o.type,
+                title: o.title,
+                narrative: o.narrative,
+                facts: o.facts,
+                topicKey: o.topicKey,
+              };
+            },
+            getEntityNames: () => graphManager.getEntityNames(),
+            onStageEvent: onFormationStageEvent,
+          };
+
+          formationResult = await withTimeoutSignal(async (signal) => {
+            formationConfig.signal = signal;
+            return runFormation({
+              entityName,
+              type: type as ObservationType,
+              title,
+              narrative,
+              facts: safeFacts,
+              projectId: project.id,
+              source: 'explicit',
+            }, formationConfig);
+          },
+            FORMATION_TIMEOUT_MS,
+            'Formation pipeline',
+          );
+
+          const modeIcon = '[FAST]';
+          formationNote = `\n${modeIcon} Formation[active]: ${formationResult.evaluation.category} (${formationResult.evaluation.score.toFixed(2)}) | ${formationResult.resolution.action} | ${formationResult.pipeline.durationMs}ms`;
+          if (formationResult.extraction.extractedFacts.length > 0) {
+            formationNote += ` | +${formationResult.extraction.extractedFacts.length} facts`;
+          }
+          if (formationResult.extraction.titleImproved) formationNote += ' | title↑';
+          if (formationResult.extraction.entityResolved) formationNote += ` | entity→${formationResult.entityName}`;
+          if (formationResult.extraction.typeCorrected) formationNote += ` | type→${formationResult.type}`;
+        } catch (formationErr) {
+          // Formation timeout or failure → fall through to store without enrichment
+          const isTimeout = formationErr instanceof Error && formationErr.message.includes('timed out');
+          const elapsedMs = Date.now() - formationStartTime;
+          const stageSummary = formatFormationStageDurations(completedFormationStages);
+          console.error(
+            `[memorix] Formation ${isTimeout ? 'timed out' : 'failed'} in memorix_store after ${elapsedMs}ms/${FORMATION_TIMEOUT_MS}ms at stage ${currentFormationStage}${stageSummary ? ` | completed: ${stageSummary}` : ''}`,
+          );
+          if (!isTimeout && formationErr instanceof Error) {
+            console.error(`[memorix] Formation error: ${formationErr.message}`);
+          }
+          formationNote = `\n[WARN] Formation ${isTimeout ? 'timed out' : 'failed'} — storing base observation without enrichment`;
+        }
+      }
+
+      // ── Apply Formation decision (active mode only) ───────────────────
+      if (useFormation && formationResult && formationResult.resolution.action !== 'new') {
+        const { action, targetId, reason } = formationResult.resolution;
+
+        if (action === 'merge' && targetId) {
+          // Merge into existing observation
+          const targetObs = getObservation(targetId);
+          if (targetObs && targetObs.projectId === project.id && canReadObservation(targetObs, reader)) {
+            await storeObservation({
+              entityName: targetObs.entityName,
+              type: targetObs.type,
+              title: formationResult.title,
+              narrative: formationResult.narrative,
+              facts: formationResult.facts,
+              filesModified: safeFiles,
+              concepts: safeConcepts,
+              projectId: project.id,
+              topicKey: targetObs.topicKey,
+              progress: progress as import('./types.js').ProgressInfo | undefined,
+              sourceDetail: 'explicit',
+              createdByAgentId: currentAgentId,
+              visibility,
+              visibilityReader: reader,
+            });
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `[UPDATED] Formation MERGE: merged into #${targetId} (${reason})${formationNote}`,
+              }],
+            };
+          }
+        } else if (action === 'evolve' && targetId) {
+          // Evolve existing observation
+          const targetObs = getObservation(targetId);
+          if (targetObs && targetObs.projectId === project.id && canReadObservation(targetObs, reader)) {
+            await storeObservation({
+              entityName: targetObs.entityName,
+              type: targetObs.type,
+              title: formationResult.title,
+              narrative: formationResult.narrative,
+              facts: formationResult.facts,
+              filesModified: safeFiles,
+              concepts: safeConcepts,
+              projectId: project.id,
+              topicKey: targetObs.topicKey,
+              progress: progress as import('./types.js').ProgressInfo | undefined,
+              sourceDetail: 'explicit',
+              createdByAgentId: currentAgentId,
+              visibility,
+              visibilityReader: reader,
+            });
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `[UPDATED] Formation EVOLVE: evolved #${targetId} (${reason})${formationNote}`,
+              }],
+            };
+          }
+        } else if (action === 'discard') {
+          // Skip storing entirely
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `[SKIP] Formation DISCARD: ${reason}${formationNote}`,
+            }],
+          };
+        }
+      }
+
+      // ── Compact on Write (fallback mode or Formation said 'new') ───────
+      // Search for similar existing memories BEFORE storing.
+      // If compact says UPDATE → merge into existing; NONE → skip storing.
+      // This keeps memory count low and prevents duplication (Mem0-style).
+      let compactAction = '';
+      let compactMerged = false;
+      if (!useFormation && !topicKey && !progress && !longTerm) {
+        try {
+          const searchResult = await compactSearch({
+            query: `${title} ${narrative.substring(0, 200)}`,
+            limit: 5,
+            projectId: project.id,
+            status: 'active',
+            reader,
+          });
+          const similarEntries = searchResult.entries.map(e => e);
+          if (similarEntries.length > 0) {
+            // Fetch full details for comparison
+            const similarIds = similarEntries.map(e => e.id);
+            const details = await compactDetail(similarIds, { reader });
+            const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
+              id: d.observationId,
+              title: d.title,
+              narrative: d.narrative,
+              facts: d.facts,
+              score: similarEntries[i]?.score ?? 0,
+            }));
+
+            const decision = await withTimeout(
+              compactOnWrite(
+                { title, narrative, facts: safeFacts ?? [] },
+                existingMemories,
+              ),
+              COMPACT_ON_WRITE_TIMEOUT_MS,
+              'Compact-on-write',
+            );
+
+            if (decision.action === 'UPDATE' && decision.targetId) {
+              // Merge into existing memory (Mem0-style UPDATE)
+              const targetObs = getObservation(decision.targetId);
+              if (targetObs && targetObs.projectId === project.id && canReadObservation(targetObs, reader)) {
+                await storeObservation({
+                  entityName: targetObs.entityName,
+                  type: targetObs.type,
+                  title: decision.mergedNarrative ? title : targetObs.title,
+                  narrative: decision.mergedNarrative ?? narrative,
+                  facts: decision.mergedFacts ?? safeFacts,
+                  filesModified: safeFiles,
+                  concepts: safeConcepts,
+                  projectId: project.id,
+                  topicKey: targetObs.topicKey,
+                  progress: progress as import('./types.js').ProgressInfo | undefined,
+                  sourceDetail: 'explicit',
+                  createdByAgentId: currentAgentId,
+                  visibility,
+                  visibilityReader: reader,
+                });
+                compactAction = `[UPDATED] Compact UPDATE: merged into #${decision.targetId} (${decision.reason})`;
+                compactMerged = true;
+
+                // Return early — we updated existing, no new observation needed
+                return {
+                  content: [{
+                    type: 'text' as const,
+                    text: `${compactAction}\nMode: ${decision.usedLLM ? 'LLM' : 'heuristic'}`,
+                  }],
+                };
+              }
+            } else if (decision.action === 'NONE') {
+              // Memory is redundant — skip storing entirely
+              return {
+                content: [{
+                  type: 'text' as const,
+                  text: `[SKIP] Compact SKIP: ${decision.reason}\nExisting memory #${decision.targetId} already covers this.\nMode: ${decision.usedLLM ? 'LLM' : 'heuristic'}`,
+                }],
+              };
+            } else if (decision.action === 'DELETE' && decision.targetId) {
+              // Old memory is outdated — resolve it, then ADD the new one
+              const { resolveObservations } = await import('./memory/observations.js');
+              await resolveObservations([decision.targetId], 'resolved');
+              compactAction = ` | Compact: resolved outdated #${decision.targetId}`;
+            }
+            // decision.action === 'ADD' or DELETE fallthrough → proceed to store normally
+            if (decision.enrichedFacts && decision.enrichedFacts.length > 0) {
+              // LLM extracted additional facts — merge them in
+              const currentFacts = safeFacts ?? [];
+              const newFacts = decision.enrichedFacts.filter((f: string) => !currentFacts.includes(f));
+              if (newFacts.length > 0) {
+                compactAction += ` | +${newFacts.length} LLM-extracted facts`;
+              }
+            }
+          }
+        } catch { /* compact is best-effort */ }
+      }
+
+      // ── Apply Formation enrichments for 'new' action ─────────────────
+      // When Formation decided 'new', merge LLM-extracted facts into the store.
+      if (formationResult && formationResult.resolution.action === 'new') {
+        const llmFacts = formationResult.extraction.extractedFacts;
+        if (llmFacts.length > 0) {
+          const currentFacts = safeFacts ?? [];
+          const currentLower = new Set(currentFacts.map(f => f.toLowerCase().trim()));
+          const newFacts = llmFacts.filter(f => !currentLower.has(f.toLowerCase().trim()));
+          if (newFacts.length > 0) {
+            safeFacts = [...currentFacts, ...newFacts];
+          }
+        }
+        if (formationResult.extraction.titleImproved && formationResult.title) {
+          title = formationResult.title;
+        }
+        if (formationResult.extraction.typeCorrected && formationResult.type) {
+          type = formationResult.type;
+        }
+        if (formationResult.extraction.entityResolved && formationResult.entityName) {
+          entityName = formationResult.entityName;
+        }
+      }
+
+      // ── Standard store flow ─────────────────────────────────────────
+      // Ensure entity exists in knowledge graph
+      await graphManager.createEntities([
+        { name: entityName, entityType: 'auto', observations: [] },
+      ]);
+
+      // Auto-associate sessionId from active session
+      let sessionId: string | undefined;
+      try {
+        const { getActiveSession } = await import('./memory/session.js');
+        const active = await getActiveSession(projectDir, project.id);
+        if (active) sessionId = active.id;
+      } catch { /* session module not critical */ }
+
+      // ── LLM Narrative Compression (premium quality) ─────────────────
+      // Compress verbose narratives into concise core knowledge before storing.
+      // Reduces token consumption ~60% while preserving all technical facts.
+      let finalNarrative = narrative;
+      let compressionNote = '';
+      try {
+        const { compressNarrative } = await import('./llm/quality.js');
+        const { compressed, saved, usedLLM } = await withTimeout(
+          compressNarrative(narrative, safeFacts, type),
+          COMPRESSION_TIMEOUT_MS,
+          'Narrative compression',
+        );
+        if (usedLLM && saved > 0) {
+          finalNarrative = compressed;
+          compressionNote = ` | compressed -${saved} tokens`;
+        }
+      } catch { /* compression is best-effort (timeout or LLM failure) */ }
+
+      // ── Attribution guard (passive, non-blocking) ─────────────────
+      // Warns when entityName is unknown in this project but well-established
+      // in a different project — signals a potential wrong-bucket write.
+      let attributionWarning = '';
+      try {
+        const attrCheck = await checkProjectAttribution(
+          entityName,
+          project.id,
+          filterReadableObservations(getAllObservations(), reader),
+        );
+        if (attrCheck.suspicious) {
+          attributionWarning = `\n[WARN] Attribution notice: entity "${entityName}" has 0 observations in ` +
+            `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
+            `(confidence: ${attrCheck.confidence}). Verify the correct project is bound before storing.`;
+        }
+      } catch { /* guard is best-effort — never blocks the write */ }
+
+      // Store the observation (may upsert if topicKey matches existing)
+      const { observation: obs, upserted } = await storeObservation({
+        entityName,
+        type: type as ObservationType,
+        title,
+        narrative: finalNarrative,
+        facts: safeFacts,
+        filesModified: safeFiles,
+        concepts: safeConcepts,
+        projectId: project.id,
+        topicKey,
+        sessionId,
+        progress: progress as import('./types.js').ProgressInfo | undefined,
+        relatedCommits,
+        relatedEntities,
+        attachments,
+        sourceDetail: 'explicit',
+        valueCategory: formationResult?.evaluation.category,
+        createdByAgentId: currentAgentId,
+        visibility: requestedVisibility,
+        visibilityReader: reader,
+      });
+
+      let longTermNote = '';
+      if (longTerm) {
+        try {
+          const { promoteObservationToLongTermMemory, maybeAutoQualifyLongTermMemory } = await import('./memory/long-term.js');
+          const promoted = await promoteObservationToLongTermMemory({
+            dataDir: projectDir,
+            observation: obs,
+            scope: longTerm.scope,
+            kind: longTerm.kind,
+            tags: longTerm.tags,
+            applicability: longTerm.applicability,
+            reader: {
+              projectId: project.id,
+              ...(reader.agentId ? { agentId: reader.agentId } : {}),
+              ...(reader.isTeamMember ? { isTeamMember: true } : {}),
+            },
+          });
+          // An explicit store call carries its own source evidence: qualify
+          // on the spot instead of waiting for a manual CLI review.
+          const autoQualified = await maybeAutoQualifyLongTermMemory({
+            dataDir: projectDir,
+            id: promoted.memory.id,
+            sourceDetail: 'explicit',
+          });
+          if (autoQualified) {
+            // A fresh explicit record retires stale same-title records on the
+            // durable rule leg instead of waiting for the next session start.
+            try {
+              const { enqueueLongTermMaintenance } = await import('./runtime/lifecycle.js');
+              enqueueLongTermMaintenance({
+                dataDir: projectDir,
+                projectId: project.id,
+                source: 'long-term:' + promoted.memory.id,
+              });
+            } catch { /* maintenance is optional; the record already qualified */ }
+          }
+          longTermNote = autoQualified
+            ? `\nLong-term memory: ${promoted.memory.id} (${promoted.memory.kind}/${promoted.memory.scope}, auto-qualified) and now enters briefs as durable context. Audit with \`memorix memory long-term list\`.`
+            : `\nLong-term candidate: ${promoted.memory.id} (${promoted.memory.kind}/${promoted.memory.scope}). Review it with the CLI before it is delivered automatically.`;
+        } catch (longTermError) {
+          longTermNote = `\n[WARN] Observation stored, but long-term candidate was not created: ${longTermError instanceof Error ? longTermError.message : 'unknown error'}`;
+        }
+      }
+
+      // Add a reference to the entity's observations
+      await graphManager.addObservations([
+        { entityName, contents: [`[#${obs.id}] ${title}`] },
+      ]);
+
+      // Implicit memory: auto-create relations from entity extraction
+      const extracted = extractEntities([title, narrative, ...(safeFacts ?? [])].join(' '));
+      const autoRelCount = await createAutoRelations(obs, extracted, graphManager);
+
+      // Build enrichment summary
+      const enrichmentParts: string[] = [];
+      const autoFiles = obs.filesModified.filter((f: string) => !(safeFiles ?? []).includes(f));
+      const autoConcepts = obs.concepts.filter((c: string) => !(safeConcepts ?? []).includes(c));
+      if (autoFiles.length > 0) enrichmentParts.push(`+${autoFiles.length} files extracted`);
+      if (autoConcepts.length > 0) enrichmentParts.push(`+${autoConcepts.length} concepts enriched`);
+      if (autoRelCount > 0) enrichmentParts.push(`+${autoRelCount} relations auto-created`);
+      if (obs.hasCausalLanguage) enrichmentParts.push('causal language detected');
+      if (upserted) enrichmentParts.push(`topic upserted (rev ${obs.revisionCount ?? 1})`);
+      const enrichment = enrichmentParts.length > 0 ? `\nAuto-enriched: ${enrichmentParts.join(', ')}` : '';
+
+      const action = upserted ? '[UPDATED] Updated' : '[OK] Stored';
+
+      // ── Formation Pipeline (shadow/fallback mode: observe only) ─────
+      // Fire-and-forget: runs after storage to collect metrics.
+      // Never blocks the MCP response — purely for A/B comparison data.
+      if (!useFormation && !topicKey && !progress && !longTerm) {
+        const shadowFormation = async () => {
+          let oldCompactDecision: { action: string, targetId?: number, reason?: string, durationMs?: number } | null = null;
+          try {
+            const compactStart = Date.now();
+            const searchResult = await compactSearch({
+              query: `${title} ${narrative.substring(0, 200)}`,
+            limit: 5,
+            projectId: project.id,
+            status: 'active',
+            reader,
+            });
+            const similarEntries = searchResult.entries.map(e => e);
+            if (similarEntries.length > 0) {
+              const similarIds = similarEntries.map(e => e.id);
+              const details = await compactDetail(similarIds, { reader });
+              const existingMemories: ExistingMemory[] = details.documents.map((d, i) => ({
+                id: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                score: similarEntries[i]?.score ?? 0,
+              }));
+              const decision = await compactOnWrite(
+                { title, narrative, facts: safeFacts ?? [] },
+                existingMemories,
+              );
+              oldCompactDecision = {
+                action: decision.action,
+                targetId: decision.targetId,
+                reason: decision.reason,
+                durationMs: Date.now() - compactStart,
+              };
+            }
+          } catch { /* best-effort */ }
+
+          const formationConfig: FormationConfig = {
+            mode: formationMode,
+            useLLM: isLLMEnabled(),
+            minValueScore: 0.3,
+            searchMemories: async (q: string, limit: number, pid: string, signal?: AbortSignal): Promise<SearchHit[]> => {
+              const result = await compactSearch({ query: q, limit, projectId: pid, status: 'active', reader, signal });
+              if (result.entries.length === 0) return [];
+              const details = await compactDetail(result.entries.map(e => e.id), { reader });
+              return details.documents.map((d, i) => ({
+                id: Number(d.id.replace('obs-', '')),
+                observationId: d.observationId,
+                title: d.title,
+                narrative: d.narrative,
+                facts: d.facts,
+                entityName: d.entityName,
+                type: d.type,
+                score: result.entries[i]?.score ?? 0,
+              }));
+            },
+            getObservation: (id: number) => {
+              const o = getObservation(id);
+              if (!o || o.projectId !== project.id || !canReadObservation(o, reader)) return null;
+              return { id: o.id, entityName: o.entityName, type: o.type, title: o.title, narrative: o.narrative, facts: o.facts, topicKey: o.topicKey };
+            },
+            getEntityNames: () => graphManager.getEntityNames(),
+          };
+
+          const formed = await withTimeoutSignal(async (signal) => {
+            formationConfig.signal = signal;
+            return runFormation({ entityName, type: type as ObservationType, title, narrative, facts: safeFacts, projectId: project.id, source: 'explicit', topicKey }, formationConfig);
+          },
+            FORMATION_TIMEOUT_MS,
+            'Shadow formation',
+          );
+
+          const { recordBeforeAfterMetrics } = await import('./memory/formation/index.js');
+          if (oldCompactDecision) {
+            recordBeforeAfterMetrics({
+              formationAction: formed.resolution.action,
+              formationTargetId: formed.resolution.targetId,
+              oldCompactAction: oldCompactDecision.action as 'ADD' | 'UPDATE' | 'NONE' | 'DELETE',
+              oldCompactTargetId: oldCompactDecision.targetId,
+              oldCompactReason: oldCompactDecision.reason,
+              formationValueScore: formed.evaluation.score,
+              formationValueCategory: formed.evaluation.category,
+              formationDurationMs: formed.pipeline.durationMs,
+              compactDurationMs: oldCompactDecision.durationMs,
+            });
+          }
+        };
+        // Fire-and-forget — do not await
+        shadowFormation().catch(() => {});
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${action} observation #${obs.id} "${title}" (~${obs.tokens} tokens)\nEntity: ${entityName} | Type: ${type} | Project: ${project.id}${obs.topicKey ? ` | Topic: ${obs.topicKey}` : ''}${compactAction}${compressionNote}${enrichment}${formationNote}${attributionWarning}${longTermNote}`,
+          },
+        ],
+      };
+      }); // withFreshIndex
+      } catch (error) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: error instanceof Error ? error.message : 'Failed to store memory.',
+          }],
+          isError: true as const,
+        };
+      }
+    },
+  );
+
+  /**
+   * memorix_suggest_topic_key — Suggest a stable topic key for upserts
+   *
+   * Use before memorix_store when you want evolving topics to upsert
+   * into a single observation instead of creating duplicates.
+   */
+  server.registerTool(
+    'memorix_suggest_topic_key',
+    {
+      title: 'Suggest Topic Key',
+      description:
+        'Suggest a stable topic_key for memory upserts. Use this before memorix_store when you want evolving topics ' +
+        '(like architecture decisions, config docs) to update a single observation over time instead of creating duplicates. ' +
+        'Returns a key like "architecture/auth-model" or "bug/timeout-in-api-gateway".',
+      inputSchema: {
+        type: z.string().describe('Observation type (e.g., decision, architecture, bugfix, discovery)'),
+        title: z.string().describe('Observation title — used to generate the stable key'),
+      },
+    },
+    async ({ type: obsType, title }) => {
+      const { suggestTopicKey } = await import('./memory/observations.js');
+      const key = suggestTopicKey(obsType, title);
+
+      if (!key) {
+        return {
+          content: [{ type: 'text' as const, text: 'Could not suggest topic_key from the given input. Provide a more descriptive title.' }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: `Suggested topic_key: \`${key}\`\n\nUse this as the \`topicKey\` parameter in \`memorix_store\` to enable upsert behavior.` }],
+      };
+    },
+  );
+
+  /**
+   * memorix_search — Layer 1: Compact index search
+   *
+   * Returns a lightweight table of matching observations.
+   * ~50-100 tokens per result. Agent scans this to decide what to fetch.
+   */
+  server.registerTool(
+    'memorix_search',
+    {
+      title: 'Search Memory',
+      description:
+        'Search project memory. Returns a compact index (~50-100 tokens/result). ' +
+        'Do not use as a follow-up to a complete memorix_project_context brief unless a specific fact is still missing or the user asks for deeper history; provide purpose when intentionally expanding. ' +
+        'Use memorix_detail to fetch full content for specific IDs. ' +
+        'Use memorix_timeline to see chronological context. ' +
+        'Searches across all observations stored from any IDE session — enabling cross-session and cross-agent context retrieval.',
+      inputSchema: {
+        query: z.string().describe('Search query (natural language or keywords)'),
+        limit: z.number().optional().describe('Max results (default: 20)'),
+        type: z.enum(OBSERVATION_TYPES).optional().describe('Filter by observation type'),
+        maxTokens: z.number().optional().describe('Token budget — trim results to fit (0 = unlimited)'),
+        scope: z.enum(['project', 'global']).optional().default('project').describe(
+          'Search scope: "project" (default) only searches current project, "global" searches all projects',
+        ),
+        since: z.string().optional().describe('Only return observations created after this date (ISO 8601 or natural like "2025-01-15")'),
+        until: z.string().optional().describe('Only return observations created before this date (ISO 8601 or natural like "2025-02-01")'),
+        status: z.enum(['active', 'resolved', 'archived', 'all']).optional().default('active').describe(
+          'Filter by memory status. "active" (default) shows current memories, "all" includes resolved/archived.',
+        ),
+        source: z.enum(['agent', 'git', 'manual']).optional().describe(
+          'Filter by memory source. "git" returns only commit-derived ground truth memories. Omit for all sources.',
+        ),
+        quality: z.enum(['fast', 'balanced', 'thorough']).optional().default('balanced').describe(
+          'Retrieval profile: fast stays local, balanced uses configured embeddings, thorough explicitly permits optional LLM refinement.',
+        ),
+        purpose: z.string().optional().describe(
+          'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
+        ),
+        force: z.boolean().optional().describe(
+          'Use only when the user explicitly asks to read a record already represented in the latest Autopilot brief.',
+        ),
+      },
+    },
+    async ({ query, limit, type, maxTokens, scope, since, until, status, source, quality, purpose, force }) => {
+      if (scope !== 'global') {
+        const unresolved = requireResolvedProject('search the current project');
+        if (unresolved) return unresolved;
+      }
+      if (scope !== 'global') {
+        const boundary = requireExplicitAutopilotExpansion('memorix_search', purpose);
+        if (boundary) return boundary;
+      }
+
+      // Session dedup scope: prefer the active session id, fall back to the
+      // bound project. Best-effort bookkeeping — losing it only costs one
+      // redundant result row, never data.
+      let surfacedKey = `project:${project.id}`;
+      try {
+        const { getActiveSession } = await import('./memory/session.js');
+        const active = await getActiveSession(projectDir, project.id);
+        if (active) surfacedKey = `session:${active.id}`;
+      } catch { /* fall back to the project key */ }
+
+      return withFreshIndex(async () => {
+
+      const safeLimit = limit != null ? coerceNumber(limit, 20) : undefined;
+      const safeMaxTokens = maxTokens != null ? coerceNumber(maxTokens, 0) : undefined;
+
+      // Tool-level timeout: abort if search takes longer than 30 seconds
+      const TIMEOUT_MS = 30000;
+      const searchPromise = compactSearch({
+        query,
+        limit: safeLimit,
+        type: type as ObservationType | undefined,
+        maxTokens: safeMaxTokens,
+        since,
+        until,
+        // Default to project-scoped search to prevent cross-project pollution.
+        // Use scope: 'global' to explicitly search all projects.
+        projectId: scope === 'global' ? undefined : project.id,
+        status: (status as 'active' | 'resolved' | 'archived' | 'all') ?? 'active',
+        source: source as 'agent' | 'git' | 'manual' | undefined,
+        quality: quality as 'fast' | 'balanced' | 'thorough',
+        reader: getObservationReader(scope === 'global' ? 'global' : 'project'),
+        surfacedIds: getSurfacedIds(surfacedKey),
+      });
+
+      let result;
+      try {
+        result = await withTimeout(searchPromise, TIMEOUT_MS, 'Search');
+      } catch (error) {
+        if (error instanceof Error && /\btimeout\b|timed out/i.test(error.message)) {
+          // Timeout: return empty result with error message
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Error: Search timeout after ${TIMEOUT_MS}ms. Try a simpler query or check if the service is responsive.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        throw error;
+      }
+
+      // These rows were just shown to the model — remember them so later
+      // searches in the same session demote instead of re-showing.
+      recordSurfacedIds(surfacedKey, result.entries.map(entry => entry.id));
+
+      const activeBoundary = getActiveAutopilotRetrievalBoundary();
+      if (
+        scope !== 'global'
+        && activeBoundary
+        && !force
+        && result.entries.length > 0
+        && result.entries.every(entry => activeBoundary.coveredObservationIds.has(entry.id))
+      ) {
+        const duplicate = blockCoveredAutopilotEvidence('memorix_search', result.entries.map(entry => entry.id), force);
+        if (duplicate) return duplicate;
+      }
+
+      // Append retrieval diagnostics only; do not mix workspace-sync guidance into memory results.
+      let text = result.formatted;
+      text += `\n\n_Search mode: ${result.receipt.mode}_`;
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text,
+          },
+        ],
+        // Clients that surface only structuredContent (e.g. Claude Code) must
+        // still see the results, not just the retrieval diagnostics.
+        structuredContent: {
+          results: result.entries.map(entry => ({
+            ref: formatEntryRef(entry),
+            title: entry.title,
+            type: entry.type,
+            time: entry.time,
+            tokens: entry.tokens,
+          })),
+          retrieval: result.receipt,
+        },
+      };
+      }, { loadCorpus: false }); // withFreshIndex
+    },
+  );
+
+  /**
+   * memorix_graph_context — Prompt-ready memory graph packet
+   *
+   * Gives agents a compact, high-signal map of relevant memories, entities,
+   * relations, and quality risks without forcing broad search/detail loops.
+   */
+  server.registerTool(
+    'memorix_graph_context',
+    {
+      title: 'Memory Graph Context',
+      description:
+        'Build a compact, prompt-ready memory graph context packet for the current project. ' +
+        'Use this for broad memory overview questions, project memory graph questions, or task-specific memory grounding. ' +
+        'Returns high-signal memories, entities, relations, and risks as background context, not instructions.',
+      inputSchema: {
+        query: z.string().describe('Current task or topic to build memory graph context for'),
+        limit: z.number().optional().describe('Max high-signal memories to include (default: 5)'),
+        format: z.enum(['prompt', 'summary']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is a compact human overview.',
+        ),
+      },
+    },
+    async ({ query, limit, format }) => {
+      const unresolved = requireResolvedProject('build graph context for the current project');
+      if (unresolved) return unresolved;
+
+      const { getObservationStore } = await import('./store/obs-store.js');
+      const observations = filterReadableObservations(
+        await getObservationStore().loadByProject(project.id),
+        getObservationReader(),
+      );
+      const packet = buildGraphContextPacket(observations, {
+        projectId: project.id,
+        query,
+        limit: limit != null ? coerceNumber(limit, 5) : undefined,
+      });
+      const text = format === 'summary'
+        ? [
+            `Graph context packet for ${project.name}`,
+            `- ${packet.summary}`,
+            '',
+            ...packet.entities.map((entity) => `* ${entity.name} (#${entity.observationIds.join(', #')})`),
+          ].join('\n')
+        : formatGraphContextPrompt(packet);
+
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'memorix_project_context',
+    {
+      title: 'Memory Autopilot Project Context',
+      description:
+        'Build a compact Memory Autopilot brief for the current coding task. ' +
+        'Schedules Code Memory refresh when needed, includes Start here files, ' +
+        'reliable code-bound memories, stale/suspect cautions, and verification hints. Use this at the start of a new coding turn or after switching tasks.',
+      inputSchema: {
+        task: z.string().optional().describe('Current coding task or question'),
+        taskId: z.string().max(120).optional().describe('Optional task continuity ledger id to include in the brief'),
+        refresh: z.enum(['auto', 'always', 'never']).optional().describe(
+          'Code Memory refresh policy. auto refreshes only when missing or stale.',
+        ),
+        format: z.enum(['prompt', 'summary', 'json', 'receipt']).optional().default('prompt').describe(
+          'Output format. "prompt" is agent-ready; "summary" is human-readable; "receipt" is bounded JSON; "json" is detailed diagnostics.',
+        ),
+        agent: z.enum([
+          'windsurf', 'cursor', 'claude-code', 'codex', 'copilot', 'antigravity', 'gemini-cli',
+          'openclaw', 'hermes', 'omp', 'kiro', 'opencode', 'trae',
+        ]).optional().describe('Optional target agent for compatible workflow selection.'),
+        limit: z.number().optional().describe('Reserved for future source limits; current prompt stays compact by default.'),
+      },
+    },
+    async ({ task, taskId, refresh, format, agent }) => {
+      const unresolved = requireResolvedProject('build project context for the current project');
+      if (unresolved) return unresolved;
+
+      const [
+        {
+          buildAutoProjectBrief,
+          buildAutoProjectContext,
+          formatAutoProjectContextPrompt,
+          formatAutoProjectContextSummary,
+        },
+        { getObservationStore },
+        { MaintenanceJobStore },
+        { enqueueCodegraphRefresh },
+        { buildBoundedContextReceipt },
+      ] = await Promise.all([
+        import('./codegraph/auto-context.js'),
+        import('./store/obs-store.js'),
+        import('./runtime/maintenance-jobs.js'),
+        import('./runtime/lifecycle.js'),
+        import('./knowledge/context-receipt.js'),
+      ]);
+      const observations = filterReadableObservations(
+        await getObservationStore().loadByProject(project.id, { status: 'active' }),
+        getObservationReader(),
+      );
+      const context = await buildAutoProjectContext({
+        project,
+        dataDir: projectDir,
+        observations,
+        task,
+        taskId,
+        agent,
+        ...(refresh ? { refresh } : {}),
+        reader: getObservationReader(),
+        enqueueRefresh: () => {
+          enqueueCodegraphRefresh({
+            dataDir: projectDir,
+            projectId: project.id,
+            source: 'project-context',
+            maxFiles: 5_000,
+            queue: new MaintenanceJobStore(projectDir),
+          });
+        },
+      });
+      const text = format === 'json'
+        ? JSON.stringify({ ...context, brief: buildAutoProjectBrief(context) }, null, 2)
+        : format === 'receipt'
+          ? JSON.stringify(buildBoundedContextReceipt({
+            workset: context.workset,
+            providerQuality: context.providerQuality,
+          }), null, 2)
+        : format === 'summary'
+          ? formatAutoProjectContextSummary(context)
+          : formatAutoProjectContextPrompt(context);
+
+      autopilotRetrievalBoundary = {
+        projectId: project.id,
+        issuedAt: Date.now(),
+        coveredObservationIds: new Set([
+          ...(context.workset.continuation?.memories.map(memory => memory.id) ?? []),
+          ...context.workset.reliableMemory.map(memory => memory.id),
+          ...context.workset.cautionMemory.map(memory => memory.id),
+        ]),
+        readOnly: READ_ONLY_TASK_PATTERN.test(task ?? ''),
+      };
+
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'memorix_codegraph_status',
+    {
+      title: 'CodeGraph Memory Status',
+      description: 'Show CodeGraph Memory provider and index status for the current project.',
+      inputSchema: {},
+    },
+    async () => {
+      const unresolved = requireResolvedProject('show CodeGraph Memory status for the current project');
+      if (unresolved) return unresolved;
+
+      const [{ CodeGraphStore }, { inspectExternalCodeGraph }] = await Promise.all([
+        import('./codegraph/store.js'),
+        import('./codegraph/external-provider.js'),
+      ]);
+      const store = new CodeGraphStore();
+      await store.init(projectDir);
+      const status = store.status(project.id);
+      const codegraphConfig = runtimeContext.config.codegraph;
+      const providerQuality = await inspectExternalCodeGraph({
+        projectRoot: project.rootPath,
+        mode: codegraphConfig.externalContext,
+        command: codegraphConfig.externalCommand,
+        timeoutMs: codegraphConfig.externalTimeoutMs,
+      });
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ...status, providerQuality: providerQuality.quality }, null, 2) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'memorix_context_pack',
+    {
+      title: 'Context Pack',
+      description:
+        'Build a prompt-ready working context pack for a coding task. ' +
+        'Combines relevant memories, CodeGraph Memory facts, freshness warnings, suggested reads, and verification hints. ' +
+        'After a complete memorix_project_context brief, provide purpose only when deliberately expanding beyond it.',
+      inputSchema: {
+        task: z.string().describe('Current coding task or question'),
+        limit: z.preprocess(
+          value => (typeof value === 'string' && value.trim() !== '' ? Number(value) : value),
+          z.number().int().positive().max(100),
+        ).optional().describe('Max active memories to inspect before code-ref filtering (default: 20)'),
+        purpose: z.string().optional().describe(
+          'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
+        ),
+      },
+    },
+    async ({ task, limit, purpose }) => {
+      const unresolved = requireResolvedProject('build a context pack for the current project');
+      if (unresolved) return unresolved;
+      const boundary = requireExplicitAutopilotExpansion('memorix_context_pack', purpose);
+      if (boundary) return boundary;
+
+      const [
+        { CodeGraphStore },
+        { assembleContextPackForTask, attachTaskWorkset, buildContextPackPrompt },
+        { getExternalCodeGraphContext },
+        { getObservationStore },
+        { collectCurrentProjectFacts, formatGitFact },
+        { resolveTaskLens },
+      ] = await Promise.all([
+        import('./codegraph/store.js'),
+        import('./codegraph/context-pack.js'),
+        import('./codegraph/external-provider.js'),
+        import('./store/obs-store.js'),
+        import('./codegraph/current-facts.js'),
+        import('./codegraph/task-lens.js'),
+      ]);
+      const store = new CodeGraphStore();
+      await store.init(projectDir);
+      const codegraphConfig = runtimeContext.config.codegraph;
+      const exclude = codegraphConfig.excludePatterns ? [...codegraphConfig.excludePatterns] : undefined;
+      const observations = filterReadableObservations(
+        await getObservationStore().loadByProject(project.id, { status: 'active' }),
+        getObservationReader(),
+      );
+      observations.reverse();
+      const basePack = assembleContextPackForTask({
+        store,
+        projectId: project.id,
+        task,
+        observations,
+        limit: typeof limit === 'number' ? limit : 20,
+        exclude,
+      });
+      const status = store.status(project.id);
+      const currentFacts = collectCurrentProjectFacts({ project, now: new Date() });
+      const snapshot = status.latestSnapshot;
+      const external = await getExternalCodeGraphContext({
+        projectRoot: project.rootPath,
+        task,
+        exclude,
+        mode: codegraphConfig.externalContext,
+        command: codegraphConfig.externalCommand,
+        timeoutMs: codegraphConfig.externalTimeoutMs,
+      });
+      const worksetFacts: string[] = [];
+      if (currentFacts.packageVersion) worksetFacts.push('Package version: ' + currentFacts.packageVersion);
+      if (currentFacts.latestChangelog) {
+        worksetFacts.push('Latest changelog: ' + currentFacts.latestChangelog.version
+          + (currentFacts.latestChangelog.date ? ' (' + currentFacts.latestChangelog.date + ')' : ''));
+      }
+      worksetFacts.push(formatGitFact(currentFacts.git));
+      const codeState = snapshot
+        ? '- Code state: ' + (snapshot.baseRevision ? snapshot.baseRevision.slice(0, 12) : 'Git unavailable')
+          + ', ' + snapshot.worktreeState + ' worktree'
+          + ', epoch ' + snapshot.sourceEpoch
+        : '- Code state: no completed snapshot yet';
+      const pack = await attachTaskWorkset({
+        pack: basePack,
+        projectId: project.id,
+        dataDir: projectDir,
+        lens: resolveTaskLens(task).id,
+        worktreeDirty: currentFacts.git.dirty,
+        currentFacts: worksetFacts,
+        codeState,
+        ...(snapshot
+          ? {
+            snapshot: {
+              id: snapshot.id,
+              sourceEpoch: snapshot.sourceEpoch,
+              worktreeState: snapshot.worktreeState,
+              incomplete: snapshot.completeness.skippedOversizedFiles > 0
+                || (snapshot.completeness.unreadableFiles ?? 0) > 0
+                || snapshot.completeness.removalScanDeferred,
+            },
+          }
+          : {}),
+        ...(external.outline ? { semanticCode: external.outline } : {}),
+        providerQuality: external.quality,
+        ...(external.caution
+          ? { runtimeCautions: [{ kind: 'external-codegraph-fallback' as const, message: external.caution }] }
+          : {}),
+        reader: getObservationReader(),
+      });
+      const text = buildContextPackPrompt(pack);
+
+      return {
+        content: [{ type: 'text' as const, text }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'memorix_knowledge',
+    {
+      title: 'Knowledge Workspace',
+      description:
+        'Manage the reviewable project Knowledge Workspace. Use it only for deliberate knowledge operations: initialize a local or versioned workspace, review source-backed claims, compile proposals, lint, apply a reviewed proposal, or manage canonical workflows. It is intentionally absent from the default micro/lite profiles.',
+      inputSchema: {
+        action: z.enum([
+          'workspace_init',
+          'status',
+          'claim_list',
+          'claim_review',
+          'compile',
+          'lint',
+          'proposal_apply',
+          'workflow_import',
+          'workflow_list',
+          'workflow_select',
+          'workflow_preview',
+          'workflow_apply',
+          'workflow_run',
+        ]).describe('Knowledge operation to perform'),
+        mode: z.enum(['local', 'versioned']).optional().default('local').describe('Workspace mode; versioned writes require an explicit project path during workspace_init'),
+        path: z.string().optional().describe('Explicit versioned workspace path, used only by workspace_init'),
+        proposalId: z.string().optional().describe('Pending proposal id for proposal_apply'),
+        allowManualOverwrite: z.boolean().optional().default(false).describe('Explicitly allow proposal_apply to replace a manually edited page'),
+        claimId: z.string().optional().describe('Source-backed claim id for claim_review'),
+        claimReviewState: z.enum(['approved', 'rejected']).optional().describe('Deliberate review verdict for claim_review'),
+        reviewDetail: z.string().max(2_000).optional().describe('Evidence check performed before approving or rejecting a claim'),
+        workflowId: z.string().optional().describe('Canonical workflow id for workflow preview, apply, or run'),
+        agent: z.string().optional().describe('Target agent for a workflow adapter'),
+        task: z.string().optional().describe('Task text for workflow selection or a workflow run'),
+        outcome: z.enum(['passed', 'failed', 'cancelled', 'in-progress']).optional().describe('Workflow run outcome'),
+        verificationVerdict: z.enum(['passed', 'failed', 'not-run']).optional().describe('Workflow run verification verdict'),
+        failureReason: z.string().optional().describe('Sanitized workflow failure reason'),
+        startingSnapshotId: z.string().optional().describe('Code snapshot id present when a workflow run began'),
+        evidenceIds: z.array(z.string()).max(24).optional().describe('Selected evidence ids for a workflow run'),
+      },
+    },
+    async ({
+      action,
+      mode,
+      path: workspacePath,
+      proposalId,
+      allowManualOverwrite,
+      claimId,
+      claimReviewState,
+      reviewDetail,
+      workflowId,
+      agent,
+      task,
+      outcome,
+      verificationVerdict,
+      failureReason,
+      startingSnapshotId,
+      evidenceIds,
+    }) => {
+      const unresolved = requireResolvedProject('manage the Knowledge Workspace for the current project');
+      if (unresolved) return unresolved;
+
+      const text = (value: unknown, isError = false) => ({
+        content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
+        ...(isError ? { isError: true as const } : {}),
+      });
+      const modeValue = mode ?? 'local';
+      const requireText = (value: string | undefined, field: string): string | undefined => {
+        const normalized = value?.trim();
+        return normalized ? normalized : undefined;
+      };
+
+      const [
+        { ClaimStore },
+        { reviewClaim },
+        { CodeGraphStore },
+        { initializeKnowledgeWorkspace, loadKnowledgeWorkspace },
+        { KnowledgeWorkspaceStore },
+        { applyKnowledgeProposal, compileKnowledgeWorkspace, lintKnowledgeWorkspace },
+        { WorkflowStore },
+        {
+          applyWorkflowAdapter,
+          importWindsurfWorkflows,
+          previewWorkflowAdapter,
+          recordWorkflowRun,
+          selectWorkspaceWorkflows,
+          syncCanonicalWorkflows,
+        },
+      ] = await Promise.all([
+        import('./knowledge/claim-store.js'),
+        import('./knowledge/claims.js'),
+        import('./codegraph/store.js'),
+        import('./knowledge/workspace.js'),
+        import('./knowledge/workspace-store.js'),
+        import('./knowledge/wiki.js'),
+        import('./knowledge/workflow-store.js'),
+        import('./knowledge/workflows.js'),
+      ]);
+
+      if (action === 'workspace_init') {
+        if (modeValue === 'versioned' && !requireText(workspacePath, 'path')) {
+          return text({ error: 'path is required to initialize a versioned Knowledge Workspace.' }, true);
+        }
+        const workspace = await initializeKnowledgeWorkspace({
+          projectId: project.id,
+          dataDir: projectDir,
+          mode: modeValue,
+          ...(modeValue === 'versioned'
+            ? { projectRoot: project.rootPath, rootPath: requireText(workspacePath, 'path')! }
+            : {}),
+        });
+        return text({
+          workspace: {
+            id: workspace.id,
+            mode: workspace.mode,
+            rootPath: workspace.rootPath,
+            status: workspace.status,
+          },
+          next: 'Compile creates reviewable proposals; it does not silently publish pages.',
+        });
+      }
+
+      const workspace = await loadKnowledgeWorkspace({ projectId: project.id, dataDir: projectDir, mode: modeValue });
+      if (!workspace) {
+        return text({ error: 'Knowledge Workspace is not initialized. Run workspace_init first.' }, true);
+      }
+      const claims = new ClaimStore();
+      const workspaceStore = new KnowledgeWorkspaceStore();
+      await Promise.all([claims.init(projectDir), workspaceStore.init(projectDir)]);
+
+      if (action === 'status') {
+        const pages = workspaceStore.listPages(workspace.id);
+        const pending = workspaceStore.listProposals(workspace.id, 'pending');
+        return text({
+          workspace: {
+            id: workspace.id,
+            mode: workspace.mode,
+            rootPath: workspace.rootPath,
+            status: workspace.status,
+            publishedPages: pages.filter(page => page.status === 'active').length,
+            pendingProposals: pending.map(proposal => ({
+              id: proposal.id,
+              targetPath: proposal.targetPath,
+              reason: proposal.reason,
+              createdAt: proposal.createdAt,
+            })),
+            reviewableClaims: claims.listClaims(project.id, { limit: 100 })
+              .filter(claim => claim.reviewState === 'needs-review')
+              .map(claim => ({ id: claim.id, subject: claim.subject, predicate: claim.predicate, objectValue: claim.objectValue })),
+          },
+        });
+      }
+
+      if (action === 'claim_list') {
+        return text({
+          claims: claims.listClaims(project.id, { limit: 100 }).map(claim => ({
+            id: claim.id,
+            subject: claim.subject,
+            predicate: claim.predicate,
+            objectValue: claim.objectValue,
+            status: claim.status,
+            reviewState: claim.reviewState,
+            origin: claim.origin,
+            confidence: claim.confidence,
+            evidenceCount: claims.listEvidence(claim.id).length,
+          })),
+          next: 'Approve only after checking the linked evidence. Rejected claims stay out of retrieval and publication.',
+        });
+      }
+
+      if (action === 'claim_review') {
+        const requestedClaimId = requireText(claimId, 'claimId');
+        const detail = requireText(reviewDetail, 'reviewDetail');
+        if (!requestedClaimId || !claimReviewState || !detail) {
+          return text({ error: 'claimId, claimReviewState, and reviewDetail are required for claim_review.' }, true);
+        }
+        const existing = claims.getClaim(requestedClaimId);
+        if (!existing || existing.projectId !== project.id) {
+          return text({ error: 'Claim was not found for the current project.' }, true);
+        }
+        const claim = reviewClaim(claims, {
+          claimId: requestedClaimId,
+          reviewState: claimReviewState,
+          detail,
+        });
+        return text({
+          claim: {
+            id: claim.id,
+            status: claim.status,
+            reviewState: claim.reviewState,
+            updatedAt: claim.updatedAt,
+          },
+          next: claim.reviewState === 'approved'
+            ? 'This approved source-backed claim can now be considered by knowledge compilation.'
+            : 'This rejected claim is excluded from retrieval and knowledge compilation.',
+        });
+      }
+
+      if (action === 'compile') {
+        const result = await compileKnowledgeWorkspace({ workspace, claims });
+        return text({
+          proposals: result.proposals.map(proposal => ({
+            id: proposal.id,
+            targetPath: proposal.targetPath,
+            proposalPath: proposal.proposalPath,
+            reason: proposal.reason,
+          })),
+          unchangedPublishedPages: result.published.map(page => page.relativePath),
+          next: result.proposals.length ? 'Review a proposal, then use proposal_apply deliberately.' : undefined,
+        });
+      }
+
+      if (action === 'lint') {
+        const codeStore = new CodeGraphStore();
+        await codeStore.init(projectDir);
+        const result = await lintKnowledgeWorkspace({ workspace, claims, codeStore });
+        return text(result);
+      }
+
+      if (action === 'proposal_apply') {
+        const proposal = requireText(proposalId, 'proposalId');
+        if (!proposal) return text({ error: 'proposalId is required for proposal_apply.' }, true);
+        const result = await applyKnowledgeProposal({
+          workspace,
+          proposalId: proposal,
+          allowManualOverwrite: !!allowManualOverwrite,
+        });
+        return text({
+          proposal: { id: result.proposal.id, status: result.proposal.status },
+          targetPath: result.targetPath,
+        });
+      }
+
+      const workflowStore = new WorkflowStore();
+      await workflowStore.init(projectDir);
+      const projectRoot = workspace.projectRoot ?? project.rootPath;
+
+      if (action === 'workflow_import') {
+        const result = await importWindsurfWorkflows({ workspace, projectRoot });
+        return text({
+          imported: result.imported.map(workflow => ({
+            id: workflow.id,
+            title: workflow.title,
+            sourcePath: workflow.sourcePath,
+            importedFrom: workflow.importedFrom,
+            verificationGates: workflow.verificationGates,
+          })),
+          skipped: result.skipped,
+        });
+      }
+
+      const synced = await syncCanonicalWorkflows(workspace);
+      if (action === 'workflow_list') {
+        return text({
+          workflows: workflowStore.listWorkflows(workspace.id).map(workflow => ({
+            id: workflow.id,
+            title: workflow.title,
+            status: workflow.status,
+            taskLenses: workflow.taskLenses,
+            sourcePath: workflow.sourcePath,
+            importedFrom: workflow.importedFrom,
+            verificationGates: workflow.verificationGates,
+          })),
+          parseErrors: synced.errors,
+        });
+      }
+
+      if (action === 'workflow_select') {
+        const selectedTask = requireText(task, 'task');
+        if (!selectedTask) return text({ error: 'task is required for workflow_select.' }, true);
+        const result = await selectWorkspaceWorkflows({ workspace, task: selectedTask });
+        return text({
+          selections: result.selections.map(selection => ({
+            id: selection.workflow.id,
+            title: selection.workflow.title,
+            reasons: selection.reasons,
+            firstPhase: selection.firstPhase.title,
+            cautions: selection.cautions,
+          })),
+          parseErrors: result.errors,
+        });
+      }
+
+      const requestedWorkflowId = requireText(workflowId, 'workflowId');
+      if (!requestedWorkflowId) return text({ error: 'workflowId is required for this workflow action.' }, true);
+      const workflow = workflowStore.getWorkflow(requestedWorkflowId);
+      if (!workflow || workflow.workspaceId !== workspace.id) {
+        return text({ error: 'Workflow was not found for this Knowledge Workspace.' }, true);
+      }
+
+      if (action === 'workflow_preview' || action === 'workflow_apply') {
+        const targetAgent = requireText(agent, 'agent');
+        if (!targetAgent) return text({ error: 'agent is required for a workflow adapter action.' }, true);
+        const result = action === 'workflow_preview'
+          ? await previewWorkflowAdapter({ workflow, projectRoot, agent: targetAgent as any })
+          : await applyWorkflowAdapter({ workflow, projectRoot, agent: targetAgent as any });
+        return text({
+          workflowId: workflow.id,
+          agent: targetAgent,
+          status: result.status,
+          targetPath: result.targetPath,
+          reason: result.reason,
+          ...(action === 'workflow_preview' && result.content ? { content: result.content } : {}),
+        });
+      }
+
+      if (action === 'workflow_run') {
+        const runTask = requireText(task, 'task');
+        if (!runTask) return text({ error: 'task is required for workflow_run.' }, true);
+        if (!outcome) return text({ error: 'outcome is required for workflow_run.' }, true);
+        const result = await recordWorkflowRun({
+          workspace,
+          run: {
+            workflowId: workflow.id,
+            projectId: project.id,
+            task: runTask,
+            outcome,
+            ...(verificationVerdict ? { verificationVerdict } : {}),
+            ...(requireText(failureReason, 'failureReason') ? { failureReason: requireText(failureReason, 'failureReason') } : {}),
+            ...(requireText(startingSnapshotId, 'startingSnapshotId') ? { startingSnapshotId: requireText(startingSnapshotId, 'startingSnapshotId') } : {}),
+            selectedEvidence: [...new Set((evidenceIds ?? []).map(item => item.trim()).filter(Boolean))],
+          },
+        });
+        return text({
+          id: result.id,
+          workflowId: result.workflowId,
+          outcome: result.outcome,
+          verificationVerdict: result.verificationVerdict,
+        });
+      }
+
+      return text({ error: 'Unsupported knowledge action.' }, true);
+    },
+  );
+
+  /**
+   * memorix_resolve — Mark memories as resolved/completed
+   *
+   * Prevents resolved memories from polluting future searches.
+   * Default search only returns 'active' memories.
+   */
+  server.registerTool(
+    'memorix_resolve',
+    {
+      title: 'Resolve Memories',
+      description:
+        'Mark observations as resolved (completed/no longer active). ' +
+        'Resolved memories are hidden from default search but can still be found with status="all". ' +
+        'Use this to mark completed tasks, fixed bugs, or outdated information so they don\'t pollute future context.',
+      inputSchema: {
+        ids: z.array(z.number()).describe('Observation IDs to mark as resolved'),
+        status: z.enum(['resolved', 'archived']).optional().default('resolved').describe(
+          'Target status: "resolved" (default, completed/done) or "archived" (permanently hidden)',
+        ),
+      },
+    },
+    async ({ ids, status }) => {
+      const { resolveObservations, getObservation } = await import('./memory/observations.js');
+      const safeIds = (Array.isArray(ids) ? ids : [ids]).map(id => coerceNumber(id, 0)).filter(id => id > 0);
+      const reader = getObservationReader();
+      const authorizedIds = safeIds.filter((id) => {
+        const observation = getObservation(id, project.id);
+        return observation ? canManageObservation(observation, reader) : false;
+      });
+      const result = await resolveObservations(authorizedIds, (status as 'resolved' | 'archived') ?? 'resolved');
+      const deniedCount = safeIds.length - authorizedIds.length;
+
+      const parts: string[] = [];
+      if (result.resolved.length > 0) {
+        parts.push(`[OK] Resolved ${result.resolved.length} observation(s): #${result.resolved.join(', #')}`);
+      }
+      if (result.notFound.length > 0) {
+        parts.push(`[WARN] Not found: #${result.notFound.join(', #')}`);
+      }
+      if (deniedCount > 0) {
+        parts.push(`[WARN] Skipped ${deniedCount} observation(s) outside this session's write scope.`);
+      }
+      parts.push('\nResolved memories are hidden from default search. Use status="all" to include them.');
+      parts.push('[STATS] Run `memorix_retention` with `action: "report"` to check remaining cleanup status.');
+
+      return {
+        content: [{ type: 'text' as const, text: parts.join('\n') }],
+      };
+    },
+  );
+
+  /**
+   * memorix_store_reasoning — System 2 Reasoning Memory
+   *
+   * Store WHY a decision was made, what alternatives were considered,
+   * and what the expected outcome is. This is the "reasoning trace" —
+   * not just what changed, but the thought process behind it.
+   *
+   * Inspired by Cipher's dual-memory (Knowledge + Reflection).
+   */
+  server.registerTool(
+    'memorix_store_reasoning',
+    {
+      title: 'Store Reasoning Trace',
+      description:
+        'Store a reasoning trace — WHY you chose this approach, what alternatives you considered, ' +
+        'and what outcome you expect. This creates a searchable record of your decision-making process. ' +
+        'Use this when making non-trivial technical decisions, choosing between approaches, or ' +
+        'solving complex problems. Unlike regular memories that record WHAT happened, reasoning ' +
+        'memories record HOW you thought about it.',
+      inputSchema: {
+        entityName: z.string().describe('The entity this reasoning applies to (e.g., "auth-module", "database-schema")'),
+        decision: z.string().describe('What was decided or chosen'),
+        alternatives: z.array(z.string()).optional().describe('Other options that were considered'),
+        rationale: z.string().describe('Why this approach was chosen over alternatives'),
+        constraints: z.array(z.string()).optional().describe('Constraints that influenced the decision (time, perf, compat, etc.)'),
+        expectedOutcome: z.string().optional().describe('What outcome is expected from this decision'),
+        risks: z.array(z.string()).optional().describe('Known risks or potential downsides'),
+        concepts: z.array(z.string()).optional().describe('Related technical concepts'),
+        filesModified: z.array(z.string()).optional().describe('Files related to this reasoning'),
+        relatedCommits: z.array(z.string()).optional().describe('Git commit hashes this reasoning explains (links ground truth ↔ reasoning)'),
+        relatedEntities: z.array(z.string()).optional().describe('Other entity names this reasoning relates to (cross-references)'),
+      },
+    },
+    async ({ entityName, decision, alternatives, rationale, constraints, expectedOutcome, risks, concepts, filesModified, relatedCommits, relatedEntities }) => {
+      const unresolved = requireResolvedProject('store reasoning in the current project');
+      if (unresolved) return unresolved;
+      const reader = getObservationReader();
+      return withFreshIndex(async () => {
+
+      // Build structured narrative from reasoning fields
+      const narrativeParts: string[] = [rationale];
+      if (alternatives && alternatives.length > 0) {
+        narrativeParts.push(`Alternatives considered: ${alternatives.join('; ')}`);
+      }
+      if (constraints && constraints.length > 0) {
+        narrativeParts.push(`Constraints: ${constraints.join('; ')}`);
+      }
+      if (expectedOutcome) {
+        narrativeParts.push(`Expected outcome: ${expectedOutcome}`);
+      }
+      const narrative = narrativeParts.join('. ');
+
+      // Build facts from structured fields
+      const facts: string[] = [`Decision: ${decision}`];
+      if (alternatives) alternatives.forEach(a => facts.push(`Alternative considered: ${a}`));
+      if (constraints) constraints.forEach(c => facts.push(`Constraint: ${c}`));
+      if (risks) risks.forEach(r => facts.push(`Risk: ${r}`));
+      if (expectedOutcome) facts.push(`Expected outcome: ${expectedOutcome}`);
+
+      await graphManager.createEntities([
+        { name: entityName, entityType: 'auto', observations: [] },
+      ]);
+
+      // ── Attribution guard (passive, non-blocking) ─────────────────
+      let reasoningAttributionWarning = '';
+      try {
+        const attrCheck = await checkProjectAttribution(
+          entityName,
+          project.id,
+          filterReadableObservations(getAllObservations(), reader),
+        );
+        if (attrCheck.suspicious) {
+          reasoningAttributionWarning = `\n[WARN] Attribution notice: entity "${entityName}" has 0 observations in ` +
+            `"${project.id}" but ${attrCheck.count} in "${attrCheck.knownIn}" ` +
+            `(confidence: ${attrCheck.confidence}). Verify the correct project is bound before storing.`;
+        }
+      } catch { /* guard is best-effort — never blocks the write */ }
+
+      const { observation: obs } = await storeObservation({
+        entityName,
+        type: 'reasoning' as ObservationType,
+        title: decision.length > 80 ? decision.substring(0, 77) + '...' : decision,
+        narrative,
+        facts,
+        concepts: concepts ?? [],
+        filesModified: filesModified ?? [],
+        projectId: project.id,
+        source: 'agent',
+        relatedCommits,
+        relatedEntities,
+        sourceDetail: 'explicit',
+        createdByAgentId: currentAgentId,
+        visibility: 'project',
+      });
+
+      await graphManager.addObservations([
+        { entityName, contents: [`[#${obs.id}] [REASONING] ${decision}`] },
+      ]);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `[REASONING] Reasoning trace stored #${obs.id}: "${decision}"\nEntity: ${entityName} | ${facts.length} facts | ${obs.tokens} tokens${reasoningAttributionWarning}`,
+        }],
+      };
+      }); // withFreshIndex
+    },
+  );
+
+  /**
+   * memorix_audit_project — Scan for misattributed observations
+   *
+   * Read-only audit: identifies observations in the current project whose
+   * entityName is well-known in a different project but absent here.
+   * Use the results to decide which observations to archive with memorix_resolve.
+   */
+  server.registerTool(
+    'memorix_audit_project',
+    {
+      title: 'Audit Project Attribution',
+      description:
+        'Scan the current project for observations that may have been written to the wrong project bucket. ' +
+        'Identifies observations whose entityName appears exclusively in a different project. ' +
+        'Read-only — no data is changed. Use memorix_resolve to archive confirmed mis-attributed observations.',
+      inputSchema: {
+        threshold: z.number().int().min(1).optional().describe(
+          'Minimum occurrences of an entityName in another project to flag it as suspicious (default: 2)',
+        ),
+      },
+    },
+    async ({ threshold }) => {
+      const unresolved = requireResolvedProject('audit project attribution');
+      if (unresolved) return unresolved;
+      const minCount = threshold ?? 2;
+      let entries: import('./memory/attribution-guard.js').AuditEntry[];
+      try {
+        entries = await auditProjectObservations(
+          project.id,
+          await withFreshIndex(() => filterReadableObservations(getAllObservations(), getObservationReader())),
+          minCount,
+        );
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Audit failed: ${err instanceof Error ? err.message : String(err)}`,
+          }],
+        };
+      }
+
+      if (entries.length === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `[OK] No suspicious observations found in project "${project.id}" (threshold: ${minCount}).`,
+          }],
+        };
+      }
+
+      const lines: string[] = [
+        `## Attribution Audit — ${project.id}`,
+        `Found **${entries.length}** potentially mis-attributed observation(s) (threshold: ≥${minCount} occurrences in another project).\n`,
+        '| ID | Entity | Title | Source | Detail | Likely Belongs To | Count | Confidence |',
+        '|----|--------|-------|--------|--------|-------------------|-------|------------|',
+      ];
+
+      for (const e of entries) {
+        const titleTrunc = e.title.length > 50 ? e.title.slice(0, 47) + '...' : e.title;
+        lines.push(
+          `| #${e.id} | ${e.entityName} | ${titleTrunc} | ${e.source} | ${e.sourceDetail ?? '-'} | ${e.likelyBelongsTo} | ${e.count} | ${e.confidence} |`,
+        );
+      }
+
+      // Actionable IDs block (cap display to avoid very long outputs)
+      const auditIds = entries.map(e => e.id);
+      const auditPreview = auditIds.slice(0, 20);
+      const auditSummary = `[${auditPreview.join(', ')}]${auditIds.length > 20 ? ` … (${auditIds.length} total)` : ''}`;
+      lines.push('');
+      lines.push('### Suggested Actions');
+      lines.push(`Suggested IDs: ${auditSummary}`);
+      lines.push('- Archive confirmed mis-attributed observations: use `memorix_resolve` with the specific IDs above and `status: "archived"`.');
+      lines.push('- Review first with `memorix_detail` if unsure.');
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  /**
+   * memorix_search_reasoning — Search reasoning patterns
+   *
+   * Find past reasoning traces to understand WHY decisions were made.
+   * Useful when revisiting code and needing to understand the thought
+   * process behind the current implementation.
+   */
+  server.registerTool(
+    'memorix_search_reasoning',
+    {
+      title: 'Search Reasoning Patterns',
+      description:
+        'Search past reasoning traces to understand WHY decisions were made. ' +
+        'Returns reasoning memories that explain the thought process behind technical choices. ' +
+        'Use this when revisiting code, questioning a design decision, or looking for precedent ' +
+        'on how similar problems were solved before.',
+      inputSchema: {
+        query: z.string().describe('Search query — describe what reasoning you want to find (e.g., "why did we choose PostgreSQL", "auth approach rationale")'),
+        limit: z.number().optional().describe('Max results (default: 10)'),
+        scope: z.enum(['project', 'global']).optional().default('project').describe('Search scope'),
+      },
+    },
+    async ({ query, limit, scope }) => {
+      if (scope !== 'global') {
+        const unresolved = requireResolvedProject('search reasoning in the current project');
+        if (unresolved) return unresolved;
+      }
+      const safeLimit = limit != null ? coerceNumber(limit, 10) : 10;
+      const result = await withFreshIndex(() => compactSearch({
+        query,
+        limit: safeLimit,
+        type: 'reasoning' as ObservationType,
+        projectId: scope === 'global' ? undefined : project.id,
+        status: 'active',
+        reader: getObservationReader(scope === 'global' ? 'global' : 'project'),
+      }));
+
+      if (result.entries.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No reasoning traces found. Use memorix_store_reasoning to record decision rationale.' }],
+        };
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: `[REASONING] Reasoning Traces:\n${result.formatted}` }],
+      };
+    },
+  );
+
+  /**
+   * memorix_deduplicate — LLM-powered batch deduplication
+   *
+   * Scans active memories for duplicates/contradictions and auto-resolves them.
+   * Requires LLM to be configured (MEMORIX_LLM_API_KEY or OPENAI_API_KEY).
+   */
+  server.registerTool(
+    'memorix_deduplicate',
+    {
+      title: 'Deduplicate Memories',
+      description:
+        'Scan active memories for duplicates, contradictions, and outdated information using LLM analysis. ' +
+        'Automatically resolves redundant memories. Requires LLM to be configured ' +
+        '(set MEMORIX_LLM_API_KEY or OPENAI_API_KEY environment variable). ' +
+        'Without LLM, falls back to basic similarity-based consolidation.',
+      inputSchema: {
+        query: z.string().optional().describe('Optional query to scope dedup to a topic (default: scan all)'),
+        dryRun: z.boolean().optional().default(false).describe('Preview only — show what would be resolved without making changes'),
+      },
+    },
+    async ({ query, dryRun }) => {
+      const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
+      const reader = getObservationReader();
+      const allObs = await withFreshIndex(() => filterReadableObservations(
+        getAllObservations().filter(o => (o.status ?? 'active') === 'active' && o.projectId === project.id),
+        reader,
+      ).filter((observation) => canManageObservation(observation, reader)));
+
+      if (allObs.length < 2) {
+        return { content: [{ type: 'text' as const, text: 'Not enough active memories to deduplicate.' }] };
+      }
+
+      if (!isLLMEnabled()) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '[WARN] LLM not configured. Set MEMORIX_LLM_API_KEY or OPENAI_API_KEY to enable intelligent dedup.\n\n' +
+              'Tip: Use memorix_consolidate for basic similarity-based merging without LLM.',
+          }],
+        };
+      }
+
+      // If query provided, search for relevant memories; otherwise take latest 20
+      let candidates: typeof allObs;
+      if (query) {
+        const searchResult = await compactSearch({ query, limit: 20, projectId: project.id, status: 'active', reader });
+        const idSet = new Set(searchResult.entries.map(e => e.id));
+        candidates = allObs.filter(o => idSet.has(o.id));
+      } else {
+        candidates = allObs.slice(-20);
+      }
+
+      if (candidates.length < 2) {
+        return { content: [{ type: 'text' as const, text: 'Not enough memories in scope to deduplicate.' }] };
+      }
+
+      const manageableCandidates = candidates.filter((observation) => canManageObservation(observation, reader));
+      const plan = await planMemoryDeduplication(manageableCandidates);
+      const actionLines = plan.actions.map((item) =>
+        `Resolve #${item.resolveId} "${item.resolveTitle}"; keep #${item.keepId} "${item.keepTitle}" (${item.reason})${item.usedLLM ? ' [LLM]' : ' [heuristic]'}`,
+      );
+
+      if (actionLines.length === 0) {
+        return { content: [{ type: 'text' as const, text: `[OK] Scanned ${plan.scanned} memories across ${plan.entities} entities — no duplicates found.` }] };
+      }
+
+      if (dryRun) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `[SEARCH] DRY RUN — ${actionLines.length} action(s) found:\n\n${actionLines.join('\n')}\n\nRun with dryRun=false to apply.`,
+          }],
+        };
+      }
+
+      const result = await applyDeduplicationPlan(getObservationStore(), project.id, plan.resolveIds, reader);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `[CLEANUP] Deduplicated: resolved ${result.resolved.length} memory(ies)\n\n${actionLines.join('\n')}`,
+        }],
+      };
+    },
+  );
+
+  /**
+   * memorix_timeline — Deep retrieval: provenance-aware chronological expansion
+   *
+   * Natural follow-up after session L1 routing hints (hook traces) or L3
+   * evidence pointers (git memory). Distinguishes explicit memory evolution,
+   * hook activity traces, and git-backed facts via Src column when available.
+   */
+  server.registerTool(
+    'memorix_timeline',
+    {
+      title: 'Memory Timeline',
+      description:
+        'Deep retrieval: expand chronological context around a specific observation — ' +
+        'distinguishes explicit memory evolution, hook activity traces, and git-backed facts. ' +
+        'Natural follow-up after session L1 routing hints (hook traces) or L3 evidence pointers (git memory).',
+      inputSchema: {
+        anchorId: z.number().describe('Observation ID to center the timeline on'),
+        depthBefore: z.number().optional().describe('Number of observations before (default: 3)'),
+        depthAfter: z.number().optional().describe('Number of observations after (default: 3)'),
+      },
+    },
+    async ({ anchorId, depthBefore, depthAfter }) => {
+      const safeAnchor = coerceNumber(anchorId, 0);
+      const safeBefore = depthBefore != null ? coerceNumber(depthBefore, 3) : undefined;
+      const safeAfter = depthAfter != null ? coerceNumber(depthAfter, 3) : undefined;
+      const result = await compactTimeline(
+        safeAnchor,
+        project.id,
+        safeBefore,
+        safeAfter,
+        getObservationReader(),
+      );
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: result.formatted,
+          },
+        ],
+      };
+    },
+  );
+
+  /**
+   * memorix_detail — Layer 3: Provenance-aware full observation details
+   *
+   * Opens explicit memories, hook traces, or git evidence depending on source.
+   * Output includes a provenance header identifying the evidence kind, value
+   * category (core / ephemeral), and cross-references to related items.
+   */
+  server.registerTool(
+    'memorix_detail',
+    {
+      title: 'Memory Details',
+      description:
+        'Fetch full observation, mini-skill, or curated durable-memory details — includes source kind (explicit memory / hook trace / git evidence), ' +
+        'value category, and cross-references (~500-1000 tokens each). ' +
+        'Do not re-fetch content already covered by a complete memorix_project_context brief unless a specific fact is still missing or the user asks for deeper history; provide purpose when intentionally expanding. ' +
+        'Always use memorix_search first to find relevant IDs, then fetch only what you need. ' +
+        'Accepts typed refs from search results (e.g. "obs:42", "skill:3") and durable refs from a project brief (e.g. "durable:<uuid>") via the typedRefs field, ' +
+        'or legacy numeric ids / object refs for backward compatibility.',
+      inputSchema: {
+        ids: z.array(z.number()).optional().describe('Observation IDs to fetch (legacy, from memorix_search results)'),
+        refs: z.array(
+          z.object({
+            id: z.number().describe('Observation ID'),
+            projectId: z.string().optional().describe('Project ID for global-search disambiguation'),
+          }),
+        ).optional().describe('Explicit observation refs. Prefer this for global search results.'),
+        typedRefs: z.array(z.string()).optional().describe('Typed memory refs from search results or a project brief, e.g. "obs:42", "skill:3", "durable:<uuid>", "obs:42@org/proj"'),
+        purpose: z.string().optional().describe(
+          'Why this must expand beyond the latest Autopilot brief. Name the missing fact or the user\'s explicit request.',
+        ),
+        force: z.boolean().optional().describe(
+          'Use only when the user explicitly asks to read a record already represented in the latest Autopilot brief.',
+        ),
+      },
+    },
+    async ({ ids, refs, typedRefs, purpose, force }) => {
+      // Defensive coercion: Claude Code CLI + GLM may send "[16]" instead of [16]
+      const safeIds = coerceNumberArray(ids);
+      const safeRefs = coerceObservationRefs(refs);
+      const safeTypedRefs = coerceStringArray(typedRefs);
+      const durableIds = safeTypedRefs.flatMap((ref) => {
+        const match = /^durable:([0-9a-f-]{36})$/i.exec(ref.trim());
+        return match ? [match[1]] : [];
+      });
+      const observationTypedRefs = safeTypedRefs.filter(ref => !/^durable:/i.test(ref.trim()));
+      const hasCrossProjectRef = safeRefs.some((ref) => ref.projectId && ref.projectId !== project.id)
+        || observationTypedRefs.some((ref) => ref.includes('@') && !ref.endsWith(`@${project.id}`));
+      if (!hasCrossProjectRef) {
+        const boundary = requireExplicitAutopilotExpansion('memorix_detail', purpose);
+        if (boundary) return boundary;
+        const requestedObservationIds = [
+          ...safeIds,
+          ...safeRefs.map(ref => ref.id),
+          ...observationTypedRefs.flatMap((ref) => {
+            const match = /^obs:(\d+)(?:@.+)?$/i.exec(ref.trim());
+            return match ? [Number(match[1])] : [];
+          }),
+        ];
+        const duplicate = blockCoveredAutopilotEvidence('memorix_detail', requestedObservationIds, force);
+        if (duplicate) return duplicate;
+      }
+
+      const formatted: string[] = [];
+      try {
+        if (durableIds.length > 0) {
+          const [{ getLongTermMemoryDetail }, { resolveLocalMemoryOwner }] = await Promise.all([
+            import('./memory/long-term.js'),
+            import('./memory/owner.js'),
+          ]);
+          const owner = await resolveLocalMemoryOwner(projectDir, { create: false });
+          const observationReader = getObservationReader();
+          const durableReader = {
+            projectId: project.id,
+            ...(owner ? { ownerId: owner.id } : {}),
+            ...(observationReader.agentId ? { agentId: observationReader.agentId } : {}),
+            ...(observationReader.isTeamMember ? { isTeamMember: true } : {}),
+          };
+          const details = await Promise.all(durableIds.slice(0, 5).map(async (id) => {
+            try {
+              return await getLongTermMemoryDetail({ dataDir: projectDir, id, reader: durableReader });
+            } catch (error) {
+              return { error: error instanceof Error ? error.message : String(error), id };
+            }
+          }));
+          formatted.push(JSON.stringify({ durableMemory: details }, null, 2));
+        }
+
+        if (observationTypedRefs.length > 0 || safeRefs.length > 0 || safeIds.length > 0) {
+          const reader = getObservationReader(hasCrossProjectRef ? 'global' : 'project');
+          const result = observationTypedRefs.length > 0
+            ? await compactDetail(observationTypedRefs, { reader })
+            : safeRefs.length > 0
+              ? await compactDetail(safeRefs, { reader })
+              : await compactDetail(safeIds.map(id => ({ id, projectId: project.id })), { reader });
+          formatted.push(
+            result.documents.length > 0
+              ? result.formatted
+              : observationTypedRefs.length > 0
+                ? `No memories found for refs: ${observationTypedRefs.join(', ')}`
+                : safeRefs.length > 0
+                  ? `No memories found for refs: ${safeRefs.map((ref) => `${ref.projectId ?? 'current'}#${ref.id}`).join(', ')}`
+                  : `No memories found for IDs: ${safeIds.join(', ')}`,
+          );
+        }
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }], isError: true };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: formatted.length > 0
+              ? formatted.join('\n\n')
+              : safeTypedRefs.length > 0
+                ? `No memories found for refs: ${safeTypedRefs.join(', ')}`
+                : safeRefs.length > 0
+                  ? `No memories found for refs: ${safeRefs.map((ref) => `${ref.projectId ?? 'current'}#${ref.id}`).join(', ')}`
+                  : `No memories found for IDs: ${safeIds.join(', ')}`,
+          },
+        ],
+      };
+    },
+  );
+
+  // ================================================================
+  // Memorix Retention & Decay Tools (inspired by mcp-memory-service + MemCP)
+  // ================================================================
+
+  /**
+   * memorix_retention — Memory retention status
+   *
+   * Shows which observations are active, stale, or candidates for archiving.
+   * Uses exponential decay scoring from mcp-memory-service.
+   */
+  server.registerTool(
+    'memorix_retention',
+    {
+      title: 'Memory Retention Status & Archive',
+      description:
+        'Show memory retention status or archive expired memories. ' +
+        'action="report" (default): show active/stale/archive-candidate counts. ' +
+        'action="archive": move expired observations to archive file (reversible). ' +
+        'action="stale": list stale observations with full retention explanation. ' +
+        'Uses exponential decay scoring based on importance, age, and access patterns.',
+      inputSchema: {
+        action: z.enum(['report', 'archive', 'stale']).optional().describe('Action: "report" (show status, default) or "archive" (move expired to archive) or "stale" (list stale observations with explanation)'),
+      },
+    },
+    async (args: { action?: string }) => {
+      const action = args.action ?? 'report';
+      const { getRetentionSummary, getArchiveCandidates, rankByRelevance, getRetentionZone, explainRetention } = await import('./memory/retention.js');
+      const { getDb } = await import('./store/orama-store.js');
+      const { search } = await import('@orama/orama');
+
+      // Shared: build MemorixDocument[] from in-memory observations
+      const { getAllObservations, resolveObservations } = await import('./memory/observations.js');
+      const reader = getObservationReader();
+      const allObs = await withFreshIndex(() => filterReadableObservations(
+        getAllObservations().filter((observation) => observation.projectId === project.id),
+        reader,
+      ));
+
+      // Pull current access metadata from the live Orama index so access-based
+      // immunity (e.g. accessCount >= 3) still works in retention/report/archive
+      // paths even though observations.json itself does not persist those fields.
+      const accessMap = new Map<number, { accessCount: number; lastAccessedAt: string }>();
+      try {
+        const database = await getDb();
+        const accessResults = await search(database, {
+          term: '',
+          limit: Math.max(1, allObs.length),
+        });
+        for (const hit of accessResults.hits) {
+          const doc = hit.document as unknown as import('./types.js').MemorixDocument;
+          accessMap.set(doc.observationId, {
+            accessCount: doc.accessCount ?? 0,
+            lastAccessedAt: doc.lastAccessedAt ?? '',
+          });
+        }
+      } catch {
+        // Best-effort: retention still works without access metadata, just with
+        // less precise immunity/reporting.
+      }
+
+      const docs: import('./types.js').MemorixDocument[] = allObs.map(obs => ({
+        id: `obs-${obs.id}`,
+        observationId: obs.id,
+        entityName: obs.entityName,
+        type: obs.type,
+        title: obs.title,
+        narrative: obs.narrative,
+        facts: obs.facts.join('\n'),
+        filesModified: obs.filesModified.join('\n'),
+        concepts: obs.concepts.join(', '),
+        tokens: obs.tokens,
+        createdAt: obs.createdAt,
+        projectId: obs.projectId,
+        accessCount: accessMap.get(obs.id)?.accessCount ?? 0,
+        lastAccessedAt: accessMap.get(obs.id)?.lastAccessedAt ?? '',
+        status: obs.status ?? 'active',
+        source: obs.source ?? 'agent',
+        sourceDetail: obs.sourceDetail ?? '',
+        valueCategory: obs.valueCategory ?? '',
+        admissionState: obs.admissionState ?? '',
+        admissionReason: obs.admissionReason ?? '',
+        visibility: obs.visibility ?? 'project',
+        createdByAgentId: obs.createdByAgentId ?? '',
+        sharedWithAgentIds: JSON.stringify(obs.sharedWithAgentIds ?? []),
+      }));
+
+      if (docs.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No observations found for this project.' }],
+        };
+      }
+
+      if (action === 'archive') {
+        const managedIds = new Set(
+          allObs
+            .filter((observation) => canManageObservation(observation, reader))
+            .map((observation) => observation.id),
+        );
+        const candidates = getArchiveCandidates(docs).filter((document) => managedIds.has(document.observationId));
+        if (candidates.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: '[OK] No expired memories in this session\'s write scope to archive.' }],
+          };
+        }
+        const result = await resolveObservations(candidates.map((document) => document.observationId), 'archived');
+        return {
+          content: [{ type: 'text' as const, text: `[ARCHIVED] Archived ${result.resolved.length} expired observation(s) in this session's write scope.\n${Math.max(0, managedIds.size - result.resolved.length)} visible writable observations remaining.` }],
+        };
+      }
+
+      // ── action="stale": full table of stale observations with explanation ──
+      if (action === 'stale') {
+        const staleDocs = docs.filter(d => getRetentionZone(d) === 'stale');
+        if (staleDocs.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: '[OK] No stale observations. All active memories are within 50% of their retention period.' }],
+          };
+        }
+        const staleLines: string[] = [
+          `## Stale Observations (${staleDocs.length})`,
+          '',
+          '| ID | Entity | Title | Age | Source | Retention | Why |',
+          '|----|--------|-------|-----|--------|-----------|-----|',
+        ];
+        for (const d of staleDocs) {
+          const exp = explainRetention(d);
+          const src = d.sourceDetail || '—';
+          const vc = d.valueCategory || '—';
+          staleLines.push(
+            `| ${d.observationId} | ${d.entityName} | ${d.title} | ${exp.ageDays}d | ${src} (${vc}) | ${exp.effectiveRetentionDays}d | ${exp.summary} |`,
+          );
+        }
+        staleLines.push('');
+        staleLines.push('> [TIP] Stale = past 50% of effective retention. Review or access to keep; otherwise will become archive candidates.');
+
+        // Actionable IDs block
+        const staleIds = staleDocs.map(d => d.observationId);
+        staleLines.push('');
+        staleLines.push('### Suggested Actions');
+        staleLines.push(`Suggested IDs: [${staleIds.join(', ')}]`);
+        staleLines.push(`- Archive stale observations: \`memorix_resolve\` with \`ids: [${staleIds.join(', ')}]\` and \`status: "archived"\``);
+        staleLines.push('- Or review individually with `memorix_detail` before deciding.');
+
+        return {
+          content: [{ type: 'text' as const, text: staleLines.join('\n') }],
+        };
+      }
+
+      // ── action="report" (default): concise summary ──
+      const summary = getRetentionSummary(docs);
+      const candidates = getArchiveCandidates(docs);
+      const ranked = rankByRelevance(docs);
+
+      // Source breakdown
+      const srcCounts = new Map<string, number>();
+      for (const d of docs) {
+        const key = d.sourceDetail || '(undefined)';
+        srcCounts.set(key, (srcCounts.get(key) ?? 0) + 1);
+      }
+
+      const lines: string[] = [
+        `## Memory Retention Status`,
+        ``,
+        `| Zone | Count |`,
+        `|------|-------|`,
+        `| Active | ${summary.active} |`,
+        `| Stale | ${summary.stale} |`,
+        `| Archive Candidates | ${summary.archiveCandidates} |`,
+        `| Immune | ${summary.immune} |`,
+        `| **Total** | **${docs.length}** |`,
+        ``,
+        `### Source Breakdown`,
+        `| Source | Count |`,
+        `|--------|-------|`,
+      ];
+      for (const [src, count] of [...srcCounts.entries()].sort((a, b) => b[1] - a[1])) {
+        lines.push(`| ${src} | ${count} |`);
+      }
+      lines.push('');
+
+      if (candidates.length > 0) {
+        lines.push(`### Archive Candidates (${candidates.length})`);
+        lines.push(`| ID | Title | Age | Retention | Why |`);
+        lines.push(`|----|-------|-----|-----------|-----|`);
+        for (const c of candidates.slice(0, 10)) {
+          const exp = explainRetention(c);
+          lines.push(`| ${c.observationId} | ${c.title} | ${exp.ageDays}d | ${exp.effectiveRetentionDays}d | ${exp.summary} |`);
+        }
+        if (candidates.length > 10) {
+          lines.push(`| … | *(${candidates.length - 10} more)* | | | |`);
+        }
+        const candidateIds = candidates.map(c => c.observationId);
+        lines.push('');
+        lines.push(`Candidate IDs: [${candidateIds.slice(0, 20).join(', ')}]${candidateIds.length > 20 ? ` … (${candidateIds.length} total)` : ''}`);
+        lines.push(`> [TIP] Use \`memorix_retention\` with \`action: "archive"\` to move all, or \`memorix_resolve\` with specific IDs.`);
+        lines.push('');
+      }
+
+      if (summary.stale > 0) {
+        lines.push(`> [TASK] ${summary.stale} stale observation(s) — use \`memorix_retention\` with \`action: "stale"\` for full details.`);
+        lines.push('');
+      }
+
+      // Top 5 most relevant
+      lines.push(`### Top 5 Most Relevant`);
+      lines.push(`| ID | Title | Score | Decay | Access Boost |`);
+      lines.push(`|----|-------|-------|-------|-------------|`);
+      for (const r of ranked.slice(0, 5)) {
+        const doc = docs.find((d) => d.observationId === r.observationId);
+        lines.push(
+          `| ${r.observationId} | ${doc?.title ?? '?'} | ${r.totalScore.toFixed(3)} | ${r.decayFactor.toFixed(3)} | ${r.accessBoost.toFixed(1)}× |`,
+        );
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  /**
+   * memorix_formation_metrics — Formation Pipeline shadow mode metrics
+   *
+   * Shows aggregated metrics from the Memory Formation Pipeline running
+   * in shadow mode. Useful for evaluating pipeline quality before
+   * switching from shadow to active mode.
+   */
+  server.registerTool(
+    'memorix_formation_metrics',
+    {
+      title: 'Formation Pipeline Metrics',
+      description:
+        'Show aggregated metrics from recent Memory Formation Pipeline runs. ' +
+        'Reports value scores, resolution actions, fact extraction rates, and processing times.',
+      inputSchema: {},
+    },
+    async () => {
+      const summary = getMetricsSummary();
+      const beforeAfter = getBeforeAfterMetrics();
+
+      if (summary.total === 0) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: '[STATS] Formation Pipeline: No metrics collected yet.\nStore some observations to start collecting runtime data.',
+          }],
+        };
+      }
+
+      const lines: string[] = [
+        '[STATS] **Formation Pipeline Metrics**',
+        '',
+        `**Total observations processed:** ${summary.total}`,
+        `**Average value score:** ${summary.avgValueScore.toFixed(3)}`,
+        `**Average processing time:** ${summary.avgDurationMs.toFixed(1)}ms`,
+        '',
+        '### Quality Indicators',
+        `- **Avg system-extracted facts:** ${summary.avgExtractedFacts.toFixed(1)} per observation`,
+        `- **Title improved rate:** ${(summary.titleImprovedRate * 100).toFixed(1)}%`,
+        `- **Entity resolved rate:** ${(summary.entityResolvedRate * 100).toFixed(1)}%`,
+        `- **Type corrected rate:** ${(summary.typeCorectedRate * 100).toFixed(1)}%`,
+        '',
+        '### Value Categories',
+      ];
+
+      for (const [cat, count] of Object.entries(summary.categoryBreakdown)) {
+        const pct = ((count / summary.total) * 100).toFixed(1);
+        const icon = cat === 'core' ? '[CHANGE]' : cat === 'contextual' ? '[FIX]' : '[GOTCHA]';
+        lines.push(`- ${icon} **${cat}:** ${count} (${pct}%)`);
+      }
+
+      lines.push('', '### Resolution Actions');
+      for (const [action, count] of Object.entries(summary.resolutionBreakdown)) {
+        const pct = ((count / summary.total) * 100).toFixed(1);
+        lines.push(`- **${action}:** ${count} (${pct}%)`);
+      }
+
+      // ── Before/After Comparison Metrics ─────────────────────────
+      if (beforeAfter.totalProcessed > 0) {
+        lines.push(
+          '',
+          '### Before/After Comparison (Formation vs Old Compact)',
+          `**Total comparisons:** ${beforeAfter.totalProcessed}`,
+          `**Agreements:** ${beforeAfter.agreements} (${((beforeAfter.agreements / beforeAfter.totalProcessed) * 100).toFixed(1)}%)`,
+          `**Disagreements:** ${beforeAfter.disagreements} (${((beforeAfter.disagreements / beforeAfter.totalProcessed) * 100).toFixed(1)}%)`,
+          '',
+          '### Disagreement Breakdown',
+          `- Formation discarded, Compact added: ${beforeAfter.disagreementBreakdown.formationDiscardedCompactAdded}`,
+          `- Formation merged, Compact added: ${beforeAfter.disagreementBreakdown.formationMergedCompactAdded}`,
+          `- Formation added, Compact discarded: ${beforeAfter.disagreementBreakdown.formationAddedCompactDiscarded}`,
+          '- Formation added, Compact merged: ' + beforeAfter.disagreementBreakdown.formationAddedCompactMerged,
+          '- Formation evolved, Compact added: ' + beforeAfter.disagreementBreakdown.formationEvolvedCompactAdded,
+          '- Other: ' + beforeAfter.disagreementBreakdown.other,
+          '',
+          '### Quality Improvements',
+          `- Formation discarded low-value: ${beforeAfter.quality.formationDiscardedLowValue}`,
+          `- Formation merged duplicates: ${beforeAfter.quality.formationMergedDuplicates}`,
+          `- Formation evolved outdated: ${beforeAfter.quality.formationEvolvedOutdated}`,
+          `- Compact missed duplicates: ${beforeAfter.quality.compactMissedDuplicates}`,
+          `- Compact kept low-value: ${beforeAfter.quality.compactKeptLowValue}`,
+          '',
+          `### Duration Comparison`,
+          `- Formation avg: ${beforeAfter.duration.formationAvgMs.toFixed(1)}ms`,
+          `- Compact avg: ${beforeAfter.duration.compactAvgMs.toFixed(1)}ms`,
+          `- Diff: ${beforeAfter.duration.diffMs.toFixed(1)}ms`,
+        );
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  // ================================================================
+  // MCP Official Memory Server Compatible Tools (optional — 9 tools)
+  // Enable via ~/.memorix/settings.json { "knowledgeGraph": true }
+  // ================================================================
+
+  let enableKG = isToolInProfile('create_entities', toolProfile);
+  try {
+    const { homedir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { readFile } = await import('node:fs/promises');
+    const raw = await readFile(join(homedir(), '.memorix', 'settings.json'), 'utf-8');
+    const s = JSON.parse(raw);
+    if (s.knowledgeGraph === true) enableKG = true;
+  } catch { /* no settings or parse error — default off */ }
+
+  if (enableKG) {
+
+  /** create_entities — MCP Official compatible */
+  server.registerTool(
+    'create_entities',
+    {
+      title: 'Create Entities',
+      description: 'Create multiple new entities in the knowledge graph',
+      inputSchema: {
+        entities: z.array(z.object({
+          name: z.string().describe('The name of the entity'),
+          entityType: z.string().describe('The type of the entity'),
+          observations: z.array(z.string()).describe('Initial observations'),
+        })),
+      },
+    },
+    async ({ entities }) => {
+      const unresolved = requireResolvedProject('create entities in the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeEntities = coerceObjectArray<{ name: string; entityType: string; observations: string[] }>(entities);
+      const result = await graphManager.createEntities(safeEntities);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  /** create_relations — MCP Official compatible, enhanced with typed relation suggestions */
+  server.registerTool(
+    'create_relations',
+    {
+      title: 'Create Relations',
+      description:
+        'Create multiple new relations between entities in the knowledge graph. Relations should be in active voice. ' +
+        'Recommended relation types (from mcp-memory-service): causes, fixes, supports, opposes, contradicts, ' +
+        'depends_on, implements, extends, replaces, documents',
+      inputSchema: {
+        relations: z.array(z.object({
+          from: z.string().describe('Source entity name'),
+          to: z.string().describe('Target entity name'),
+          relationType: z.string().describe('Type of relation (e.g., causes, fixes, supports, depends_on, implements)'),
+        })),
+      },
+    },
+    async ({ relations }) => {
+      const unresolved = requireResolvedProject('create relations in the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
+      const result = await graphManager.createRelations(safeRelations);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  /** add_observations — MCP Official compatible */
+  server.registerTool(
+    'add_observations',
+    {
+      title: 'Add Observations',
+      description: 'Add new observations to existing entities in the knowledge graph',
+      inputSchema: {
+        observations: z.array(z.object({
+          entityName: z.string().describe('Entity name to add observations to'),
+          contents: z.array(z.string()).describe('Observation contents to add'),
+        })),
+      },
+    },
+    async ({ observations }) => {
+      const unresolved = requireResolvedProject('add observations to the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeObs = coerceObjectArray<{ entityName: string; contents: string[] }>(observations);
+      const result = await graphManager.addObservations(safeObs);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    },
+  );
+
+  /** delete_entities — MCP Official compatible */
+  server.registerTool(
+    'delete_entities',
+    {
+      title: 'Delete Entities',
+      description: 'Delete multiple entities and their associated relations from the knowledge graph',
+      inputSchema: {
+        entityNames: z.array(z.string()).describe('Entity names to delete'),
+      },
+    },
+    async ({ entityNames }) => {
+      const unresolved = requireResolvedProject('delete entities from the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeNames = coerceStringArray(entityNames);
+      await graphManager.deleteEntities(safeNames);
+      return {
+        content: [{ type: 'text' as const, text: 'Entities deleted successfully' }],
+      };
+    },
+  );
+
+  /** delete_observations — MCP Official compatible */
+  server.registerTool(
+    'delete_observations',
+    {
+      title: 'Delete Observations',
+      description: 'Delete specific observations from entities in the knowledge graph',
+      inputSchema: {
+        deletions: z.array(z.object({
+          entityName: z.string().describe('Entity containing the observations'),
+          observations: z.array(z.string()).describe('Observations to delete'),
+        })),
+      },
+    },
+    async ({ deletions }) => {
+      const unresolved = requireResolvedProject('delete observations from the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeDeletions = coerceObjectArray<{ entityName: string; observations: string[] }>(deletions);
+      await graphManager.deleteObservations(safeDeletions);
+      return {
+        content: [{ type: 'text' as const, text: 'Observations deleted successfully' }],
+      };
+    },
+  );
+
+  /** delete_relations — MCP Official compatible */
+  server.registerTool(
+    'delete_relations',
+    {
+      title: 'Delete Relations',
+      description: 'Delete multiple relations from the knowledge graph',
+      inputSchema: {
+        relations: z.array(z.object({
+          from: z.string(),
+          to: z.string(),
+          relationType: z.string(),
+        })),
+      },
+    },
+    async ({ relations }) => {
+      const unresolved = requireResolvedProject('delete relations from the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeRelations = coerceObjectArray<{ from: string; to: string; relationType: string }>(relations);
+      await graphManager.deleteRelations(safeRelations);
+      return {
+        content: [{ type: 'text' as const, text: 'Relations deleted successfully' }],
+      };
+    },
+  );
+
+  /** Filter a KnowledgeGraph to only entities referenced by the current project's observations */
+  async function scopeGraphToProject(graph: { entities: any[]; relations: any[] }) {
+    const { getAllObservations } = await import('./memory/observations.js');
+    const allObs = await withFreshIndex(() => getAllObservations());
+    const scoped = scopeKnowledgeGraphToProject(
+      graph,
+      filterReadableObservations(
+        allObs.filter(observation => observation.projectId === project.id),
+        getObservationReader(),
+      ),
+    );
+    return { entities: scoped.entities, relations: scoped.relations };
+  }
+
+  /** read_graph — MCP Official compatible */
+  server.registerTool(
+    'read_graph',
+    {
+      title: 'Read Graph',
+      description: 'Read the entire knowledge graph',
+      inputSchema: {},
+    },
+    async () => {
+      const unresolved = requireResolvedProject('read the knowledge graph');
+      if (unresolved) return unresolved;
+      const graph = await graphManager.readGraph();
+      const scoped = await scopeGraphToProject(graph);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(scoped, null, 2) }],
+      };
+    },
+  );
+
+  /** search_nodes — MCP Official compatible (basic string search) */
+  server.registerTool(
+    'search_nodes',
+    {
+      title: 'Search Nodes',
+      description: 'Search for nodes in the knowledge graph based on a query',
+      inputSchema: {
+        query: z.string().describe('Search query to match against entity names, types, and observations'),
+      },
+    },
+    async ({ query }) => {
+      const unresolved = requireResolvedProject('search nodes in the knowledge graph');
+      if (unresolved) return unresolved;
+      const graph = await graphManager.searchNodes(query);
+      const scoped = await scopeGraphToProject(graph);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(scoped, null, 2) }],
+      };
+    },
+  );
+
+  /** open_nodes — MCP Official compatible */
+  server.registerTool(
+    'open_nodes',
+    {
+      title: 'Open Nodes',
+      description: 'Open specific nodes in the knowledge graph by their names',
+      inputSchema: {
+        names: z.array(z.string()).describe('Entity names to retrieve'),
+      },
+    },
+    async ({ names }) => {
+      const unresolved = requireResolvedProject('open nodes in the knowledge graph');
+      if (unresolved) return unresolved;
+      const safeNames = coerceStringArray(names);
+      const graph = await graphManager.openNodes(safeNames);
+      const scoped = await scopeGraphToProject(graph);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(scoped, null, 2) }],
+      };
+    },
+  );
+
+  } // end if (enableKG)
+
+  // ============================================================
+  // Rules Sync Tool (P2 — Memorix differentiator)
+  // ============================================================
+
+  const RULE_SOURCES: [string, ...string[]] = ['cursor', 'claude-code', 'codex', 'windsurf', 'antigravity', 'gemini-cli', 'copilot', 'kiro', 'opencode', 'trae'];
+
+  /** memorix_rules_sync — scan, dedup, and generate rules across agents */
+  server.registerTool(
+    'memorix_rules_sync',
+    {
+      title: 'Rules Sync',
+      description:
+        'Scan project for agent rule files (Cursor, Claude Code, Codex, Windsurf, Antigravity, Gemini CLI, Copilot, Kiro, OpenCode, Trae), ' +
+        'deduplicate, detect conflicts, and optionally generate rules for a target agent format. ' +
+        'Without target: returns sync status report. With target: generates converted rule files.',
+      inputSchema: {
+        action: z.enum(['status', 'generate']).describe('Action: "status" for report, "generate" to produce target files'),
+        target: z.enum(RULE_SOURCES).optional().describe('Target agent format for generation (required when action=generate)'),
+      },
+    },
+    async ({ action, target }) => {
+      const syncer = new RulesSyncer(project.rootPath);
+
+      if (action === 'status') {
+        const status = await syncer.syncStatus();
+        const lines = [
+          `## Rules Sync Status`,
+          ``,
+          `**Sources found:** ${status.sources.join(', ') || 'none'}`,
+          `**Total rules:** ${status.totalRules}`,
+          `**Unique rules:** ${status.uniqueRules}`,
+          `**Conflicts:** ${status.conflicts.length}`,
+        ];
+
+        if (status.conflicts.length > 0) {
+          lines.push('', '### Conflicts');
+          for (const c of status.conflicts) {
+            lines.push(`- **${c.ruleA.source}** \`${c.ruleA.id}\` vs **${c.ruleB.source}** \`${c.ruleB.id}\`: ${c.reason}`);
+          }
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+        };
+      }
+
+      // action === 'generate'
+      if (!target) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: target is required for generate action' }],
+          isError: true,
+        };
+      }
+
+      const rules = await syncer.scanRules();
+      const deduped = syncer.deduplicateRules(rules);
+      const effectiveTarget = target === 'opencode' ? 'codex' : target;
+      const files = syncer.generateForTarget(deduped, effectiveTarget as RuleSource);
+
+      const lines = [
+        `## Generated ${files.length} file(s) for ${target}`,
+        '',
+      ];
+      for (const f of files) {
+        lines.push(`### \`${f.filePath}\``, '```', f.content, '```', '');
+      }
+      lines.push('> Use these contents to create the rule files in your project.');
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  // ============================================================
+  // Workspace Sync Tool (P3 — Cross-Agent Workspace Bridge)
+  // ============================================================
+
+  const AGENT_TARGETS: [string, ...string[]] = ['windsurf', 'cursor', 'claude-code', 'codex', 'copilot', 'antigravity', 'gemini-cli', 'openclaw', 'hermes', 'omp', 'kiro', 'opencode', 'trae'];
+
+  /** memorix_workspace_sync — migrate entire workspace config across agents */
+  server.registerTool(
+    'memorix_workspace_sync',
+    {
+      title: 'Workspace Sync',
+      description:
+        'Migrate your entire workspace environment between AI coding agents (Cursor, Windsurf, Claude Code, Codex, Copilot, Gemini CLI, OpenClaw, Hermes Agent, Oh-my-Pi, Kiro, Antigravity, OpenCode, Trae). ' +
+        'Syncs MCP server configs, workflows, rules, and skills across IDEs. ' +
+        'Action "scan": detect all workspace configs. ' +
+        'Action "migrate": generate configs for target agent (preview only). ' +
+        'Action "apply": migrate AND write configs to disk with backup/rollback.',
+      inputSchema: {
+        action: z.enum(['scan', 'migrate', 'apply']).describe('Action: "scan" to detect configs, "migrate" to preview, "apply" to write to disk'),
+        target: z.enum(AGENT_TARGETS).optional().describe('Target agent for migration (required for migrate)'),
+        items: z.array(z.string()).optional().describe('Selective sync: list specific MCP server or skill names to sync (e.g. ["figma-remote-mcp-server", "create-subagent"]). Omit to sync all.'),
+      },
+    },
+    async ({ action, target, items }) => {
+      const engine = new WorkspaceSyncEngine(project.rootPath);
+
+      if (action === 'scan') {
+        const scan = await engine.scan();
+        const lines = [
+          `## Workspace Scan Report`,
+          '',
+          `### MCP Server Configs`,
+        ];
+
+        for (const [agent, servers] of Object.entries(scan.mcpConfigs)) {
+          if ((servers as MCPServerEntry[]).length > 0) {
+            lines.push(`- **${agent}**: ${(servers as MCPServerEntry[]).length} server(s) — ${(servers as MCPServerEntry[]).map((s: MCPServerEntry) => s.name).join(', ')}`);
+          }
+        }
+
+        lines.push('', `### Workflows`);
+        if (scan.workflows.length > 0) {
+          for (const wf of scan.workflows) {
+            lines.push(`- **${wf.name}** (${wf.source}): ${wf.description || '(no description)'}`);
+          }
+        } else {
+          lines.push('- No workflows found');
+        }
+
+        lines.push('', `### Rules`);
+        lines.push(`- ${scan.rulesCount} rule(s) detected across all agents`);
+
+        lines.push('', `### Skills`);
+        if (scan.skills.length > 0) {
+          for (const sk of scan.skills) {
+            lines.push(`- **${sk.name}** (${sk.sourceAgent}): ${sk.description || '(no description)'}`);
+          }
+        } else {
+          lines.push('- No skills found');
+        }
+
+        if (scan.skillConflicts.length > 0) {
+          lines.push('', `### [WARN] Skill Name Conflicts`);
+          for (const c of scan.skillConflicts) {
+            lines.push(`- **${c.name}**: kept from ${c.kept.sourceAgent}, duplicate in ${c.skipped.sourceAgent}`);
+          }
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+        };
+      }
+
+      // action === 'migrate' or 'apply' — both need target
+      if (!target) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: target is required for migrate/apply action' }],
+          isError: true,
+        };
+      }
+
+      if (action === 'apply') {
+        const applyResult = await engine.apply(target as AgentTarget, items);
+        return {
+          content: [{ type: 'text' as const, text: applyResult.migrationSummary }],
+          ...(applyResult.success ? {} : { isError: true }),
+        };
+      }
+
+      // action === 'migrate' (preview only)
+      const result = await engine.migrate(target as AgentTarget, items);
+      const lines = [
+        `## Workspace Migration → ${target}`,
+        '',
+      ];
+
+      if (result.mcpServers.generated.length > 0) {
+        lines.push('### MCP Config');
+        for (const f of result.mcpServers.generated) {
+          lines.push(`#### \`${f.filePath}\``, '```', f.content, '```', '');
+        }
+      }
+
+      if (result.workflows.generated.length > 0) {
+        lines.push('### Workflows');
+        for (const f of result.workflows.generated) {
+          lines.push(`#### \`${f.filePath}\``, '```', f.content, '```', '');
+        }
+      }
+
+      if (result.rules.generated > 0) {
+        lines.push(`### Rules`, `- ${result.rules.generated} rule file(s) generated`);
+      }
+
+      if (result.skills.scanned.length > 0) {
+        lines.push('### Skills', `- ${result.skills.scanned.length} skill(s) found, ready to copy:`);
+        for (const sk of result.skills.scanned) {
+          lines.push(`  - **${sk.name}** (from ${sk.sourceAgent})`);
+        }
+      }
+
+      lines.push('', '> Review the generated configs above. Use action "apply" to write them to disk.');
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  // ============================================================
+  // memorix_skills — Memory-driven project skills
+  // ============================================================
+
+  server.registerTool(
+    'memorix_skills',
+    {
+      title: 'Project Skills',
+      description:
+        'Memory-driven project skills. ' +
+        'Action "list": show all available skills from all agents. ' +
+        'Action "generate": auto-generate project-specific skills from observation patterns (gotchas, decisions, how-it-works). ' +
+        'Action "inject": return a specific skill\'s full content for direct use. ' +
+        'Generated skills follow the SKILL.md standard and can be synced across Cursor, Windsurf, Claude Code, Codex, Copilot, Kiro, Antigravity, OpenCode, and Trae. OpenClaw, Hermes Agent, and Oh-my-Pi receive skills through their official bundle/plugin/package setup lanes rather than generic workspace skill copy.',
+      inputSchema: {
+        action: z.enum(['list', 'generate', 'inject']).describe('Action: "list" to discover skills, "generate" to create from memory, "inject" to get skill content'),
+        name: z.string().optional().describe('Skill name (required for "inject")'),
+        target: z.enum(AGENT_TARGETS).optional().describe('Target agent to write generated skills to (optional for "generate")'),
+        write: z.boolean().optional().describe('Whether to write generated skills to disk (default: false, preview only)'),
+      },
+    },
+    async ({ action, name, target, write }) => {
+      const { SkillsEngine } = await import('./skills/engine.js');
+      const engine = new SkillsEngine(project.rootPath);
+
+      if (action === 'list') {
+        const skills = engine.listSkills();
+        if (skills.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: 'No skills found in any agent directory.\n\nSkills are discovered from:\n- `.cursor/skills/*/SKILL.md`\n- `.agents/skills/*/SKILL.md`\n- `.agent/skills/*/SKILL.md`\n- `.windsurf/skills/*/SKILL.md`\n- etc.\n\nUse action "generate" to auto-create skills from your project observations.' }],
+          };
+        }
+
+        const lines = [
+          `## Available Skills (${skills.length})`,
+          '',
+        ];
+        for (const sk of skills) {
+          lines.push(`- **${sk.name}** (${sk.sourceAgent}): ${sk.description || '(no description)'}`);
+        }
+        lines.push('', '> Use `action: "inject", name: "<skill-name>"` to get full skill content.');
+
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+        };
+      }
+
+      if (action === 'inject') {
+        if (!name) {
+          return {
+            content: [{ type: 'text' as const, text: 'Error: `name` is required for inject action. Use `action: "list"` first to see available skills.' }],
+            isError: true,
+          };
+        }
+
+        const skill = engine.injectSkill(name);
+        if (!skill) {
+          return {
+            content: [{ type: 'text' as const, text: `Skill "${name}" not found. Use \`action: "list"\` to see available skills.` }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: `## Skill: ${skill.name}\n**Source**: ${skill.sourceAgent}\n**Path**: ${skill.sourcePath}\n\n---\n\n${skill.content}` }],
+        };
+      }
+
+      // action === 'generate'
+      const { getObservationStore: getStore } = await import('./store/obs-store.js');
+      const allObs = filterReadableObservations(
+        (await getStore().loadAll()).filter((observation) => observation.projectId === project.id),
+        getObservationReader(),
+      );
+
+      const obsData = allObs.map(o => ({
+        id: o.id || 0,
+        entityName: o.entityName || 'unknown',
+        type: o.type || 'discovery',
+        title: o.title || '',
+        narrative: o.narrative || '',
+        facts: o.facts,
+        concepts: o.concepts,
+        filesModified: o.filesModified,
+        createdAt: o.createdAt,
+        status: o.status,
+        source: o.source,
+      }));
+
+      const generated = engine.generateFromObservations(obsData);
+
+      if (generated.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No skill-worthy patterns found yet.\n\nSkills are auto-generated when entities accumulate enough observations (3+), especially gotchas, decisions, and how-it-works notes.\n\nKeep using memorix_store to build up project knowledge!' }],
+        };
+      }
+
+      const lines = [
+        `## Generated Skills (${generated.length})`,
+        '',
+        'Based on observation patterns in your project memory:',
+        '',
+      ];
+
+      for (const sk of generated) {
+        lines.push(`### ${sk.name}`);
+        lines.push(`- **Description**: ${sk.description}`);
+        lines.push(`- **Observations**: ${sk.content.split('\n').length} lines of knowledge`);
+
+        if (write && target) {
+          const path = engine.writeSkill(sk, target as AgentTarget);
+          if (path) {
+            lines.push(`- [OK] **Written**: \`${path}\``);
+          } else {
+            lines.push(`- [ERROR] Failed to write`);
+          }
+        }
+        lines.push('');
+      }
+
+      if (!write) {
+        lines.push('> Preview only. Add `write: true, target: "<agent>"` to save skills to disk.');
+      }
+
+      // Show first generated skill as preview
+      if (generated.length > 0) {
+        lines.push('', '---', '### Preview: ' + generated[0].name, '', '```markdown', generated[0].content, '```');
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+      };
+    },
+  );
+
+  // ============================================================
+  // Mini-Skills — Promote memories to permanent skills
+  // ============================================================
+
+  /**
+   * memorix_promote — Promote observations to permanent mini-skills
+   *
+   * Converts important memories into permanent, never-decaying mini-skills
+   * that are automatically injected into agent context at session_start.
+   */
+  server.registerTool(
+    'memorix_promote',
+    {
+      title: 'Promote to Mini-Skill',
+      description:
+        'Promote observations to permanent mini-skills that never decay and are auto-injected at session start. ' +
+        'Action "promote": convert observation(s) to a mini-skill. ' +
+        'Action "list": show all active mini-skills. ' +
+        'Action "delete": remove a mini-skill by ID.\n\n' +
+        'Mini-skills are project-specific specialized knowledge derived from your actual memories — ' +
+        'gotchas, decisions, fixes that generic online skills cannot provide.',
+      inputSchema: {
+        action: z.enum(['promote', 'list', 'delete']).describe('Action to perform'),
+        observationIds: z.array(z.number()).optional().describe('Observation IDs to promote (required for "promote")'),
+        skillId: z.number().optional().describe('Mini-skill ID to delete (required for "delete")'),
+        trigger: z.string().optional().describe('Override: when this skill should be applied'),
+        instruction: z.string().optional().describe('Override: what the agent should do'),
+        tags: z.array(z.string()).optional().describe('Extra classification tags'),
+      },
+    },
+    async ({ action, observationIds, skillId, trigger, instruction, tags }) => {
+      const { promoteToMiniSkill, loadAllMiniSkills, deleteMiniSkill, formatMiniSkillsForInjection } = await import('./skills/mini-skills.js');
+
+      if (action === 'list') {
+        const skills = await loadAllMiniSkills(projectDir);
+        if (skills.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: 'No mini-skills found.\n\nUse `action: "promote", observationIds: [<id>]` to convert important memories into permanent mini-skills.\nThese will be auto-injected at every session start.' }],
+          };
+        }
+        const formatted = formatMiniSkillsForInjection(skills);
+        const lines = [
+          formatted,
+          '---',
+          `Total: ${skills.length} mini-skill(s)`,
+          '',
+          '> Use `action: "delete", skillId: <id>` to remove a mini-skill.',
+        ];
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      }
+
+      if (action === 'delete') {
+        if (skillId == null) {
+          return { content: [{ type: 'text' as const, text: 'Error: `skillId` is required for delete action.' }], isError: true };
+        }
+        const deleted = await deleteMiniSkill(projectDir, skillId);
+        if (!deleted) {
+          return { content: [{ type: 'text' as const, text: `Mini-skill #${skillId} not found.` }], isError: true };
+        }
+        return { content: [{ type: 'text' as const, text: `[OK] Deleted mini-skill #${skillId}.` }] };
+      }
+
+      // action === 'promote'
+      if (!observationIds || observationIds.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'Error: `observationIds` is required for promote action. Use `memorix_search` to find observation IDs.' }], isError: true };
+      }
+
+      // Load observations by ID — only active observations can be promoted
+      const { getAllObservations } = await import('./memory/observations.js');
+      const allObs = await withFreshIndex(() => getAllObservations());
+      const reader = getObservationReader();
+      const matched = filterReadableObservations(
+        allObs.filter((observation) => observation.projectId === project.id && observationIds.includes(observation.id)),
+        reader,
+      );
+
+      if (matched.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No observations found for IDs: [${observationIds.join(', ')}]. Use \`memorix_search\` to find valid IDs.` }], isError: true };
+      }
+
+      // Fail-fast: ALL matched observations must be active — no silent drop
+      const nonActive = matched.filter(o => (o.status ?? 'active') !== 'active');
+      if (nonActive.length > 0) {
+        return { content: [{ type: 'text' as const, text: `Cannot promote: ${nonActive.length} observation(s) are not active: ${nonActive.map(o => `#${o.id} (${o.status})`).join(', ')}. Only active observations can be promoted to permanent knowledge.` }], isError: true };
+      }
+
+      const nonProjectShared = matched.filter((observation) => resolveObservationVisibility(observation) !== 'project');
+      if (nonProjectShared.length > 0) {
+        return {
+          content: [{ type: 'text' as const, text: `Cannot promote private or team-scoped observations: ${nonProjectShared.map((observation) => `#${observation.id}`).join(', ')}. Promote only deliberate project-shared knowledge.` }],
+          isError: true,
+        };
+      }
+
+      const skill = await promoteToMiniSkill(projectDir, project.id, matched, { trigger, instruction, tags });
+
+      const lines = [
+        `[OK] Created mini-skill #${skill.id}`,
+        '',
+        `**${skill.title}**`,
+        `**Do**: ${skill.instruction}`,
+        `**When**: ${skill.trigger}`,
+      ];
+      if (skill.facts.length > 0) {
+        lines.push('**Facts**:');
+        for (const f of skill.facts) lines.push(`- ${f}`);
+      }
+      lines.push('', `Source: ${matched.length} observation(s) [${matched.map((o: any) => o.id).join(', ')}]`);
+      lines.push('', '> This mini-skill will be auto-injected at every `memorix_session_start`.');
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ============================================================
+  // Memory Consolidation
+  // ============================================================
+
+  /**
+   * memorix_consolidate — Merge similar observations to reduce bloat
+   */
+  server.registerTool(
+    'memorix_consolidate',
+    {
+      title: 'Consolidate Memories',
+      description:
+        'Find and merge similar observations to reduce memory bloat. ' +
+        'Uses text similarity to cluster related observations by entity+type, then merges them into single consolidated records. ' +
+        'Use action="preview" to see candidates without changing data, action="execute" to merge.\n\n' +
+        'Example: 10 similar gotchas about Windows paths → 1 consolidated gotcha with all facts preserved.',
+      inputSchema: {
+        action: z.enum(['preview', 'execute']).describe('preview = dry run showing candidates, execute = actually merge'),
+        threshold: z.number().optional().describe('Similarity threshold 0.0-1.0 (default: 0.45). Lower = more aggressive merging'),
+      },
+    },
+    async ({ action, threshold }) => {
+      const safeThreshold = threshold != null ? coerceNumber(threshold, 0.45) : undefined;
+      const { findConsolidationCandidates, executeConsolidation } = await import('./memory/consolidation.js');
+
+      if (action === 'preview') {
+        const clusters = await findConsolidationCandidates(projectDir, project.id, { threshold: safeThreshold });
+
+        if (clusters.length === 0) {
+          return { content: [{ type: 'text' as const, text: '[OK] No consolidation candidates found. Your memories are already clean!' }] };
+        }
+
+        const lines = [`## Consolidation Preview`, `Found **${clusters.length}** clusters to merge:`, ''];
+        for (let i = 0; i < clusters.length; i++) {
+          const c = clusters[i];
+          lines.push(`### Cluster ${i + 1} (${c.ids.length} observations, ~${(c.similarity * 100).toFixed(0)}% similar)`);
+          lines.push(`Entity: \`${c.entityName}\` | Type: ${c.type}`);
+          for (const title of c.titles) lines.push(`- ${title}`);
+          lines.push('');
+        }
+        const totalMergeable = clusters.reduce((sum, c) => sum + c.ids.length - 1, 0);
+        lines.push(`> Run with \`action: "execute"\` to merge. This will remove **${totalMergeable}** duplicate observations.`);
+
+        return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+      }
+
+      // Execute
+      const result = await executeConsolidation(projectDir, project.id, { threshold: safeThreshold });
+
+      if (result.clustersFound === 0) {
+        return { content: [{ type: 'text' as const, text: '[OK] No consolidation needed. Memories are already clean!' }] };
+      }
+
+      const lines = [
+        `## Consolidation Complete`,
+        `- Clusters merged: **${result.clustersFound}**`,
+        `- Observations removed: **${result.observationsMerged}**`,
+        `- Observations remaining: **${result.observationsAfter}**`,
+        '',
+      ];
+      for (const m of result.merges) {
+        lines.push(`- Merged [${m.mergedIds.join(', ')}] → "${m.resultTitle}" (${m.factCount} facts)`);
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ============================================================
+  // Session Lifecycle Tools (inspired by Engram)
+  // ============================================================
+
+  /**
+   * memorix_session_start — Start a new coding session
+   *
+   * Creates a session record and returns a compact continuation card.
+   * This is the entry point for session-aware memory management.
+   */
+  server.registerTool(
+    'memorix_session_start',
+    {
+      title: 'Start Session',
+      description:
+        'Start a new coding session. Returns a compact continuation card with the latest handoff and a few memory references. ' +
+        'Call this at the beginning of a session to track activity; retrieve a referenced memory only when it is relevant. ' +
+        'Any previous active session for this project will be auto-closed. ' +
+        'By default this is lightweight: it binds the project, opens a session, and avoids dumping full history into the new context. ' +
+        'Coordination identity is opt-in via `joinTeam: true` or a separate `team_manage` join call.\n\n' +
+        'IMPORTANT for HTTP/control-plane mode: pass `projectRoot` with the absolute path to your ' +
+        'workspace root (e.g., the directory open in your IDE). Memorix uses this to detect the git ' +
+        'project and bind this session to the correct project context. Without it, project-scoped ' +
+        'tools will be disabled.',
+      inputSchema: {
+        sessionId: z.string().optional().describe('Custom session ID (auto-generated if omitted)'),
+        agent: z.string().optional().describe('Agent/IDE name (e.g., "cursor", "windsurf", "claude-code")'),
+        agentType: z.string().optional().describe('Agent type used for optional coordination identity mapping (e.g., "windsurf", "cursor").'),
+        instanceId: z.string().optional().describe('Stable instance ID for optional coordination identity across restarts. If omitted with joinTeam=true, Memorix derives a deterministic fallback from the project and agent identity.'),
+        joinTeam: z.boolean().optional().describe('If true, also join orchestration coordination state for this session. Defaults to false.'),
+        role: z.string().optional().describe('Explicit role override used only when joinTeam=true.'),
+        projectRoot: z.string().optional().describe(
+          'Absolute path to the workspace/project root directory (e.g., the folder open in your IDE). ' +
+          'Memorix will detect the git project from this path and bind this session to it. ' +
+          'Required for HTTP transport when multiple projects are open simultaneously or when rebinding an existing control-plane session.',
+        ),
+      },
+    },
+    async ({ sessionId, agent, agentType, instanceId, joinTeam, role, projectRoot: explicitRoot }) => {
+      // Phase 4a: clear agent identity — must not bleed from prior session_start
+      currentAgentId = undefined;
+
+      // ── Explicit project binding via projectRoot ──────────────────────
+      // If the caller provides projectRoot, attempt to switch/bind to that project
+      // BEFORE checking whether the project is resolved. This is the primary
+      // mechanism for HTTP/control-plane multi-project support.
+      if (explicitRoot && typeof explicitRoot === 'string') {
+        if (isHomeDirectory(explicitRoot)) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: homeProjectRootError(explicitRoot),
+            }],
+            isError: true as const,
+          };
+        }
+        let bound = await switchProject(explicitRoot, 'explicit-project-root');
+        // switchProject returns false for both "same project, no-op" and "no git repo".
+        // Only scan subdirectories when explicitRoot is not itself a git repo; otherwise
+        // a same-project no-op can be hijacked by the first nested/vendored repo.
+        if (!bound) {
+          const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
+          const diag = diagnose(explicitRoot);
+          if (diag.project) {
+            if (projectResolved) {
+              const { registerAlias: regAlias } = await import('./project/aliases.js');
+              const resolvedCanonical = await regAlias(diag.project);
+              if (resolvedCanonical === project.id) {
+                bound = true;
+              }
+            }
+          } else {
+            const { findGitInSubdirs } = await import('./project/detector.js');
+            const subGit = findGitInSubdirs(explicitRoot);
+            if (subGit) {
+              bound = await switchProject(subGit, 'explicit-project-root');
+            }
+          }
+        }
+        if (!bound) {
+          // Explicit projectRoot was provided but no git repo found.
+          // ALWAYS fail closed — never silently fall back to a previously bound project.
+          const { detectProjectWithDiagnostics: diagnose } = await import('./project/detector.js');
+          const diag = diagnose(explicitRoot);
+          const failureDetail = diag.failure
+            ? `\nDiagnostic: [${diag.failure.reason}] ${diag.failure.detail}`
+            : '';
+          const hint = projectResolved
+            ? `The session was previously bound to "${project.name}" (${project.id}), but the explicitly requested path has no git repo. Refusing to silently reuse the old binding.`
+            : 'No project is currently bound to this session.';
+          return {
+            content: [{
+              type: 'text' as const,
+              text:
+                `Cannot bind session to project.\n` +
+                `No git repository found at "${explicitRoot}".${failureDetail}\n` +
+                `${hint}\n\n` +
+                'Ensure the path points to a directory containing a .git folder (or a subdirectory of one). ' +
+                'Run "git init" in your project root if needed.',
+            }],
+            isError: true as const,
+          };
+        }
+        // `switchProject` records the explicit binding in the transport-neutral
+        // ProjectBindingController, so Roots can no longer override it.
+      }
+
+      const unresolved = requireResolvedProject('start a project session');
+      if (unresolved) return unresolved;
+
+      const { startSession } = await import('./memory/session.js');
+
+      const llmStatus = isLLMEnabled()
+        ? `LLM enhanced mode: ${getLLMConfig()?.provider}/${getLLMConfig()?.model} (fact extraction + auto-dedup active)`
+        : 'LLM mode: off (set MEMORIX_LLM_API_KEY to enable enhanced memory quality)';
+
+      const shouldJoinTeam = !!joinTeam;
+      // Phase 4a: Explicit team join only
+      let registeredAgent: import('./team/team-store.js').TeamAgentRow | null = null;
+      let watermarkInfo = '';
+      let rescueInfo = '';
+      let teamJoinNotice = '';
+      try {
+        if (!teamFeaturesEnabled && shouldJoinTeam) {
+          teamJoinNotice = 'Coordination join skipped: the current tool profile does not expose coordination tools.';
+        } else if (shouldJoinTeam && typeof teamStore !== 'undefined' && (agent || agentType)) {
+          // Auto-derive role from agentType using AGENT_TYPE_ROLE_MAP
+          const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
+          const resolvedAgentType = agentType || agent || 'unknown';
+          const resolvedRole = role || (resolvedAgentType ? AGENT_TYPE_ROLE_MAP[resolvedAgentType] : undefined) || 'engineer';
+          const resolvedInstanceId = instanceId || createDeterministicInstanceId(
+            project.id,
+            resolvedAgentType,
+            agent || agentType || undefined,
+          );
+          registeredAgent = teamStore.registerAgent({
+            projectId: project.id,
+            agentType: resolvedAgentType,
+            instanceId: resolvedInstanceId,
+            name: agent || agentType || undefined,
+            role: resolvedRole,
+          });
+
+          // Set session-level agent identity for observation attribution
+          currentAgentId = registeredAgent.agent_id;
+
+          // Watermark: project-scoped count of new observations since last seen
+          // Uses computeWatermark (extracted to team/poll.ts for reuse by memorix_poll)
+          // withFreshIndex ensures cross-process writes are visible before counting
+          const { computeWatermark } = await import('./team/poll.js');
+          const lastSeen = registeredAgent.last_seen_obs_generation;
+          const store = getObservationStore();
+          const currentGen = store.getGeneration();
+          const projectObs = await withFreshIndex(() => filterReadableObservations(
+            getAllObservations().filter(
+              o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+            ),
+            getObservationReader(),
+          ));
+          const wm = computeWatermark(lastSeen, currentGen, projectObs.length);
+          if (wm.newObservationCount > 0) {
+            watermarkInfo = `[STATS] ${wm.newObservationCount} new observation(s) in this project since your last session.`;
+          }
+
+          // Update watermark to current global generation (high-water mark for next session)
+          teamStore.updateWatermark(registeredAgent.agent_id, currentGen);
+
+          // Phase 4b: Rescue detection — detect stale agents and surface rescued tasks
+          // detectAndMarkStale releases tasks from agents with stale heartbeats
+          const STALE_TTL_MS = 5 * 60 * 1000; // 5 minutes without heartbeat = stale
+          const rescuedAgentIds = teamStore.detectAndMarkStale(project.id, STALE_TTL_MS);
+          if (rescuedAgentIds.length > 0) {
+            rescueInfo = `[RESCUE] ${rescuedAgentIds.length} stale agent(s) detected and rescued.`;
+          }
+
+          // Check for available tasks (including any just-rescued ones)
+          const availableTasks = teamStore.listTasks(project.id, { available: true });
+          if (availableTasks.length > 0) {
+            rescueInfo += rescueInfo ? '\n' : '';
+            rescueInfo += `[TASK] ${availableTasks.length} task(s) available to claim. Use memorix_poll for details.`;
+          }
+        } else if (shouldJoinTeam) {
+          teamJoinNotice = 'Coordination join skipped: pass `agent` or `agentType` to create a coordination identity.';
+        }
+      } catch { /* team auto-registration is best-effort */ }
+
+      const result = await startSession(projectDir, project.id, {
+        sessionId,
+        agent,
+        reader: getObservationReader(),
+      });
+      const bindingReceipt = projectBinding.receipt({
+        dataDir: projectDir,
+        transport: options.bindingTransport,
+        gitRemote: project.gitRemote,
+        handle: options.bindingHandle,
+      });
+
+      const lines = [
+        `[OK] Session started: ${result.session.id}`,
+        `Project: ${project.name} (${project.id})`,
+        `Binding: ${bindingReceipt.state} via ${bindingReceipt.source}`,
+        result.session.agent ? `Agent: ${result.session.agent}` : '',
+        registeredAgent ? `Agent ID: ${registeredAgent.agent_id} (instance: ${registeredAgent.instance_id})` : '',
+        !registeredAgent ? 'Coordination identity: not joined (memory/session context only)' : '',
+        llmStatus,
+        teamJoinNotice,
+        registeredAgent ? watermarkInfo : '',
+        registeredAgent ? rescueInfo : '',
+        '',
+        '[TIP] Tips: Use `memorix_resolve` to mark completed tasks. Use `progress` param in `memorix_store` for task tracking. Use `topicKey` to prevent duplicate memories.',
+        '',
+      ];
+
+      // Inject mini-skills (permanent, never-decaying project knowledge)
+      // Filter out demo/test/system-self skills so they don't pollute unrelated projects.
+      try {
+        const { loadMiniSkills, formatMiniSkillsForInjection, recordMiniSkillUsage } = await import('./skills/mini-skills.js');
+        const SKILL_NOISE = [
+          /\bdemo\b/i, /展示/i, /全能力/i, /\[test\]/i, /\[测试\]/i, /测试/i,
+          /验证/i, /兼容/i, /compat/i, /memmcp/i, /memorix-demo/i, /sandbox/i,
+          /playground/i, /benchmark/i, /handoff/i, /交接/i, /for_memmcp/i,
+        ];
+        const allSkills = await loadMiniSkills(projectDir, project.id);
+        const miniSkills = allSkills.filter(s => {
+          const text = `${s.title}\n${s.sourceEntity}\n${s.instruction}`.toLowerCase();
+          return !SKILL_NOISE.some(p => p.test(text));
+        });
+        if (miniSkills.length > 0) {
+          const formatted = formatMiniSkillsForInjection(miniSkills);
+          lines.push('---', '', formatted);
+          // Record usage asynchronously (don't block response)
+          recordMiniSkillUsage(projectDir, miniSkills.map(s => s.id)).catch(() => {});
+        }
+      } catch { /* mini-skills not available yet — skip */ }
+
+      if (result.previousContext) {
+        lines.push('---', '[TASK] **Continuation card:**', '', result.previousContext);
+      } else {
+        lines.push('No previous session context found. This appears to be a fresh project.');
+      }
+
+      // Inject team context if any agents are active (Phase 4a: SQLite-backed)
+      try {
+        if (registeredAgent && teamFeaturesEnabled && typeof teamStore !== 'undefined') {
+          const activeAgents = teamStore.listAgents(project.id, { status: 'active' });
+          if (activeAgents.length > 0) {
+            lines.push('', '---', '[TEAM] **Team Status:**');
+            for (const a of activeAgents) {
+              lines.push(`- [CHANGE] ${a.name}${a.role ? ` (${a.role})` : ''}`);
+            }
+
+            // Show locked files
+            const locks = teamStore.listLocks(project.id);
+            if (locks.length > 0) {
+              lines.push('', '[LOCK] **Locked files:**');
+              for (const l of locks) {
+                const owner = teamStore.getAgent(l.locked_by);
+                lines.push(`- ${l.file} — ${owner?.name ?? l.locked_by.slice(0, 8)}`);
+              }
+            }
+
+            lines.push('', '[TIP] Use `team_manage` to register, `team_message` to check inbox, `team_task` to see tasks.');
+          }
+        }
+      } catch { /* team context injection is optional */ }
+
+      const card = lines.filter(Boolean).join('\n');
+      return {
+        content: [{ type: 'text' as const, text: card }],
+        // Clients that surface only structuredContent (e.g. Claude Code) must
+        // still see the session card, not just the binding receipt.
+        structuredContent: { card, binding: bindingReceipt },
+      };
+    },
+  );
+
+  /**
+   * memorix_session_end — End the current coding session
+   *
+   * Marks the session as completed with a structured summary.
+   */
+  server.registerTool(
+    'memorix_session_end',
+    {
+      title: 'End Session',
+      description:
+        'End a coding session with a structured summary. This summary will be injected into the next session ' +
+        'so the next agent can resume work seamlessly.\n\n' +
+        'Recommended summary format:\n' +
+        '## Goal\n[What we were working on]\n\n' +
+        '## Discoveries\n- [Technical findings, gotchas, learnings]\n\n' +
+        '## Accomplished\n- [OK] [Completed tasks]\n- [PENDING] [Pending for next session]\n\n' +
+        '## Relevant Files\n- path/to/file — [what changed]',
+      inputSchema: {
+        sessionId: z.string().describe('Session ID to close (from memorix_session_start)'),
+        summary: z.string().optional().describe('Structured session summary (Goal/Discoveries/Accomplished/Files format)'),
+      },
+    },
+    async ({ sessionId, summary }) => {
+      const { endSession } = await import('./memory/session.js');
+      const session = await endSession(projectDir, sessionId, summary);
+
+      if (!session) {
+        return {
+          content: [{ type: 'text' as const, text: `Session "${sessionId}" not found.` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `[OK] Session "${sessionId}" completed.\nDuration: ${session.startedAt} → ${session.endedAt}\n${summary ? 'Summary saved for next session context injection.' : 'No summary provided — consider adding one for better cross-session context.'}`,
+        }],
+      };
+    },
+  );
+
+  /**
+   * memorix_session_context — Get context from previous sessions
+   *
+   * Use this for compaction recovery or to manually retrieve session history.
+   */
+  server.registerTool(
+    'memorix_session_context',
+    {
+      title: 'Session Context',
+      description:
+        'Get context from previous coding sessions. Use this after compaction to recover lost context, ' +
+        'or to manually review session history. Returns previous session summaries and key observations.',
+      inputSchema: {
+        limit: z.number().optional().describe('Number of recent sessions to include (default: 3)'),
+      },
+    },
+    async ({ limit }) => {
+      const safeLimit = limit != null ? coerceNumber(limit, 3) : 3;
+      const { getSessionContext, listSessions } = await import('./memory/session.js');
+      const context = await getSessionContext(projectDir, project.id, safeLimit, getObservationReader());
+      const sessions = await listSessions(projectDir, project.id);
+
+      const activeSessions = sessions.filter(s => s.status === 'active');
+      const completedSessions = sessions.filter(s => s.status === 'completed');
+
+      const header = [
+        `## Session Stats`,
+        `- Active: ${activeSessions.length}`,
+        `- Completed: ${completedSessions.length}`,
+        `- Total: ${sessions.length}`,
+        '',
+      ];
+
+      if (!context) {
+        return {
+          content: [{ type: 'text' as const, text: header.join('\n') + '\nNo previous session context available.' }],
+        };
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: header.join('\n') + context }],
+      };
+    },
+  );
+
+  /**
+   * memorix_compaction_checkpoint — Advanced inspection of native host
+   * compaction checkpoints. Automatic recovery does not need this tool; it is
+   * deliberately full-profile only so normal MCP startup stays compact.
+   */
+  server.registerTool(
+    'memorix_compaction_checkpoint',
+    {
+      title: 'Compact Continuity Checkpoints',
+      description:
+        'Inspect, preview, or archive bounded checkpoints recorded around a host-native context compaction. ' +
+        'Use only to debug or explicitly review compaction continuity. These are lifecycle records, not durable memories or transcript backups. ' +
+        'CLI equivalent: memorix checkpoint list|show|context|archive.',
+      inputSchema: {
+        action: z.enum(['list', 'show', 'context', 'archive']).default('list'),
+        id: z.string().optional().describe('Checkpoint ID for show, context, or archive'),
+        sessionId: z.string().optional().describe('Optional host session ID filter'),
+        agent: z.string().optional().describe('Optional host agent filter'),
+        task: z.string().optional().describe('Current task for a bounded context preview'),
+        maxTokens: z.number().optional().describe('Maximum tokens for action=context (default: 420)'),
+        limit: z.number().optional().describe('Maximum records for action=list (default: 20)'),
+        includeArchived: z.boolean().optional().default(false).describe('Include archived records in action=list'),
+      },
+    },
+    async ({ action, id, sessionId, agent, task, maxTokens, limit, includeArchived }) => {
+      const unresolved = requireResolvedProject('inspect compact continuity checkpoints');
+      if (unresolved) return unresolved;
+
+      const [{ CompactionCheckpointStore }, { buildCompactionWorkset }] = await Promise.all([
+        import('./store/compaction-checkpoint-store.js'),
+        import('./memory/compaction.js'),
+      ]);
+      const store = new CompactionCheckpointStore(projectDir);
+      const assertCheckpoint = (checkpointId: string) => {
+        const checkpoint = store.get(checkpointId);
+        if (!checkpoint || checkpoint.projectId !== project.id) return null;
+        return checkpoint;
+      };
+
+      if (action === 'list') {
+        const checkpoints = store.list({
+          projectId: project.id,
+          sessionId: sessionId?.trim() || undefined,
+          agent: agent?.trim() || undefined,
+          includeArchived: Boolean(includeArchived),
+          limit: limit != null ? Math.max(1, Math.min(100, coerceNumber(limit, 20))) : 20,
+        });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, checkpoints }, null, 2) }],
+        };
+      }
+
+      if (!id?.trim()) {
+        return {
+          content: [{ type: 'text' as const, text: 'id is required for this checkpoint action.' }],
+          isError: true,
+        };
+      }
+      const checkpoint = assertCheckpoint(id.trim());
+      if (!checkpoint) {
+        return {
+          content: [{ type: 'text' as const, text: `Checkpoint "${id.trim()}" was not found for the current project.` }],
+          isError: true,
+        };
+      }
+
+      if (action === 'show') {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, checkpoint }, null, 2) }],
+        };
+      }
+      if (action === 'context') {
+        const workset = buildCompactionWorkset(checkpoint, {
+          task: task?.trim(),
+          maxTokens: maxTokens != null ? coerceNumber(maxTokens, 420) : 420,
+        });
+        return {
+          content: [{ type: 'text' as const, text: workset.text }],
+        };
+      }
+
+      const archived = store.archive(checkpoint.id);
+      if (!archived) {
+        return {
+          content: [{ type: 'text' as const, text: `Checkpoint "${checkpoint.id}" is already archived.` }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: 'text' as const, text: `Archived compact checkpoint ${archived.id}.` }],
+      };
+    },
+  );
+
+  // ============================================================
+  // Export / Import
+  // ============================================================
+
+  /**
+   * memorix_transfer — Export or import project memories
+   */
+  server.registerTool(
+    'memorix_transfer',
+    {
+      title: 'Transfer Memories',
+      description:
+        'Export or import project memories. ' +
+        'Action "export": export observations visible to the current agent and project sessions (JSON or Markdown). ' +
+        'Action "import": import from a JSON export (re-assigns IDs, skips duplicate topicKeys).',
+      inputSchema: {
+        action: z.enum(['export', 'import']).describe('Operation: export or import'),
+        format: z.enum(['json', 'markdown']).optional().describe('Export format (for export, default: json)'),
+        data: z.string().optional().describe('JSON string from a previous export (for import)'),
+      },
+    },
+    async ({ action, format, data: jsonStr }) => {
+      if (action === 'export') {
+        const { exportAsJson, exportAsMarkdown } = await import('./memory/export-import.js');
+        if (format === 'markdown') {
+          const md = await exportAsMarkdown(projectDir, project.id, getObservationReader());
+          return { content: [{ type: 'text' as const, text: md }] };
+        }
+        const data = await exportAsJson(projectDir, project.id, getObservationReader());
+        const json = JSON.stringify(data, null, 2);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Export complete — ${data.stats.observationCount} observations, ${data.stats.sessionCount} sessions\n\n\`\`\`json\n${json}\n\`\`\`\n\n> Use action "import" on another machine to restore.`,
+          }],
+        };
+      }
+      // import
+      if (!jsonStr) return { content: [{ type: 'text' as const, text: '[ERROR] data is required for import' }], isError: true };
+      const { importFromJson } = await import('./memory/export-import.js');
+      let parsed;
+      try { parsed = JSON.parse(jsonStr); } catch {
+        return { content: [{ type: 'text' as const, text: 'Invalid JSON. Provide the exact output from export.' }], isError: true };
+      }
+      const result = await importFromJson(projectDir, parsed);
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Import complete — ${result.observationsImported} observations, ${result.sessionsImported} sessions imported, ${result.skipped} skipped`,
+        }],
+      };
+    },
+  );
+
+  // ============================================================
+  // memorix_dashboard — Launch the web dashboard
+  // ============================================================
+
+  let dashboardRunning = false;
+
+  server.registerTool(
+    'memorix_dashboard',
+    {
+      title: 'Launch Dashboard',
+      description:
+        'Launch the Memorix Web Dashboard in the browser. ' +
+        'In HTTP control-plane mode, this reuses the current control-plane dashboard. ' +
+        'In stdio/standalone mode, it starts the standalone dashboard server.',
+      inputSchema: {
+        port: z.number().optional().describe('Optional port override for standalone mode. In HTTP control-plane mode, the active dashboard port is reused.'),
+      },
+    },
+    async ({ port: dashboardPort }) => {
+      const inControlPlane = dashboardMode === 'control-plane';
+      const portNum = inControlPlane
+        ? configuredDashboardPort
+        : (dashboardPort != null ? coerceNumber(dashboardPort, configuredDashboardPort) : configuredDashboardPort);
+      const url = `http://localhost:${portNum}`;
+
+      if (inControlPlane) {
+        const http = await import('node:http');
+        const postData = JSON.stringify({ projectId: project.id, projectName: project.name });
+        await new Promise<void>(resolve => {
+          const req = http.request({
+            hostname: '127.0.0.1',
+            port: portNum,
+            path: '/api/set-current-project',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+          }, () => resolve());
+          req.on('error', () => resolve());
+          req.write(postData);
+          req.end();
+        });
+
+        const projectUrl = `${url}?project=${encodeURIComponent(project.id)}`;
+        const { exec } = await import('node:child_process');
+        const cmd =
+          process.platform === 'win32' ? `start "" "${projectUrl}"` :
+            process.platform === 'darwin' ? `open "${projectUrl}"` :
+              `xdg-open "${projectUrl}"`;
+        exec(cmd, { windowsHide: true }, () => { });
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Memorix Dashboard opened on the current control plane.`,
+              ``,
+              `URL: ${url}`,
+              `Project: ${project.name} (${project.id})`,
+              ``,
+              `This MCP session is already running in HTTP control-plane mode, so no standalone 3210 dashboard was started.`,
+            ].join('\n'),
+          }],
+        };
+      }
+
+      if (dashboardRunning) {
+        // Verify the dashboard is actually still listening (process may have been killed externally)
+        const { createConnection } = await import('node:net');
+        const isAlive = await new Promise<boolean>(resolve => {
+          const sock = createConnection(portNum, '127.0.0.1');
+          sock.once('connect', () => { sock.destroy(); resolve(true); });
+          sock.once('error', () => { sock.destroy(); resolve(false); });
+          setTimeout(() => { sock.destroy(); resolve(false); }, 1000);
+        });
+
+        if (isAlive) {
+          // Update the dashboard server's current project via API
+          const http = await import('node:http');
+          const postData = JSON.stringify({ projectId: project.id, projectName: project.name });
+          await new Promise<void>(resolve => {
+            const req = http.request({
+              hostname: '127.0.0.1', port: portNum,
+              path: '/api/set-current-project', method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+            }, () => resolve());
+            req.on('error', () => resolve()); // ignore errors
+            req.write(postData);
+            req.end();
+          });
+
+          // Open browser — the dashboard now serves this project as current
+          const projectUrl = `${url}?project=${encodeURIComponent(project.id)}`;
+          const { exec } = await import('node:child_process');
+          const cmd =
+            process.platform === 'win32' ? `start "" "${projectUrl}"` :
+              process.platform === 'darwin' ? `open "${projectUrl}"` :
+                `xdg-open "${projectUrl}"`;
+          exec(cmd, { windowsHide: true }, () => { });
+          return {
+            content: [{ type: 'text' as const, text: `Dashboard is already running at ${url}. Switched to project: ${project.name} (${project.id}).` }],
+          };
+        }
+
+        // Dashboard process was killed externally — reset flag and fall through to restart
+        console.error('[memorix] Dashboard process no longer running, restarting...');
+        dashboardRunning = false;
+      }
+
+      try {
+        const pathMod = await import('node:path');
+        const fsMod = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        const { startDashboard } = await import('./dashboard/server.js');
+
+        // Try multiple strategies to find the static files directory
+        // When running from CLI (dist/cli/index.js), __dirname = dist/cli/, need to go up
+        const candidates = [
+          pathMod.default.join(__dirname, '..', 'dashboard', 'static'),
+          pathMod.default.join(__dirname, 'dashboard', 'static'),
+          pathMod.default.join(pathMod.default.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'static'),
+          pathMod.default.join(pathMod.default.dirname(fileURLToPath(import.meta.url)), 'dashboard', 'static'),
+        ];
+
+        // Log all candidates for debugging
+        for (const [i, c] of candidates.entries()) {
+          const hasIndex = fsMod.existsSync(pathMod.default.join(c, 'index.html'));
+          console.error(`[memorix] candidate[${i}]: ${c} (has index.html: ${hasIndex})`);
+        }
+
+        let staticDir = candidates[0];
+        for (const c of candidates) {
+          if (fsMod.existsSync(pathMod.default.join(c, 'index.html'))) {
+            staticDir = c;
+            break;
+          }
+        }
+        console.error(`[memorix] Dashboard staticDir: ${staticDir}`);
+
+        // Start in background (non-blocking), disable auto-open (we'll open it ourselves)
+        startDashboard(projectDir, portNum, staticDir, project.id, project.name, false, project.rootPath, projectResolved)
+          .then(() => { dashboardRunning = true; })
+          .catch((err) => { console.error('[memorix] Dashboard error:', err); dashboardRunning = false; });
+
+        // Poll until the server is actually listening (up to 5s)
+        const { createConnection } = await import('node:net');
+        await new Promise<void>(resolve => {
+          const deadline = Date.now() + 5000;
+          const tryConnect = () => {
+            const sock = createConnection(portNum, '127.0.0.1');
+            sock.once('connect', () => { sock.destroy(); resolve(); });
+            sock.once('error', () => {
+              sock.destroy();
+              if (Date.now() < deadline) setTimeout(tryConnect, 100);
+              else resolve(); // give up, return anyway
+            });
+          };
+          tryConnect();
+        });
+        dashboardRunning = true;
+
+        // Open browser from MCP side
+        const { exec: execCmd } = await import('node:child_process');
+        const openCmd =
+          process.platform === 'win32' ? `start "" "${url}"` :
+            process.platform === 'darwin' ? `open "${url}"` :
+              `xdg-open "${url}"`;
+        execCmd(openCmd, { windowsHide: true }, () => { });
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: [
+              `Memorix Dashboard started!`,
+              ``,
+              `URL: ${url}`,
+              `Project: ${project.name} (${project.id})`,
+              `Static: ${staticDir}`,
+              ``,
+              `The dashboard has been opened in your default browser.`,
+              `It shows your knowledge graph, observations, retention scores, and project stats.`,
+            ].join('\n'),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to start dashboard: ${err instanceof Error ? err.message : String(err)}` }],
+        };
+      }
+    },
+  );
+
+  // ================================================================
+  // Orchestration Coordination Tools (Multi-Agent) - SQLite-backed
+  // ================================================================
+
+  server.registerTool(
+    'memorix_evidence',
+    {
+      title: 'Evidence Cards',
+      description:
+        'Inspect the bounded, project-scoped provenance cards behind Memorix context. ' +
+        'Use list for a compact index, get/events for one source, sync to repair the projection, ' +
+        'and stale when known source files changed. Cards expose sourceRef, locator, capturedHash, and freshness.',
+      inputSchema: {
+        action: z.enum(['list', 'get', 'sync', 'stale', 'events']).describe('Evidence operation'),
+        candidateKind: z.enum(['observation', 'code', 'git', 'test', 'document', 'workflow', 'graph']).optional().default('observation'),
+        candidateId: z.string().optional().describe('Candidate id, usually an observation id'),
+        query: z.string().optional().describe('Optional title/source query for list'),
+        paths: z.array(z.string()).max(200).optional().describe('Changed source paths for stale'),
+        reason: z.string().max(500).optional().describe('Why evidence became stale'),
+        limit: z.number().int().positive().max(100).optional().default(20),
+      },
+    },
+    async ({ action, candidateKind, candidateId, query, paths, reason, limit }) => {
+      const unresolved = requireResolvedProject('inspect evidence cards for the current project');
+      if (unresolved) return unresolved;
+      const cards = new EvidenceCardStore();
+      await cards.init(projectDir);
+      if (action === 'sync') {
+        const observations = await getObservationStore().loadByProject(project.id);
+        const synced = cards.syncObservations(observations);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, synced: synced.length, cards: synced.slice(0, limit ?? 20) }, null, 2) }] };
+      }
+      if (action === 'stale') {
+        const changed = cards.markStaleForPaths(project.id, paths ?? [], reason ?? 'source file changed');
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, staleMarked: changed, paths: paths ?? [] }, null, 2) }] };
+      }
+      if (action === 'get') {
+        if (!candidateId?.trim()) return { content: [{ type: 'text' as const, text: 'candidateId is required for evidence get.' }], isError: true };
+        const card = cards.get(project.id, candidateKind ?? 'observation', candidateId.trim());
+        if (!card) return { content: [{ type: 'text' as const, text: 'Evidence card not found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ card, events: cards.listEvents(card.id), projectId: project.id }, null, 2) }] };
+      }
+      if (action === 'events') {
+        if (!candidateId?.trim()) return { content: [{ type: 'text' as const, text: 'candidateId is required for evidence events.' }], isError: true };
+        const card = cards.get(project.id, candidateKind ?? 'observation', candidateId.trim());
+        if (!card) return { content: [{ type: 'text' as const, text: 'Evidence card not found.' }], isError: true };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(cards.listEvents(card.id, limit), null, 2) }] };
+      }
+      const needle = query?.trim().toLowerCase();
+      const listed = cards.list(project.id, { limit: Math.max(limit ?? 20, 100) })
+        .filter((card) => !needle || [card.title, card.summary, card.sourceRef, card.locator ?? ''].join(' ').toLowerCase().includes(needle))
+        .slice(0, limit ?? 20);
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, cards: listed }, null, 2) }] };
+    },
+  );
+
+  server.registerTool(
+    'memorix_feedback',
+    {
+      title: 'Memory Feedback',
+      description:
+        'Record or inspect auditable memory outcomes. Positive verification/use strengthens recall; correction, conflict, source change, or weaken lowers it. ' +
+        'Use revoke with targetEventId to undo one prior signal without deleting audit history.',
+      inputSchema: {
+        action: z.enum(['record', 'show', 'audit']).describe('Feedback operation'),
+        candidateKind: z.enum(['observation', 'claim', 'durable-memory', 'workflow']).optional().default('observation'),
+        candidateId: z.string().describe('Memory or knowledge candidate id'),
+        signal: z.enum(['user-correction', 'verification-success', 'verification-failure', 'code-change', 'used', 'not-used', 'code-conflict', 'strengthen', 'weaken', 'revoke']).optional(),
+        sourceRef: z.string().max(500).optional().describe('Source of this feedback, such as test:run-42 or user:chat'),
+        actor: z.string().max(200).optional(),
+        note: z.string().max(2_000).optional(),
+        targetEventId: z.string().optional().describe('Existing event id when action=record and signal=revoke'),
+        limit: z.number().int().positive().max(200).optional().default(100),
+      },
+    },
+    async ({ action, candidateKind, candidateId, signal, sourceRef, actor, note, targetEventId, limit }) => {
+      const unresolved = requireResolvedProject('record memory feedback for the current project');
+      if (unresolved) return unresolved;
+      const feedback = new MemoryFeedbackStore();
+      await feedback.init(projectDir);
+      const kind = candidateKind ?? 'observation';
+      if (action === 'show') {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(feedback.getState(project.id, kind, candidateId), null, 2) }] };
+      }
+      if (action === 'audit') {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(feedback.audit(project.id, kind, candidateId, limit), null, 2) }] };
+      }
+      if (!signal || !sourceRef?.trim()) {
+        return { content: [{ type: 'text' as const, text: 'record requires signal and sourceRef.' }], isError: true };
+      }
+      try {
+        const result = feedback.record({
+          projectId: project.id,
+          candidateKind: kind,
+          candidateId,
+          signal,
+          sourceRef,
+          ...(actor || currentAgentId ? { actor: actor ?? currentAgentId } : {}),
+          ...(note ? { note } : {}),
+          ...(targetEventId ? { targetEventId } : {}),
+        });
+        if (kind === 'observation') {
+          const cards = new EvidenceCardStore();
+          await cards.init(projectDir);
+          const card = cards.get(project.id, 'observation', candidateId);
+          if (card) {
+            const verification = signal === 'verification-success' || signal === 'strengthen' ? 'verified' : signal === 'user-correction' || signal === 'code-conflict' || signal === 'weaken' ? 'conflicted' : card.verification;
+            cards.recordEvent(project.id, card.id, `feedback:${signal}`, note);
+            if (verification !== card.verification) {
+              // Keep the card projection in sync with the feedback state while
+              // retaining the append-only feedback audit as the source of truth.
+              cards.setVerification(project.id, card.id, verification);
+            }
+          }
+        }
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+      }
+    },
+  );
+
+  server.registerTool(
+    'memorix_continuity',
+    {
+      title: 'Task Continuity Ledger',
+      description:
+        'Maintain a bounded, append-only continuity ledger for a coding task. ' +
+        'Use start for requirements, record for decisions/verification/risks, ' +
+        'show or list to inspect, and close for the final outcome. Pass the returned taskId ' +
+        'to memorix_project_context so the current brief includes this ledger.',
+      inputSchema: {
+        action: z.enum(['start', 'record', 'show', 'list', 'close']).describe('Continuity operation'),
+        taskId: z.string().max(120).optional().describe('Continuity task id'),
+        task: z.string().max(1_000).optional().describe('Task description for start'),
+        requirements: z.array(z.string().max(2_000)).max(8).optional().describe('Requirements for start'),
+        kind: z.enum(['requirement', 'decision', 'verification', 'risk']).optional().describe('Entry kind for record'),
+        content: z.string().max(2_000).optional().describe('Requirement, decision, verification, risk, or outcome text'),
+        verificationStatus: z.enum(['pending', 'passed', 'failed', 'skipped']).optional(),
+        verificationId: z.string().max(120).optional().describe('Stable verification obligation id; reuse it to move pending to passed/failed'),
+        idempotencyKey: z.string().max(200).optional().describe('Stable retry key; repeating the same operation returns the original event'),
+        status: z.enum(['completed', 'blocked', 'abandoned']).optional().describe('Outcome status for close'),
+        sourceRef: z.string().max(500).optional().describe('Evidence or source reference'),
+        evidenceRefs: z.array(z.string().max(500)).max(8).optional(),
+        actor: z.string().max(200).optional(),
+        limit: z.number().int().positive().max(100).optional().default(20),
+      },
+    },
+    async ({ action, taskId, task, requirements, kind, content, verificationStatus, verificationId, idempotencyKey, status, sourceRef, evidenceRefs, actor, limit }) => {
+      const unresolved = requireResolvedProject('manage task continuity for the current project');
+      if (unresolved) return unresolved;
+      const { TaskContinuityStore } = await import('./knowledge/task-continuity.js');
+      const continuity = new TaskContinuityStore();
+      await continuity.init(projectDir);
+      const effectiveActor = actor ?? currentAgentId;
+      try {
+        if (action === 'start') {
+          if (!task?.trim()) return { content: [{ type: 'text' as const, text: 'task is required for continuity start.' }], isError: true };
+          const result = continuity.start({
+            projectId: project.id,
+            task,
+            ...(taskId ? { taskId } : {}),
+            requirements,
+            ...(effectiveActor ? { actor: effectiveActor } : {}),
+            ...(idempotencyKey ? { idempotencyKey } : {}),
+          });
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
+        }
+        if (action === 'list') {
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ledgers: continuity.list(project.id, limit), }, null, 2) }] };
+        }
+        if (!taskId?.trim()) return { content: [{ type: 'text' as const, text: 'taskId is required for this continuity action.' }], isError: true };
+        if (action === 'show') {
+          const ledger = continuity.get(project.id, taskId);
+          if (!ledger) return { content: [{ type: 'text' as const, text: 'Task continuity ledger not found.' }], isError: true };
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ledger }, null, 2) }] };
+        }
+        if (action === 'record') {
+          if (!kind || !content?.trim()) {
+            return { content: [{ type: 'text' as const, text: 'record requires kind and content.' }], isError: true };
+          }
+          const result = continuity.record({
+            projectId: project.id,
+            taskId,
+            kind,
+            content,
+            ...(verificationStatus ? { verificationStatus } : {}),
+            ...(sourceRef ? { sourceRef } : {}),
+            ...(evidenceRefs ? { evidenceRefs } : {}),
+            ...(effectiveActor ? { actor: effectiveActor } : {}),
+            ...(verificationId ? { verificationId } : {}),
+            ...(idempotencyKey ? { idempotencyKey } : {}),
+          });
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
+        }
+        if (!status || !content?.trim()) {
+          return { content: [{ type: 'text' as const, text: 'close requires status and content.' }], isError: true };
+        }
+        const result = continuity.close({
+          projectId: project.id,
+          taskId,
+          status,
+          content,
+          ...(sourceRef ? { sourceRef } : {}),
+          ...(evidenceRefs ? { evidenceRefs } : {}),
+          ...(effectiveActor ? { actor: effectiveActor } : {}),
+          ...(idempotencyKey ? { idempotencyKey } : {}),
+        });
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ projectId: project.id, ...result }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }], isError: true };
+      }
+    },
+  );
+
+  // Use shared TeamStore (from HTTP server) or create new one (stdio mode).
+  // All team state is canonical in SQLite — no JSON persistence, no sync/flush.
+  if (teamFeaturesEnabled) {
+    const { initTeamStore } = await import('./team/team-store.js');
+    initTeamStoreForProject = initTeamStore;
+    if (sharedTeam?.teamStore) {
+      teamStore = sharedTeam.teamStore;
+    } else {
+      teamStore = await initTeamStore(projectDir);
+    }
+
+    // Phase 4b: Wire EventBus for same-process lifecycle notifications.
+    // EventBus is process-local only — NOT a cross-process mechanism.
+    if (!teamStore.getEventBus()) {
+      const { TeamEventBus } = await import('./team/event-bus.js');
+      teamStore.setEventBus(new TeamEventBus());
+    }
+  }
+
+  // ── team_manage (join / leave / status / listRoles / addRole / removeRole) ──
+  server.registerTool(
+    'team_manage',
+    {
+      title: 'Coordination Management',
+      description:
+        'Register, unregister, or list agents in the project coordination state. ' +
+        'Action "join": register this agent (returns agent ID and instance ID for reactivation). ' +
+        'Action "leave": mark agent inactive, release locks. ' +
+        'Action "status": list all agents with roles and capabilities, plus role occupancy. ' +
+        'Action "listRoles": show defined roles for this project. ' +
+        'Action "addRole": define a new role for this project. ' +
+        'Action "removeRole": remove a role definition.',
+      inputSchema: {
+        action: z.enum(['join', 'leave', 'status', 'listRoles', 'addRole', 'removeRole']).describe('Operation to perform'),
+        name: z.string().optional().describe('Agent display name for join (e.g., "cursor-frontend")'),
+        agentType: z.string().optional().describe('Agent type for join (e.g., "windsurf", "cursor", "claude-code")'),
+        instanceId: z.string().optional().describe('Stable instance ID for join (preserves identity across restarts)'),
+        role: z.string().optional().describe('Agent role for join (defaults by agentType if omitted)'),
+        capabilities: z.array(z.string()).optional().describe('Agent capabilities for join'),
+        agentId: z.string().optional().describe('Agent ID for leave'),
+        // Role management params
+        roleId: z.string().optional().describe('Role ID (for addRole/removeRole)'),
+        label: z.string().optional().describe('Role label (for addRole)'),
+        roleDescription: z.string().optional().describe('Role description (for addRole)'),
+        preferredAgentTypes: z.array(z.string()).optional().describe('Preferred agent types for this role (for addRole)'),
+        maxConcurrent: z.number().optional().describe('Max concurrent agents for this role (for addRole, default 1)'),
+      },
+    },
+    async ({ action, name, agentType, instanceId, role, capabilities, agentId, roleId, label, roleDescription, preferredAgentTypes, maxConcurrent }) => {
+      if (action === 'join') {
+        // Auto-derive role from agentType if not provided
+        const { AGENT_TYPE_ROLE_MAP } = await import('./team/team-store.js');
+        const resolvedRole = role || (agentType ? AGENT_TYPE_ROLE_MAP[agentType] : undefined) || 'engineer';
+        const agent = teamStore.registerAgent({
+          projectId: project.id,
+          agentType: agentType || 'unknown',
+          instanceId: instanceId || undefined,
+          name: (name || '').trim() || undefined,
+          role: resolvedRole,
+          capabilities: capabilities ? coerceStringArray(capabilities) : undefined,
+        });
+        currentAgentId = agent.agent_id;
+        const caps = agent.capabilities ? JSON.parse(agent.capabilities) : [];
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Joined project coordination state as "${agent.name}" (ID: ${agent.agent_id})\nInstance ID: ${agent.instance_id}\nRole: ${agent.role}\nThis session now attributes coordination activity to that identity.\nActive agents: ${teamStore.getActiveCount(project.id)}`,
+          }],
+        };
+      }
+      if (action === 'leave') {
+        if (!agentId) return { content: [{ type: 'text' as const, text: 'agentId is required for leave' }], isError: true };
+        const left = teamStore.leaveAgent(agentId);
+        if (currentAgentId === agentId) currentAgentId = undefined;
+        if (!left) return { content: [{ type: 'text' as const, text: 'Agent not found' }] };
+        const releasedLocks = teamStore.releaseAllLocks(agentId);
+        const releasedTasks = teamStore.releaseTasksByAgent(agentId);
+        const parts: string[] = [];
+        if (releasedLocks > 0) parts.push(`released ${releasedLocks} lock(s)`);
+        if (releasedTasks > 0) parts.push(`released ${releasedTasks} task(s)`);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Left team.${parts.length > 0 ? ' ' + parts.join(', ') + '.' : ''}\nActive agents: ${teamStore.getActiveCount(project.id)}`,
+          }],
+        };
+      }
+      if (action === 'listRoles') {
+        const roles = teamStore.listRoles(project.id);
+        if (roles.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No roles defined for this project.' }] };
+        }
+        const occupancy = teamStore.getRoleOccupancy(project.id);
+        const lines = occupancy.map(({ role, activeAgents, vacant }) => {
+          const agentTypes = JSON.parse(role.preferred_agent_types);
+          const agentNames = activeAgents.map(a => a.name).join(', ') || 'vacant';
+          return `${role.label} (${role.role_id.split(':').pop()}) - ${activeAgents.length}/${role.max_concurrent} filled, ${vacant} vacant\n  Agents: ${agentNames}\n  Preferred types: ${agentTypes.join(', ') || 'any'}${role.description ? '\n  ' + role.description : ''}`;
+        });
+        return { content: [{ type: 'text' as const, text: `Roles (${roles.length}):\n\n${lines.join('\n\n')}` }] };
+      }
+      if (action === 'addRole') {
+        if (!roleId || !label) return { content: [{ type: 'text' as const, text: 'roleId and label are required for addRole' }], isError: true };
+        const newRole = teamStore.addRole(project.id, {
+          roleId,
+          label,
+          description: roleDescription,
+          preferredAgentTypes: preferredAgentTypes ? coerceStringArray(preferredAgentTypes) : undefined,
+          maxConcurrent,
+        });
+        return { content: [{ type: 'text' as const, text: `Role added: ${newRole.label} (${newRole.role_id})` }] };
+      }
+      if (action === 'removeRole') {
+        if (!roleId) return { content: [{ type: 'text' as const, text: 'roleId is required for removeRole' }], isError: true };
+        const removed = teamStore.removeRole(project.id, roleId);
+        if (!removed) return { content: [{ type: 'text' as const, text: 'Role not found' }] };
+        return { content: [{ type: 'text' as const, text: `Role removed: ${roleId}` }] };
+      }
+      // status - now includes role occupancy
+      const agents = teamStore.listAgents(project.id);
+      const occupancy = teamStore.getRoleOccupancy(project.id);
+      if (agents.length === 0 && occupancy.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No agents registered. Use action "join" to register.' }] };
+      }
+      const roleLines = occupancy.map(({ role, activeAgents, vacant }) => {
+        const agentNames = activeAgents.map(a => a.name).join(', ') || 'vacant';
+        return `${role.label}: ${activeAgents.length}/${role.max_concurrent} - ${agentNames}${vacant > 0 ? ` (${vacant} slot${vacant > 1 ? 's' : ''} open)` : ''}`;
+      });
+      const agentLines = agents.map((a: import('./team/team-store.js').TeamAgentRow) => {
+        const caps = a.capabilities ? JSON.parse(a.capabilities) : [];
+        return `${a.status === 'active' ? '[active]' : '[inactive]'} ${a.name} (${a.agent_id.slice(0, 8)}) - ${a.role ?? 'no role'} [${caps.join(', ') || '-'}]`;
+      });
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Team: ${teamStore.getActiveCount(project.id)} active / ${agents.length} total\n\nRole Occupancy:\n${roleLines.join('\n')}\n\nAgents:\n${agentLines.join('\n')}`,
+        }],
+      };
+    },
+  );
+
+  // ── team_file_lock (lock / unlock / status) ───────────────────
+  server.registerTool(
+    'team_file_lock',
+    {
+      title: 'File Lock Management',
+      description:
+        'Advisory file locks to prevent conflicting edits. Auto-releases after 10 min TTL. ' +
+        'Action "lock": acquire lock. Action "unlock": release lock. Action "status": check lock status.',
+      inputSchema: {
+        action: z.enum(['lock', 'unlock', 'status']).describe('Operation to perform'),
+        file: z.string().optional().describe('File path (required for lock/unlock, optional for status — omit to list all)'),
+        agentId: z.string().optional().describe('Agent ID (required for lock/unlock)'),
+      },
+    },
+    async ({ action, file, agentId }) => {
+      if (action === 'lock') {
+        if (!file || !agentId) return { content: [{ type: 'text' as const, text: '[ERROR] file and agentId are required for lock' }], isError: true };
+        const agent = teamStore.getAgent(agentId);
+        if (!agent || agent.status !== 'active') {
+          return { content: [{ type: 'text' as const, text: `[ERROR] Unknown or inactive agent: ${agentId.slice(0, 8)}…` }], isError: true };
+        }
+        const result = teamStore.acquireLock(project.id, file, agentId);
+        if (result.success) return { content: [{ type: 'text' as const, text: `Locked: ${file}` }] };
+        const owner = teamStore.getAgent(result.lockedBy);
+        return { content: [{ type: 'text' as const, text: `Denied — locked by ${owner?.name ?? result.lockedBy.slice(0, 8)}` }], isError: true };
+      }
+      if (action === 'unlock') {
+        if (!file || !agentId) return { content: [{ type: 'text' as const, text: '[ERROR] file and agentId are required for unlock' }], isError: true };
+        const released = teamStore.releaseLock(project.id, file, agentId);
+        return { content: [{ type: 'text' as const, text: released ? `Unlocked: ${file}` : `Cannot unlock: not owner or not locked` }] };
+      }
+      // status
+      if (file) {
+        const lockStatus = teamStore.getLockStatus(project.id, file);
+        if (!lockStatus) return { content: [{ type: 'text' as const, text: `${file} — unlocked` }] };
+        const owner = teamStore.getAgent(lockStatus.locked_by);
+        return { content: [{ type: 'text' as const, text: `${file} — locked by ${owner?.name ?? lockStatus.locked_by.slice(0, 8)} (expires ${new Date(lockStatus.expires_at).toISOString()})` }] };
+      }
+      const all = teamStore.listLocks(project.id);
+      if (all.length === 0) return { content: [{ type: 'text' as const, text: 'No files locked' }] };
+      const lines = all.map((l: import('./team/team-store.js').TeamLockRow) => {
+        const owner = teamStore.getAgent(l.locked_by);
+        return `${l.file} — ${owner?.name ?? l.locked_by.slice(0, 8)}`;
+      });
+      return { content: [{ type: 'text' as const, text: `Locked files (${all.length}):\n${lines.join('\n')}` }] };
+    },
+  );
+
+  // ── team_task (create / claim / complete / list) ──────────────
+  server.registerTool(
+    'team_task',
+    {
+      title: 'Task Status',
+      description:
+        'Create, claim, complete, or list tasks in the team task board. Supports dependencies. ' +
+        'Action "create": create a task. Action "claim": assign to yourself (atomic, race-safe). ' +
+        'Action "complete": mark done with result. Action "list": show tasks.',
+      inputSchema: {
+        action: z.enum(['create', 'claim', 'complete', 'list']).describe('Operation to perform'),
+        description: z.string().optional().describe('Task description (for create)'),
+        deps: z.array(z.string()).optional().describe('Dependency task IDs (for create)'),
+        taskId: z.string().optional().describe('Task ID (for claim/complete)'),
+        agentId: z.string().optional().describe('Agent ID (for claim/complete)'),
+        result: z.string().optional().describe('Result summary (for complete)'),
+        status: z.enum(['pending', 'in_progress', 'completed', 'failed']).optional().describe('Filter by status (for list)'),
+        available: z.boolean().optional().describe('Show only claimable tasks (for list)'),
+        metadata: z.string().optional().describe('JSON metadata for the task (for create). Used by planner/review tasks for autonomous mode.'),
+        requiredRole: z.string().optional().describe('Required role for this task (for create). Agents without this role cannot claim.'),
+        preferredRole: z.string().optional().describe('Preferred role for this task (for create). Agents with this role are prioritized.'),
+      },
+    },
+    async ({ action, description: desc, deps, taskId, agentId, result, status, available, metadata, requiredRole, preferredRole }) => {
+      try {
+        if (action === 'create') {
+          if (!desc) return { content: [{ type: 'text' as const, text: '[ERROR] description is required for create' }], isError: true };
+          let parsedMeta: Record<string, unknown> | undefined;
+          if (metadata) {
+            try { parsedMeta = JSON.parse(metadata); } catch { /* ignore invalid JSON */ }
+          }
+
+          // Phase 5: enforce autonomous-pipeline hard guards
+          const { checkPipelineGuards } = await import('./orchestrate/planner.js');
+          const existingTasks = teamStore.listTasks(project.id);
+          const guard = checkPipelineGuards({ existingTasks, newTaskMeta: parsedMeta });
+          if (!guard.allowed) {
+            return { content: [{ type: 'text' as const, text: `[ERROR] ${guard.reason}` }], isError: true };
+          }
+
+          const task = teamStore.createTask({
+            projectId: project.id,
+            description: desc,
+            deps: deps ? coerceStringArray(deps) : undefined,
+            metadata: parsedMeta,
+            createdBy: agentId || undefined,
+            requiredRole: requiredRole || undefined,
+            preferredRole: preferredRole || undefined,
+          });
+          const taskDeps = teamStore.getTaskDeps(task.task_id);
+          const roleInfo = task.required_role ? ` [role: ${task.required_role}${task.preferred_role && task.preferred_role !== task.required_role ? '/' + task.preferred_role : ''}]` : '';
+          return { content: [{ type: 'text' as const, text: `Task created: ${task.task_id.slice(0, 8)}… "${desc}"${taskDeps.length > 0 ? ` (depends on ${taskDeps.length})` : ''}${roleInfo}` }] };
+        }
+        if (action === 'claim') {
+          if (!taskId || !agentId) return { content: [{ type: 'text' as const, text: '[ERROR] taskId and agentId required for claim' }], isError: true };
+          const agent = teamStore.getAgent(agentId);
+          if (!agent || agent.status !== 'active') return { content: [{ type: 'text' as const, text: `[ERROR] Unknown or inactive agent` }], isError: true };
+          const claimResult = teamStore.claimTask(taskId, agentId);
+          if (!claimResult.success) return { content: [{ type: 'text' as const, text: `[ERROR] ${claimResult.reason}` }], isError: true };
+          const hintSuffix = claimResult.hint ? `\n[WARN] ${claimResult.hint}` : '';
+          return { content: [{ type: 'text' as const, text: `Task claimed by ${agent.name}: "${claimResult.task!.description}"${hintSuffix}` }] };
+        }
+        if (action === 'complete') {
+          if (!taskId || !agentId || !result) return { content: [{ type: 'text' as const, text: '[ERROR] taskId, agentId, and result required for complete' }], isError: true };
+          const completeResult = teamStore.completeTask(taskId, agentId, result);
+          if (!completeResult.success) return { content: [{ type: 'text' as const, text: `[ERROR] ${completeResult.reason}` }], isError: true };
+          const completedTask = teamStore.getTask(taskId);
+          return { content: [{ type: 'text' as const, text: `Task completed: "${completedTask?.description ?? taskId}"\nResult: ${result}` }] };
+        }
+        // list
+        const list = (available && agentId)
+          ? teamStore.listTasksForAgent(project.id, agentId)
+          : teamStore.listTasks(project.id, available ? { available: true } : (status ? { status } : undefined));
+        if (list.length === 0) return { content: [{ type: 'text' as const, text: available ? 'No tasks available to claim' : 'No tasks found' }] };
+        const statusIcon: Record<string, string> = { pending: '[ ]', in_progress: '[~]', completed: '[x]', failed: '[!]' };
+        const lines = list.map((t: import('./team/team-store.js').TeamTaskRow) => {
+          const assignee = t.assignee_agent_id ? teamStore.getAgent(t.assignee_agent_id)?.name ?? t.assignee_agent_id.slice(0, 8) : 'unassigned';
+          const taskDeps = teamStore.getTaskDeps(t.task_id);
+          const roleTag = t.required_role ? ` [${t.required_role}${t.preferred_role && t.preferred_role !== t.required_role ? '→' + t.preferred_role : ''}]` : (t.preferred_role ? ` [~${t.preferred_role}]` : '');
+          return `${statusIcon[t.status] ?? '[ ]'} ${t.task_id.slice(0, 8)}… "${t.description}" — ${assignee}${roleTag}${taskDeps.length > 0 ? ` [deps: ${taskDeps.length}]` : ''}`;
+        });
+        return { content: [{ type: 'text' as const, text: `Tasks (${list.length}):\n${lines.join('\n')}` }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `[ERROR] ${(err as Error).message}` }], isError: true };
+      }
+    },
+  );
+
+  // ── team_message (send / broadcast / inbox) ───────────────────
+  server.registerTool(
+    'team_message',
+    {
+      title: 'Team Messaging',
+      description:
+        'Send, broadcast, or read messages between agents. Durable: messages survive restarts and reach inactive recipients. ' +
+        'Action "send": direct message to one agent. Action "broadcast": message all agents. ' +
+        'Action "inbox": read this agent\'s inbox.',
+      inputSchema: {
+        action: z.enum(['send', 'broadcast', 'inbox']).describe('Operation to perform'),
+        from: z.string().optional().describe('Your sender agent ID. Omit it to use this session identity.'),
+        to: z.string().optional().describe('Receiver agent ID (for send)'),
+        type: z.enum(['request', 'response', 'info', 'announcement', 'contract', 'error', 'handoff']).optional().describe('Message type (for send/broadcast)'),
+        content: z.string().optional().describe('Message content (for send/broadcast)'),
+        agentId: z.string().optional().describe('Agent ID (for inbox)'),
+        markRead: z.boolean().optional().default(false).describe('Mark messages as read (for inbox)'),
+        toRole: z.string().optional().describe('Target role for role-based messaging/handoff (for send)'),
+        handoffStatus: z.enum(['open', 'claimed', 'completed', 'archived']).optional().describe('Handoff status (for send with type=handoff)'),
+      },
+    },
+    async ({ action, from, to, type: msgType, content, agentId, markRead, toRole, handoffStatus }) => {
+      const requireCurrentTeamAgent = () => {
+        if (!currentAgentId) return null;
+        const agent = teamStore.getAgent(currentAgentId);
+        return agent?.project_id === project.id && agent.status === 'active' ? agent : null;
+      };
+      if (action === 'send') {
+        const sender = requireCurrentTeamAgent();
+        if (!sender || !msgType || !content) return { content: [{ type: 'text' as const, text: '[ERROR] active session identity, type, and content required for send' }], isError: true };
+        if (from && from !== currentAgentId) return { content: [{ type: 'text' as const, text: '[ERROR] from must match the current session identity' }], isError: true };
+        if (!to && !toRole) return { content: [{ type: 'text' as const, text: '[ERROR] either to (agent ID) or toRole is required for send' }], isError: true };
+        if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '[ERROR] Message too large (max 10KB)' }], isError: true };
+        const msg = teamStore.sendMessage({
+          projectId: project.id,
+          senderAgentId: currentAgentId!,
+          recipientAgentId: to ?? null,
+          type: msgType,
+          content,
+          toRole: toRole ?? null,
+          handoffStatus: handoffStatus ?? (msgType === 'handoff' ? 'open' : null),
+        });
+        if ('error' in msg) return { content: [{ type: 'text' as const, text: `[ERROR] ${msg.error}` }], isError: true };
+        const target = to ? `agent ${to.slice(0, 8)}…` : `role ${toRole}`;
+        return { content: [{ type: 'text' as const, text: `Message sent (${msgType}) to ${target} | ID: ${msg.id.slice(0, 8)}…${toRole ? ` [role: ${toRole}]` : ''}` }] };
+      }
+      if (action === 'broadcast') {
+        const sender = requireCurrentTeamAgent();
+        if (!sender || !msgType || !content) return { content: [{ type: 'text' as const, text: '[ERROR] active session identity, type, and content required for broadcast' }], isError: true };
+        if (from && from !== currentAgentId) return { content: [{ type: 'text' as const, text: '[ERROR] from must match the current session identity' }], isError: true };
+        if (content.length > 10_000) return { content: [{ type: 'text' as const, text: '[ERROR] Message too large (max 10KB)' }], isError: true };
+        const msg = teamStore.sendMessage({
+          projectId: project.id,
+          senderAgentId: currentAgentId!,
+          recipientAgentId: null,
+          type: msgType,
+          content,
+        });
+        if ('error' in msg) return { content: [{ type: 'text' as const, text: `[ERROR] ${msg.error}` }], isError: true };
+        return { content: [{ type: 'text' as const, text: `Broadcast (${msgType}) | ID: ${msg.id.slice(0, 8)}…` }] };
+      }
+      // inbox
+      const inboxAgent = requireCurrentTeamAgent();
+      if (!inboxAgent) return { content: [{ type: 'text' as const, text: '[ERROR] active session identity required for inbox' }], isError: true };
+      if ((agentId && agentId !== currentAgentId) || (from && from !== currentAgentId)) {
+        return { content: [{ type: 'text' as const, text: '[ERROR] inbox access is limited to the current session identity' }], isError: true };
+      }
+      const inboxId = currentAgentId!;
+      const inbox = teamStore.getInbox(project.id, inboxId);
+      const unread = teamStore.getUnreadCount(project.id, inboxId);
+      if (inbox.length === 0) return { content: [{ type: 'text' as const, text: 'Inbox empty' }] };
+      if (markRead) {
+        teamStore.markAllRead(project.id, inboxId);
+      }
+      const lines = inbox.slice(-10).map((m: import('./team/team-store.js').TeamMessageRow) => {
+        const sender = teamStore.getAgent(m.sender_agent_id);
+        return `${m.read_at ? ' ' : '*'} [${m.type}] from ${sender?.name ?? m.sender_agent_id.slice(0, 8)}: ${m.content.slice(0, 100)}`;
+      });
+      return { content: [{ type: 'text' as const, text: `Inbox: ${unread} unread / ${inbox.length} total\n\n${lines.join('\n')}` }] };
+    },
+  );
+
+  // ── memorix_poll (Phase 4b: situational awareness) ────────────────
+  server.registerTool(
+    'memorix_poll',
+    {
+      title: 'Team Poll — Situational Awareness',
+      description:
+        'Get a full snapshot of your project coordination state in one call. ' +
+        'Returns: your agent info, watermark (new observations since last session), ' +
+        'inbox (unread messages), tasks (your in-progress, available to claim, completed, failed), ' +
+        'and team roster (active agents). Use this to decide what to work on next.',
+      inputSchema: {
+        agentId: z.string().optional().describe('Your agent ID (from team_manage join or session_start with joinTeam=true). If omitted, returns project-level overview only.'),
+        markInboxRead: z.boolean().optional().describe('If true, mark all inbox messages as read after returning them.'),
+      },
+    },
+    async ({ agentId, markInboxRead }) => {
+      const { computeWatermark, computePoll } = await import('./team/poll.js');
+      if (agentId && agentId !== currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: '[ERROR] agentId must match the current session identity.' }],
+          isError: true as const,
+        };
+      }
+      const effectiveAgentId = currentAgentId;
+
+      // Compute watermark — requires observation store access
+      let watermark = computeWatermark(0, 0, 0);
+      if (effectiveAgentId) {
+        const agent = teamStore.getAgent(effectiveAgentId);
+        if (agent) {
+          const lastSeen = agent.last_seen_obs_generation;
+          const store = getObservationStore();
+          const currentGen = store.getGeneration();
+          const projectObs = await withFreshIndex(() => filterReadableObservations(
+            getAllObservations().filter(
+              o => o.projectId === project.id && (o.writeGeneration ?? 0) > lastSeen,
+            ),
+            getObservationReader(),
+          ));
+          watermark = computeWatermark(lastSeen, currentGen, projectObs.length);
+
+          // Advance watermark so next poll sees only truly new observations
+          teamStore.updateWatermark(effectiveAgentId, currentGen);
+          // Heartbeat — proves this agent is alive
+          teamStore.heartbeat(effectiveAgentId);
+        }
+      }
+
+      const poll = computePoll(teamStore, project.id, effectiveAgentId ?? null, watermark);
+
+      // Optionally mark inbox as read
+      if (markInboxRead && effectiveAgentId) {
+        teamStore.markAllRead(project.id, effectiveAgentId);
+      }
+
+      // Format as readable text
+      const lines: string[] = [];
+
+      // Agent
+      if (poll.agent) {
+        lines.push(`[AGENT] You: ${poll.agent.agentId.slice(0, 8)}… (${poll.agent.status})`);
+      }
+
+      // Watermark
+      if (poll.watermark.newObservationCount > 0) {
+        lines.push(`[STATS] ${poll.watermark.newObservationCount} new observation(s) since your last session`);
+      }
+
+      // Inbox
+      if (poll.inbox.unreadCount > 0) {
+        lines.push(`[INBOX] ${poll.inbox.unreadCount} unread message(s)`);
+        for (const m of poll.inbox.messages.slice(-5)) {
+          const sender = teamStore.getAgent(m.sender_agent_id);
+          lines.push(`  ${m.read_at ? ' ' : '*'} [${m.type}] from ${sender?.name ?? m.sender_agent_id.slice(0, 8)}: ${m.content.slice(0, 80)}`);
+        }
+      }
+
+      // Tasks
+      if (poll.tasks.myInProgress.length > 0) {
+        lines.push(`\n[TOOL] Your in-progress tasks (${poll.tasks.myInProgress.length}):`);
+        for (const t of poll.tasks.myInProgress) {
+          lines.push(`  [~] ${t.task_id.slice(0, 8)}… "${t.description}"`);
+        }
+      }
+      if (poll.tasks.availableToClaim.length > 0) {
+        lines.push(`\n[TASK] Available to claim (${poll.tasks.availableToClaim.length}):`);
+        for (const t of poll.tasks.availableToClaim) {
+          lines.push(`  [ ] ${t.task_id.slice(0, 8)}… "${t.description}"`);
+        }
+      }
+      if (poll.tasks.recentlyCompleted.length > 0) {
+        lines.push(`\n[OK] Completed (${poll.tasks.recentlyCompleted.length}):`);
+        for (const t of poll.tasks.recentlyCompleted.slice(-5)) {
+          const who = t.assignee_agent_id ? teamStore.getAgent(t.assignee_agent_id)?.name ?? t.assignee_agent_id.slice(0, 8) : '?';
+          lines.push(`  [x] ${t.task_id.slice(0, 8)}… "${t.description}" — by ${who}`);
+        }
+      }
+      if (poll.tasks.recentlyFailed.length > 0) {
+        lines.push(`\n[ERROR] Failed (${poll.tasks.recentlyFailed.length}):`);
+        for (const t of poll.tasks.recentlyFailed.slice(-3)) {
+          lines.push(`  [!] ${t.task_id.slice(0, 8)}… "${t.description}" — ${t.result?.slice(0, 80) ?? 'no reason'}`);
+        }
+      }
+
+      // Team
+      lines.push(`\n[TEAM] Team: ${poll.team.activeAgents.length} active / ${poll.team.totalAgents} total`);
+      for (const a of poll.team.activeAgents) {
+        lines.push(`  - ${a.name} (${a.agent_type}) — ${a.role ?? 'no role'}`);
+      }
+
+      if (lines.length === 0) {
+        lines.push('No team activity yet. Use team_manage action="join" to register, then team_task to create tasks.');
+      }
+
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // ── memorix_handoff (Phase 4b: structured agent-to-agent context transfer) ──
+  server.registerTool(
+    'memorix_handoff',
+    {
+      title: 'Team Handoff — Agent Context Transfer',
+      description:
+        'Create a structured handoff artifact when passing work to another agent. ' +
+        'A targeted handoff is visible only to its sender and recipient; a broadcast handoff is team-visible. ' +
+        'The handoff is stored as a durable observation (immune to archival) ' +
+        'and a notification message is sent to the recipient. ' +
+        'Use this when completing a task and another agent should continue, ' +
+        'or when you want to leave context for whoever works on this next.',
+      inputSchema: {
+        fromAgentId: z.string().describe('Your agent ID (from team_manage join or session_start with joinTeam=true)'),
+        summary: z.string().describe('Human-readable summary of what you did and what needs to happen next'),
+        context: z.string().describe('Detailed context for the next agent: what was done, current state, known issues, next steps'),
+        toAgentId: z.string().optional().describe('Specific recipient agent ID. Omit to broadcast to all.'),
+        taskId: z.string().optional().describe('Link to a specific team_task ID'),
+        filesModified: z.array(z.string()).optional().describe('Files you modified during this work'),
+        concepts: z.array(z.string()).optional().describe('Key concepts for search discoverability'),
+      },
+    },
+    async ({ fromAgentId, summary, context, toAgentId, taskId, filesModified, concepts }) => {
+      const { createHandoffArtifact } = await import('./team/handoff.js');
+      if (!currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: 'Create a coordination identity first: call memorix_session_start with joinTeam=true.' }],
+          isError: true as const,
+        };
+      }
+      if (fromAgentId !== currentAgentId) {
+        return {
+          content: [{ type: 'text' as const, text: 'fromAgentId must match the identity returned for this session. Memorix will not create a handoff on behalf of another agent.' }],
+          isError: true as const,
+        };
+      }
+      const sender = teamStore.getAgent(currentAgentId);
+      if (!sender || sender.project_id !== project.id || sender.status !== 'active') {
+        return {
+          content: [{ type: 'text' as const, text: 'The current coordination identity is not an active member of this project.' }],
+          isError: true as const,
+        };
+      }
+      if (toAgentId) {
+        const recipient = teamStore.getAgent(toAgentId);
+        if (!recipient || recipient.project_id !== project.id) {
+          return {
+            content: [{ type: 'text' as const, text: 'The handoff recipient must be an agent registered in the current project.' }],
+            isError: true as const,
+          };
+        }
+      }
+
+      const result = await createHandoffArtifact(
+        {
+          projectId: project.id,
+          fromAgentId,
+          toAgentId,
+          taskId,
+          summary,
+          context,
+          filesModified: filesModified ? coerceStringArray(filesModified) : undefined,
+          concepts: concepts ? coerceStringArray(concepts) : undefined,
+        },
+        storeObservation,
+        teamStore,
+      );
+
+      const lines = [
+        `[OK] Handoff created`,
+        `Observation: #${result.observationId}`,
+        `From: ${result.fromAgentId.slice(0, 8)}…`,
+        result.toAgentId ? `To: ${result.toAgentId.slice(0, 8)}…` : 'To: broadcast (any agent)',
+        result.taskId ? `Task: ${result.taskId.slice(0, 8)}…` : '',
+        `Summary: ${result.summary}`,
+        '',
+        'The handoff context is now stored as a durable observation (searchable via memorix_search).',
+        result.toAgentId
+          ? 'A notification message has been sent to the recipient.'
+          : 'A broadcast notification has been sent to all agents.',
+      ];
+
+      return { content: [{ type: 'text' as const, text: lines.filter(Boolean).join('\n') }] };
+    },
+  );
+  function matchesImagePrefix(bytes: Uint8Array, prefix: number[]): boolean {
+    return prefix.every((byte, index) => bytes[index] === byte);
+  }
+
+  function detectReferenceImageMimeType(bytes: Uint8Array): string | undefined {
+    if (bytes.length >= 8 && matchesImagePrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+    if (bytes.length >= 3 && matchesImagePrefix(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
+    if (bytes.length >= 6 && (Buffer.from(bytes.subarray(0, 6)).toString('ascii') === 'GIF87a' || Buffer.from(bytes.subarray(0, 6)).toString('ascii') === 'GIF89a')) return 'image/gif';
+    if (bytes.length >= 12 && Buffer.from(bytes.subarray(0, 4)).toString('ascii') === 'RIFF' && Buffer.from(bytes.subarray(8, 12)).toString('ascii') === 'WEBP') return 'image/webp';
+    return undefined;
+  }
+
+  // The advertised schema matches what the operator actually enabled: a
+  // closed gate means the action does not exist for the agent, not that it
+  // exists and throws. The handler keeps its own runtime checks as well.
+  const mediaGenerationEnabled = process.env.MEMORIX_MCP_MEDIA_GENERATION === '1';
+  const mediaTranscriptionEnabled = process.env.MEMORIX_MCP_MEDIA_TRANSCRIPTION === '1';
+  const mediaGenerationOrTranscription = mediaGenerationEnabled || mediaTranscriptionEnabled;
+  server.registerTool(
+    'memorix_media',
+    {
+      title: 'Manage Controlled Media',
+      description:
+        'Use the controlled local media library for an explicit import, attachment, inspection, or MiniMax generation request. ' +
+        'Assets stay outside the Git worktree and enter normal memory only when attach is explicitly true. ' +
+        'Use the CLI for destructive removal, quota cleanup, and direct generation. ' +
+        'MCP generation is disabled by default and requires MEMORIX_MCP_MEDIA_GENERATION=1 after the operator reviews provider billing.',
+      inputSchema: {
+        action: z.enum([
+          'import', 'attach', 'list', 'show', 'derive-pdf', 'status', 'cancel',
+          ...(mediaTranscriptionEnabled ? ['derive-audio'] : []),
+          ...(mediaGenerationEnabled ? ['generate-image', 'generate-video'] : []),
+        ] as [string, ...string[]]),
+        path: z.string().optional().describe('Explicit local image/audio/video/PDF path for import.'),
+        assetId: z.string().optional().describe('Controlled MediaAsset ID for attach/show.'),
+        jobId: z.string().optional().describe('Durable media job ID for status.'),
+        kind: z.enum(['image', 'audio', 'video', 'document']).optional().describe('Optional asset list filter.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Maximum assets to list.'),
+        title: z.string().optional().describe('Observation title when attaching generated/imported output.'),
+        narrative: z.string().optional().describe('Short retrieval text when attaching an asset.'),
+        maxPages: z.number().int().min(1).max(100).optional().describe('Bounded PDF extraction page limit.'),
+        maxChars: z.number().int().min(1).max(60_000).optional().describe('Bounded PDF extraction character limit.'),
+        attach: z.boolean().optional().describe('Attach generated/imported output to normal project memory explicitly.'),
+        ...(mediaGenerationOrTranscription ? {
+          model: z.string().max(160).optional().describe('Provider model for the selected media action.'),
+          prompt: z.string().optional().describe('Explicit prompt for generation or transcription.'),
+        } : {}),
+        ...(mediaTranscriptionEnabled ? {
+          provider: z.enum(['openai', 'groq']).optional().describe('Explicit audio transcription provider.'),
+          language: z.string().max(32).optional().describe('Optional ISO-639-1 hint for audio transcription.'),
+        } : {}),
+        ...(mediaGenerationEnabled ? {
+          image: z.string().optional().describe('Base64-encoded reference image for image-to-image generation.'),
+          firstFrameImageUrl: z.string().optional().describe('Public HTTPS first-frame image URL for MiniMax video generation; stored with the queued job.'),
+          region: z.enum(['global', 'cn']).optional().describe('MiniMax deployment region.'),
+          n: z.number().int().min(1).max(4).optional().describe('Image output count.'),
+          ratio: z.enum(['adaptive', '1:1', '16:9', '4:3', '3:2', '2:3', '3:4', '9:16', '21:9']).optional().describe('Image or video aspect ratio.'),
+          width: z.number().int().min(1).max(8192).optional().describe('Requested image width.'),
+          height: z.number().int().min(1).max(8192).optional().describe('Requested image height.'),
+          duration: z.union([z.literal(5), z.literal(10)]).optional().describe('MiniMax video duration in seconds.'),
+        } : {}),
+      },
+    },
+    async ({ action, path: assetPath, assetId, jobId, kind, limit, title, narrative, prompt, image, firstFrameImageUrl, model, provider, language, region, n, ratio, width, height, duration, maxPages, maxChars, attach }) => {
+      const unresolved = requireResolvedProject('manage controlled media');
+      if (unresolved) return unresolved;
+      const safeError = (error: unknown) => sanitizeCredentials(
+        error instanceof Error ? error.message : String(error),
+      ).slice(0, 1_000);
+      const attachAsset = async (asset: import('./media/types.js').MediaAsset, attachmentTitle?: string, attachmentNarrative?: string) => {
+        const { attachMediaAssetToObservation } = await import('./media/attachment.js');
+        const requestContext = getRequestContext();
+        return attachMediaAssetToObservation({
+          dataDir: projectDir,
+          projectId: project.id,
+          asset,
+          title: attachmentTitle?.trim() || `Media asset: ${asset.sourceLabel ?? asset.id}`,
+          narrative: attachmentNarrative,
+          concepts: ['mcp-media'],
+          visibility: 'project',
+          visibilityReader: getObservationReader(),
+          ...(requestContext.actorId ? { createdByAgentId: requestContext.actorId } : {}),
+        });
+      };
+      const result = (value: Record<string, unknown>) => ({
+        content: [{ type: 'text' as const, text: JSON.stringify(value) }],
+      });
+      const mcpGenerationEnabled = process.env.MEMORIX_MCP_MEDIA_GENERATION === '1';
+      const mcpTranscriptionEnabled = process.env.MEMORIX_MCP_MEDIA_TRANSCRIPTION === '1';
+
+      try {
+        const { MediaStore } = await import('./media/media-store.js');
+        const store = new MediaStore(projectDir);
+        if (action === 'list') {
+          return result({
+            action,
+            projectId: project.id,
+            assets: store.listAssets(project.id, { kind, limit: limit ?? 50 }),
+          });
+        }
+        if (action === 'show') {
+          if (!assetId?.trim()) throw new Error('assetId is required for media show');
+          const asset = store.getAsset(project.id, assetId);
+          if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+          return result({
+            action,
+            projectId: project.id,
+            asset,
+            links: store.listLinks(project.id, asset.id),
+            derivations: store.listDerivations(project.id, asset.id),
+          });
+        }
+        if (action === 'status') {
+          if (!jobId?.trim()) throw new Error('jobId is required for media status');
+          const job = store.getJob(project.id, jobId);
+          if (!job) throw new Error(`Media job not found: ${jobId}`);
+          return result({ action, projectId: project.id, job });
+        }
+        if (action === 'cancel') {
+          if (!jobId?.trim()) throw new Error('jobId is required for media cancel');
+          return result({ action, projectId: project.id, job: store.cancelJob(project.id, jobId) });
+        }
+        if (action === 'attach') {
+          if (!assetId?.trim()) throw new Error('assetId is required for media attach');
+          const asset = store.getAsset(project.id, assetId);
+          if (!asset) throw new Error(`Media asset not found: ${assetId}`);
+          const description = store.listDerivations(project.id, asset.id)
+            .find((item) => item.kind === 'description' && item.status === 'ready')?.content;
+          const observation = await attachAsset(asset, title, narrative ?? description);
+          return result({ action, projectId: project.id, asset, observation });
+        }
+        if (action === 'import') {
+          if (!assetPath?.trim()) throw new Error('path is required for media import');
+          const { importMediaFile } = await import('./media/asset-store.js');
+          const imported = await importMediaFile({
+            dataDir: projectDir,
+            projectId: project.id,
+            filePath: assetPath,
+          });
+          const observation = attach === true
+            ? await attachAsset(imported.asset, title, narrative)
+            : undefined;
+          return result({ action, projectId: project.id, ...imported, ...(observation ? { observation } : {}) });
+        }
+        if (action === 'derive-pdf') {
+          if (!assetId?.trim()) throw new Error('assetId is required for PDF text derivation');
+          const { derivePdfText } = await import('./media/pdf.js');
+          const boundedChars = maxChars ?? 60_000;
+          const derived = await derivePdfText({
+            dataDir: projectDir,
+            projectId: project.id,
+            assetId,
+            maxPages: maxPages ?? 50,
+            maxChars: boundedChars,
+            chunkChars: Math.min(6_000, boundedChars),
+          });
+          const observations = [];
+          if (attach === true) {
+            for (const chunk of derived.chunks) {
+              observations.push(await attachAsset(
+                derived.asset,
+                `${title?.trim() || `PDF: ${derived.asset.sourceLabel ?? derived.asset.id}`} (pages ${chunk.pageStart}-${chunk.pageEnd})`,
+                chunk.text,
+              ));
+            }
+          }
+          return result({ action, projectId: project.id, ...derived, observations });
+        }
+        if (action === 'derive-audio') {
+          if (!mcpTranscriptionEnabled) {
+            throw new Error('MCP audio transcription is disabled. Use the CLI, or set MEMORIX_MCP_MEDIA_TRANSCRIPTION=1 after reviewing provider billing.');
+          }
+          if (!assetId?.trim()) throw new Error('assetId is required for audio transcription');
+          const { queueAudioTranscription } = await import('./media/audio-jobs.js');
+          const queued = queueAudioTranscription({
+            dataDir: projectDir,
+            projectId: project.id,
+            assetId,
+            ...(provider ? { provider } : {}),
+            ...(model?.trim() ? { model } : {}),
+            ...(language?.trim() ? { language } : {}),
+            ...(prompt?.trim() ? { prompt } : {}),
+            attachOnComplete: attach === true,
+            observationTitle: title,
+          });
+          return result({ action, projectId: project.id, ...queued });
+        }
+        if (action === 'generate-image') {
+          if (!mcpGenerationEnabled) {
+            throw new Error('MCP media generation is disabled. Use the CLI, or set MEMORIX_MCP_MEDIA_GENERATION=1 after reviewing provider billing.');
+          }
+          if (!prompt?.trim()) throw new Error('prompt is required for image generation');
+          const imageModel: 'image-01' | 'image-01-live' | undefined = model === 'image-01' || model === 'image-01-live'
+            ? model
+            : undefined;
+          if (model && !imageModel) throw new Error('generate-image accepts image-01 or image-01-live');
+          const imageRatio: '1:1' | '16:9' | '4:3' | '3:2' | '2:3' | '3:4' | '9:16' | '21:9' | undefined =
+            ratio === '1:1' || ratio === '16:9' || ratio === '4:3' || ratio === '3:2' || ratio === '2:3'
+              || ratio === '3:4' || ratio === '9:16' || ratio === '21:9'
+              ? ratio
+              : undefined;
+          if (ratio && !imageRatio) throw new Error('generate-image received an unsupported aspect ratio');
+          let subjectImages: Array<{ data: string; mimeType: string }> | undefined;
+          if (image?.trim()) {
+            const { decodeBase64ImagePayload } = await import('./multimodal/image-payload.js');
+            const bytes = decodeBase64ImagePayload(image);
+            const mimeType = detectReferenceImageMimeType(bytes);
+            if (!mimeType) throw new Error('Reference image must be a PNG, JPEG, GIF, or WebP image');
+            subjectImages = [{ data: bytes.toString('base64'), mimeType }];
+          }
+          const { generateMiniMaxImages } = await import('./media/minimax.js');
+          const generated = await generateMiniMaxImages({
+            dataDir: projectDir,
+            projectId: project.id,
+            prompt,
+            model: imageModel,
+            region,
+            n,
+            aspectRatio: imageRatio,
+            width,
+            height,
+            subjectImages,
+          });
+          const observations = attach === true
+            ? await Promise.all(generated.assets.map(({ asset }) => attachAsset(
+              asset,
+              title ?? `MiniMax image: ${asset.sourceLabel ?? asset.id}`,
+              narrative ?? `Generated with ${generated.provider}/${generated.model}. Prompt: ${prompt}`,
+            )))
+            : [];
+          return result({ action, projectId: project.id, ...generated, observations });
+        }
+        if (action === 'generate-video') {
+          if (!mcpGenerationEnabled) {
+            throw new Error('MCP media generation is disabled. Use the CLI, or set MEMORIX_MCP_MEDIA_GENERATION=1 after reviewing provider billing.');
+          }
+          if (!prompt?.trim()) throw new Error('prompt is required for video generation');
+          if (model && model !== 'MiniMax-H3') throw new Error('generate-video accepts MiniMax-H3');
+          const videoRatio: 'adaptive' | '1:1' | '16:9' | '9:16' | undefined =
+            ratio === 'adaptive' || ratio === '1:1' || ratio === '16:9' || ratio === '9:16'
+              ? ratio
+              : undefined;
+          if (ratio && !videoRatio) throw new Error('generate-video received an unsupported aspect ratio');
+          const { queueMiniMaxVideoGeneration } = await import('./media/video-jobs.js');
+          const queued = queueMiniMaxVideoGeneration({
+            dataDir: projectDir,
+            projectId: project.id,
+            prompt,
+            firstFrameImageUrl,
+            ...(model === 'MiniMax-H3' ? { model } : {}),
+            ...(region ? { region } : {}),
+            ...(videoRatio ? { ratio: videoRatio } : {}),
+            ...(duration ? { duration } : {}),
+            attachOnComplete: attach === true,
+            observationTitle: title,
+          });
+          return result({ action, projectId: project.id, ...queued });
+        }
+        throw new Error(`Unsupported media action: ${action}`);
+      } catch (error) {
+        return {
+          content: [{ type: 'text' as const, text: `Media operation failed: ${safeError(error)}` }],
+          isError: true as const,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    'memorix_ingest_image',
+    {
+      title: 'Ingest Image',
+      description:
+        'Legacy compatibility path: import caller-provided image bytes into the controlled local asset library, then store a text retrieval projection. ' +
+        'For durable media operations, prefer memorix_media or the media CLI.',
+      inputSchema: {
+        base64: z.string().describe('Base64-encoded image data'),
+        mimeType: z.string().optional().describe('Deprecated compatibility hint. Memorix detects the actual MIME type from the image bytes.'),
+        filename: z.string().optional().describe('Original filename'),
+        prompt: z.string().optional().describe('Custom analysis prompt'),
+      },
+    },
+    async (args) => {
+      try {
+        const { decodeBase64ImagePayload } = await import('./multimodal/image-payload.js');
+        const bytes = decodeBase64ImagePayload(args.base64);
+        const filename = args.filename?.trim() || `image-${Date.now()}.png`;
+        const { importMediaBuffer, readMediaAsset } = await import('./media/asset-store.js');
+        const imported = await importMediaBuffer({
+          dataDir: projectDir,
+          projectId: project.id,
+          bytes,
+          filename,
+          sourceKind: 'import',
+        });
+        if (imported.asset.kind !== 'image') {
+          throw new Error(`Expected an image payload, detected ${imported.asset.mimeType}`);
+        }
+
+        let analysis: { description: string; tags: string[]; entities: string[] };
+        let analysisWarning: string | undefined;
+        try {
+          const { analyzeImage } = await import('./multimodal/image-loader.js');
+          const controlledBytes = await readMediaAsset(projectDir, imported.asset);
+          analysis = await analyzeImage({
+            base64: controlledBytes.toString('base64'),
+            mimeType: imported.asset.mimeType,
+            filename,
+            prompt: args.prompt,
+          });
+        } catch (analysisError) {
+          analysis = {
+            description: `Imported image asset ${filename}. Visual analysis is unavailable; use the controlled asset reference for high-fidelity inspection.`,
+            tags: ['image', imported.asset.mimeType],
+            entities: [],
+          };
+          analysisWarning = sanitizeCredentials(
+            analysisError instanceof Error ? analysisError.message : String(analysisError),
+          ).slice(0, 500);
+        }
+
+        const { MediaStore } = await import('./media/media-store.js');
+        new MediaStore(projectDir).addDerivation({
+          projectId: project.id,
+          assetId: imported.asset.id,
+          kind: 'description',
+          content: analysis.description,
+          status: 'ready',
+        });
+        const { attachMediaAssetToObservation } = await import('./media/attachment.js');
+        const requestContext = getRequestContext();
+        const observation = await attachMediaAssetToObservation({
+          dataDir: projectDir,
+          projectId: project.id,
+          asset: imported.asset,
+          entityName: filename.replace(/\.[^.]+$/, '') || `image-${Date.now()}`,
+          title: `Image analysis: ${filename}`,
+          narrative: analysis.description,
+          concepts: analysis.tags,
+          facts: analysis.entities,
+          visibility: 'project',
+          visibilityReader: getObservationReader(),
+          ...(requestContext.actorId ? { createdByAgentId: requestContext.actorId } : {}),
+        });
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `\uD83D\uDDBC\uFE0F Image imported and analyzed\n` +
+              `Asset: ${imported.asset.id}\n` +
+              `Observation #${observation.id}\n` +
+              `Tags: ${analysis.tags.join(', ') || 'none'}\n` +
+              `Preview: ${analysis.description.slice(0, 300)}${analysis.description.length > 300 ? '\u2026' : ''}` +
+              (analysisWarning ? '\nVisual analysis fallback was used.' : ''),
+          }],
+        };
+      } catch (err: unknown) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `[ERROR] Image ingestion failed: ${sanitizeCredentials(err instanceof Error ? err.message : String(err))}`,
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
+  // Deferred initialization — runs AFTER transport connect so MCP handshake isn't blocked.
+  // Sync advisory scan and file watcher are non-essential for tool functionality.
+  const deferredInit = async () => {
+    await ensureProjectRuntimeInitialized();
+
+    // Check hook installation status and guide user
+    try {
+      const { getHookStatus } = await import('./hooks/installers/index.js');
+      const workDir = cwd ?? process.cwd();
+      const statuses = await getHookStatus(workDir);
+      const installedAgents = statuses.filter((s) => s.installed).map((s) => s.agent);
+
+      if (installedAgents.length === 0) {
+        console.error('[memorix] No hooks installed. Run "memorix hooks install" to set up auto-capture.');
+      } else {
+        console.error(`[memorix] Hooks active: ${installedAgents.join(', ')}`);
+      }
+    } catch { /* skip */ }
+
+    // Git auto-hook: install post-commit hook if memorix.yml has git.autoHook: true
+    // Uses worktree-safe hook path resolution (.git may be a file in worktree setups)
+    try {
+      const { getGitConfig } = await import('./config.js');
+      const gitCfg = getGitConfig();
+      if (gitCfg.autoHook && project.rootPath) {
+        const { ensureHooksDir } = await import('./git/hooks-path.js');
+        const resolved = ensureHooksDir(project.rootPath);
+        if (resolved) {
+          const { existsSync, readFileSync, writeFileSync, chmodSync } = await import('node:fs');
+          const { hookPath } = resolved;
+          const HOOK_MARKER = '# [memorix-git-hook]';
+          const needsInstall = !existsSync(hookPath) || !readFileSync(hookPath, 'utf-8').includes(HOOK_MARKER);
+          if (needsInstall) {
+            const hookScript = `#!/bin/sh\n${HOOK_MARKER}\n# Memorix: Auto-ingest git commits as memories\nif command -v memorix >/dev/null 2>&1; then\n  memorix ingest commit --auto >/dev/null 2>&1 &\nfi\n`;
+            if (existsSync(hookPath)) {
+              const existing = readFileSync(hookPath, 'utf-8');
+              writeFileSync(hookPath, existing.trimEnd() + '\n\n' + `${HOOK_MARKER}\nif command -v memorix >/dev/null 2>&1; then\n  memorix ingest commit --auto >/dev/null 2>&1 &\nfi\n`, 'utf-8');
+            } else {
+              writeFileSync(hookPath, hookScript, 'utf-8');
+            }
+            try { chmodSync(hookPath, 0o755); } catch { /* Windows */ }
+            console.error('[memorix] Auto-installed git post-commit hook (git.autoHook: true)');
+          }
+        }
+      }
+    } catch { /* git auto-hook is best-effort */ }
+
+    // Read behavior config
+    let behaviorConfig: { syncAdvisory: boolean; autoCleanup: boolean } = { syncAdvisory: true, autoCleanup: true };
+    try {
+      const { getBehaviorConfig } = await import('./config/behavior.js');
+      behaviorConfig = getBehaviorConfig({ projectRoot: project.rootPath });
+    } catch { /* defaults */ }
+
+    // Sync advisory: compute for diagnostics only.
+    // Memory search results must stay pure retrieval content; injecting agent
+    // instructions here causes context pollution and tool-loop misbehavior.
+    if (!behaviorConfig.syncAdvisory) {
+      console.error('[memorix] Sync advisory disabled via config.');
+    } else try {
+      const engine = new WorkspaceSyncEngine(project.rootPath);
+      const scan = await engine.scan();
+
+      const totalMCP = Object.values(scan.mcpConfigs).reduce((sum, arr) => sum + arr.length, 0);
+      const totalSkills = scan.skills.length;
+      const totalRules = scan.rulesCount;
+      const totalWorkflows = scan.workflows.length;
+      const hasSyncTargets = totalMCP > 0 || totalSkills > 0 || totalRules > 0 || totalWorkflows > 0;
+      console.error(`[memorix] Sync advisory: ${hasSyncTargets ? 'available' : 'nothing to sync'}`);
+    } catch { /* sync scan is optional */ }
+
+    if (!behaviorConfig.autoCleanup) {
+      console.error('[memorix] Auto-cleanup disabled via config.');
+    }
+
+    // Maintenance is durable and leased: retention, consolidation, and vector
+    // recovery run outside the MCP request path and survive process restarts.
+    try {
+      await startProjectMaintenanceWorker(behaviorConfig.autoCleanup);
+    } catch {
+      // Lexical memory remains available when optional maintenance cannot start.
+    }
+
+  };
+
+  // Runtime project switch — called when MCP roots change, projectRoot binding, or new workspace detected.
+  // Updates all mutable state; tool closures automatically pick up new values.
+  const switchProject = async (
+    newCwd: string,
+    source: ProjectBindingSource = 'mcp-roots',
+  ): Promise<boolean> => {
+    if (source === 'mcp-roots' && projectBinding.isExplicit()) return false;
+    const { detectProjectWithDiagnostics } = await import('./project/detector.js');
+    if (isHomeDirectory(newCwd)) {
+      console.error(`[memorix] Refusing to bind $HOME as a project root: ${newCwd}`);
+      return false;
+    }
+    const result = detectProjectWithDiagnostics(newCwd);
+    if (!result.project || isHomeDirectory(result.project.rootPath)) {
+      if (result.failure) {
+        console.error(`[memorix] Project detection failed for "${newCwd}": [${result.failure.reason}] ${result.failure.detail}`);
+      }
+      return false;
+    }
+    const newDetected = result.project;
+
+    // Resolve data dir FIRST (was buggy: used before declaration)
+    const newProjectDir = await getProjectDataDir(newDetected.id);
+    initAliasRegistry(newProjectDir);
+    const newCanonicalId = await registerAlias(newDetected);
+
+    // Allow switch if: different project OR current project is unresolved (__unresolved__)
+    if (newCanonicalId === project.id && projectResolved) {
+      if (source === 'explicit-project-root') projectBinding.bindExplicit(newDetected.rootPath);
+      else if (source === 'mcp-roots') projectBinding.bindFromRoots(newDetected.rootPath);
+      else projectBinding.bindStartup(newDetected.rootPath);
+      projectBinding.recordResolvedProject(project.id, project.rootPath);
+      writeLastProjectRoot(project.rootPath);
+      return false; // same project, no-op
+    }
+
+    maintenanceWorker?.stop();
+    maintenanceWorker = null;
+
+    console.error(`[memorix] Switching project: ${project.id} → ${newCanonicalId}`);
+
+    // Phase 4a: clear agent identity — old project's agent is not valid in new project
+    currentAgentId = undefined;
+    autopilotRetrievalBoundary = null;
+
+    // Re-resolve data dir with canonical ID (may differ from raw detected ID)
+    const canonicalProjectDir = newCanonicalId !== newDetected.id
+      ? await getProjectDataDir(newCanonicalId)
+      : newProjectDir;
+
+    // Update mutable state — all tool closures reference these by closure
+    projectResolved = true;
+    projectResolutionError = null;
+    project = { ...newDetected, id: newCanonicalId };
+    projectDir = canonicalProjectDir;
+    if (source === 'explicit-project-root') projectBinding.bindExplicit(project.rootPath);
+    else if (source === 'mcp-roots') projectBinding.bindFromRoots(project.rootPath);
+    else projectBinding.bindStartup(project.rootPath);
+    projectBinding.recordResolvedProject(project.id, project.rootPath);
+    await registerMaintenanceTarget();
+
+    // Update YAML config root and reload .env for the new project
+    try {
+      const { initProjectRoot } = await import('./config/yaml-loader.js');
+      initProjectRoot(project.rootPath);
+      const { resetDotenv, loadDotenv } = await import('./config/dotenv-loader.js');
+      resetDotenv();
+      loadDotenv(project.rootPath);
+    } catch { /* best-effort */ }
+    refreshRuntimeContext();
+
+    // Reinitialize TeamStore for the new project (per-project isolation)
+    // In HTTP mode, the shared TeamStore from serve-http is replaced with
+    // a project-specific one. In stdio mode, a fresh one is created.
+    try {
+      if (!initTeamStoreForProject) throw new Error('Team store init unavailable');
+      if (sharedTeam?.teamStore) {
+        // HTTP mode: check if the new projectDir already has a cached TeamStore
+        // For now, reinitialize since the sharedTeam was for the original project
+        teamStore = await initTeamStoreForProject(canonicalProjectDir);
+        // Re-attach EventBus if available
+        if (!teamStore.getEventBus()) {
+          const { TeamEventBus } = await import('./team/event-bus.js');
+          teamStore.setEventBus(new TeamEventBus());
+        }
+      } else {
+        // Stdio mode: always reinitialize
+        teamStore = await initTeamStoreForProject(canonicalProjectDir);
+      }
+    } catch { /* best-effort - coordination features degrade gracefully */ }
+
+    writeLastProjectRoot(project.rootPath);
+    runtimeHydratedForDir = null;
+    projectRuntimeInitPromise = null;
+    void ensureProjectRuntimeInitialized().catch((err) => {
+      console.error(`[memorix] Background project runtime init failed: ${err instanceof Error ? err.message : err}`);
+    });
+    try {
+      await startProjectMaintenanceWorker();
+    } catch {
+      // Switching projects must not fail because optional maintenance is unavailable.
+    }
+    return true;
+  };
+
+  const handleTransportClose = (): void => {
+    maintenanceWorker?.stop();
+    maintenanceWorker = null;
+    const agentId = currentAgentId;
+    currentAgentId = undefined;
+    if (!teamFeaturesEnabled || !agentId) return;
+
+    try {
+      teamStore.leaveAgent(agentId);
+      teamStore.releaseAllLocks(agentId);
+      teamStore.releaseTasksByAgent(agentId);
+    } catch { /* best-effort cleanup on transport close */ }
+  };
+
+  return {
+    server, graphManager, projectId: project.id, deferredInit, activateProjectRuntime, switchProject,
+    getProjectDataDir: () => projectDir,
+    isExplicitlyBound: () => projectBinding.isExplicit(),
+    getRequestContext,
+    handleTransportClose,
+  };
+}

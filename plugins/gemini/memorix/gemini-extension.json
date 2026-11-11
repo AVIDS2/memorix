@@ -1,0 +1,15 @@
+{
+  "name": "memorix",
+  "version": "1.10.3",
+  "mcpServers": {
+    "memorix": {
+      "command": "memorix",
+      "args": [
+        "serve",
+        "--mode",
+        "lite"
+      ]
+    }
+  },
+  "contextFileName": "GEMINI.md"
+}

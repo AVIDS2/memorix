@@ -1,0 +1,191 @@
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+
+/**
+ * These sources describe how Memorix learned a workspace binding. They are
+ * product facts, intentionally separate from any MCP transport session ID.
+ */
+export type ProjectBindingSource = 'startup-cwd' | 'mcp-roots' | 'explicit-project-root';
+export type ProjectBindingTransport = 'unknown' | 'stdio' | 'legacy-http' | 'stateless-http' | 'dashboard';
+
+export interface ProjectBindingHandle {
+  handleId: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt?: string;
+}
+
+export interface ProjectBindingGitRemoteReceipt {
+  state: 'verified' | 'unavailable';
+  hash?: string;
+  host?: string;
+}
+
+export interface ProjectBindingHandleReceipt {
+  state: 'active' | 'expired' | 'absent';
+  idHash?: string;
+  createdAt?: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+}
+
+export interface ProjectBindingReceipt {
+  version: '1';
+  state: 'resolved' | 'unresolved';
+  source: ProjectBindingSource;
+  explicit: boolean;
+  projectId?: string;
+  projectRootHash: string;
+  dataDirHash?: string;
+  gitRemote: ProjectBindingGitRemoteReceipt;
+  handle: ProjectBindingHandleReceipt;
+  transport: ProjectBindingTransport;
+}
+
+export interface ProjectBindingSnapshot {
+  projectRoot: string;
+  source: ProjectBindingSource;
+  explicit: boolean;
+  projectId?: string;
+}
+
+export interface MemorixRequestContext extends ProjectBindingSnapshot {
+  actorId?: string;
+}
+
+function resolveRoot(projectRoot: string): string {
+  const value = projectRoot.trim();
+  if (!value) throw new Error('Project binding requires a non-empty project root');
+  return path.resolve(value);
+}
+
+function hashBindingValue(value: string): string {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function remoteHost(remote: string): string | undefined {
+  const trimmed = remote.trim();
+  if (!trimmed) return undefined;
+  const scpHost = trimmed.match(/^[^@/\s]+@([^:\s/]+):/);
+  if (scpHost) return scpHost[1].toLowerCase();
+  try {
+    return new URL(trimmed).hostname.toLowerCase() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One connection may keep this object today, while a future stateless adapter
+ * can construct it from fixed server configuration. No HTTP session identifier
+ * is accepted or stored here.
+ */
+export class ProjectBindingController {
+  private current: ProjectBindingSnapshot;
+
+  constructor(projectRoot: string) {
+    this.current = {
+      projectRoot: resolveRoot(projectRoot),
+      source: 'startup-cwd',
+      explicit: false,
+    };
+  }
+
+  snapshot(): ProjectBindingSnapshot {
+    return { ...this.current };
+  }
+
+  requestContext(actorId?: string): MemorixRequestContext {
+    return {
+      ...this.snapshot(),
+      ...(actorId ? { actorId } : {}),
+    };
+  }
+
+  /**
+   * Return binding diagnostics without exposing local paths or transport IDs.
+   * The hashes let operators compare two surfaces while keeping the receipt
+   * safe to pass through MCP, logs, and agent handoffs.
+   */
+  receipt(options: {
+    dataDir?: string;
+    transport?: ProjectBindingTransport;
+    gitRemote?: string;
+    handle?: ProjectBindingHandle;
+  } = {}): ProjectBindingReceipt {
+    const snapshot = this.snapshot();
+    const handle = options.handle;
+    const handleState = !handle
+      ? 'absent' as const
+      : handle.expiresAt && Date.parse(handle.expiresAt) <= Date.now()
+        ? 'expired' as const
+        : 'active' as const;
+    return {
+      version: '1',
+      state: snapshot.projectId ? 'resolved' : 'unresolved',
+      source: snapshot.source,
+      explicit: snapshot.explicit,
+      ...(snapshot.projectId ? { projectId: snapshot.projectId } : {}),
+      projectRootHash: hashBindingValue(snapshot.projectRoot),
+      ...(options.dataDir ? { dataDirHash: hashBindingValue(path.resolve(options.dataDir)) } : {}),
+      gitRemote: options.gitRemote?.trim()
+        ? {
+          state: 'verified',
+          hash: hashBindingValue(options.gitRemote.trim()),
+          ...(remoteHost(options.gitRemote) ? { host: remoteHost(options.gitRemote) } : {}),
+        }
+        : { state: 'unavailable' },
+      handle: {
+        state: handleState,
+        ...(handle ? { idHash: hashBindingValue(handle.handleId) } : {}),
+        ...(handle?.createdAt ? { createdAt: handle.createdAt } : {}),
+        ...(handle?.lastUsedAt ? { lastUsedAt: handle.lastUsedAt } : {}),
+        ...(handle?.expiresAt ? { expiresAt: handle.expiresAt } : {}),
+      },
+      transport: options.transport ?? 'unknown',
+    };
+  }
+
+  isExplicit(): boolean {
+    return this.current.explicit;
+  }
+
+  /** Roots are advisory and may never overwrite an explicit user binding. */
+  bindFromRoots(projectRoot: string): boolean {
+    if (this.current.explicit) return false;
+    this.replace(projectRoot, 'mcp-roots');
+    return true;
+  }
+
+  bindExplicit(projectRoot: string): void {
+    this.replace(projectRoot, 'explicit-project-root');
+  }
+
+  bindStartup(projectRoot: string): void {
+    if (this.current.explicit) return;
+    this.replace(projectRoot, 'startup-cwd');
+  }
+
+  /** Set only after the caller has verified the path maps to a real project. */
+  recordResolvedProject(projectId: string, projectRoot?: string): void {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) throw new Error('Project binding requires a non-empty project ID');
+    this.current = {
+      ...this.current,
+      ...(projectRoot ? { projectRoot: resolveRoot(projectRoot) } : {}),
+      projectId: normalizedProjectId,
+    };
+  }
+
+  private replace(projectRoot: string, source: ProjectBindingSource): void {
+    this.current = {
+      projectRoot: resolveRoot(projectRoot),
+      source,
+      explicit: source === 'explicit-project-root',
+    };
+  }
+}
+
+export function createProjectBindingController(projectRoot: string): ProjectBindingController {
+  return new ProjectBindingController(projectRoot);
+}

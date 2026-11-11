@@ -1,0 +1,590 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ClaimStore } from '../../src/knowledge/claim-store.js';
+import { writeClaim } from '../../src/knowledge/claims.js';
+import { applyKnowledgeProposal, compileKnowledgeWorkspace } from '../../src/knowledge/wiki.js';
+import { initializeKnowledgeWorkspace } from '../../src/knowledge/workspace.js';
+import { buildTaskWorkset } from '../../src/knowledge/workset.js';
+import { createManualLongTermMemory, qualifyLongTermMemory } from '../../src/memory/long-term.js';
+import { recordWorkflowRun, writeCanonicalWorkflow } from '../../src/knowledge/workflows.js';
+import { OutcomeStore } from '../../src/knowledge/outcome-store.js';
+import { closeAllDatabases } from '../../src/store/sqlite-db.js';
+
+let dataDir: string | null = null;
+
+function tempDir(): string {
+  dataDir = mkdtempSync(path.join(tmpdir(), 'memorix-workset-'));
+  return dataDir;
+}
+
+afterEach(() => {
+  closeAllDatabases();
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  dataDir = null;
+});
+
+describe('Task Workset', () => {
+  it('combines source-backed claims, reviewed pages, workflows, state cautions, and verification within budget', async () => {
+    const root = tempDir();
+    const store = new ClaimStore();
+    await store.init(root);
+    const written = writeClaim(store, {
+      projectId: 'org/repo',
+      subject: 'release',
+      predicate: 'requires',
+      objectValue: 'package smoke test before publishing',
+      scope: 'workflow',
+      evidence: [{
+        evidenceKind: 'test',
+        evidenceId: 'test:package-smoke',
+        relation: 'verifies',
+        locator: 'tests/package-smoke.test.ts',
+        capturedHash: 'package-smoke-v1',
+      }],
+    });
+    const workspace = await initializeKnowledgeWorkspace({
+      projectId: 'org/repo',
+      dataDir: root,
+      mode: 'local',
+    });
+    const compiled = await compileKnowledgeWorkspace({ workspace, claims: store });
+    await applyKnowledgeProposal({ workspace, proposalId: compiled.proposals[0].id });
+    const workflow = await writeCanonicalWorkflow({
+      workspace,
+      workflow: {
+        id: 'workflow:release',
+        workspaceId: workspace.id,
+        title: 'Release',
+        description: 'Prepare a verified release.',
+        status: 'active',
+        version: 1,
+        taskLenses: ['release'],
+        triggers: ['publish', 'npm'],
+        assumptions: [],
+        requiredContext: [],
+        guardrails: [],
+        allowedTools: ['git', 'npm'],
+        phases: [{
+          id: 'prepare',
+          title: 'Prepare',
+          instructions: 'Check metadata and the focused tests before publishing.',
+          branches: [],
+          expectedOutputs: [],
+          verificationGates: ['Package smoke passes.'],
+        }],
+        verificationGates: ['Package smoke passes.'],
+        claimIds: [written.claim.id],
+        evidenceRefs: ['test:test:package-smoke'],
+        codeRefs: [],
+        compatibleAgents: ['codex'],
+        body: '## Prepare\n\nCheck metadata and focused tests before publishing.',
+        sourcePath: 'workflows/release.md',
+        sourceHash: '',
+        contentHash: '',
+        createdAt: '2026-07-17T00:00:00.000Z',
+        updatedAt: '2026-07-17T00:00:00.000Z',
+      },
+    });
+    await recordWorkflowRun({
+      workspace,
+      run: {
+        workflowId: workflow.id,
+        projectId: 'org/repo',
+        task: 'previous release',
+        outcome: 'failed',
+        verificationVerdict: 'failed',
+        failureReason: 'Package smoke did not pass.',
+      },
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Prepare and publish the npm release.',
+      agent: 'codex',
+      lens: 'release',
+      currentFacts: ['Package version: 1.2.0', 'Git: dirty worktree'],
+      codeState: 'Code state: dirty worktree, incomplete scan.',
+      startHere: ['package.json', 'CHANGELOG.md'],
+      reliableMemory: [{
+        id: 9,
+        title: 'The release path validates package output.',
+        type: 'decision',
+        status: 'current',
+        path: 'package.json',
+      }],
+      cautionMemory: [],
+      verificationHints: ['Verify package metadata and Git state before publishing.'],
+      worktreeDirty: true,
+      snapshot: {
+        id: 'snapshot:release',
+        sourceEpoch: 3,
+        worktreeState: 'dirty',
+        incomplete: true,
+      },
+      freshness: { suspect: 1, stale: 0 },
+    });
+
+    expect(workset.claims).toEqual([
+      expect.objectContaining({ id: written.claim.id }),
+    ]);
+    expect(workset.pages).toEqual([
+      expect.objectContaining({ claimIds: [written.claim.id] }),
+    ]);
+    expect(workset.workflows).toEqual([
+      expect.objectContaining({ id: workflow.id, firstPhase: expect.objectContaining({ title: 'Prepare' }) }),
+    ]);
+    expect(workset.agentLoadout).toEqual({
+      agent: 'codex',
+      workflowIds: [workflow.id],
+      requiredContext: [],
+      allowedTools: ['git', 'npm'],
+    });
+    expect(workset.cautions.map(caution => caution.kind)).toEqual(expect.arrayContaining([
+      'dirty-worktree',
+      'incomplete-scan',
+      'suspect-code-memory',
+      'workflow-failed-verification',
+    ]));
+    expect(workset.evidenceIds).toEqual(expect.arrayContaining([
+      'claim:' + written.claim.id,
+      'test:test:package-smoke',
+    ]));
+    expect(workset.prompt).toContain('Project knowledge');
+    expect(workset.prompt).toContain('Project workflow');
+    expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
+    expect(workset.receipt).toMatchObject({
+      version: '1.3',
+      target: 'project-context',
+      budget: {
+        maxTokens: workset.budget.maxTokens,
+        tokenCount: workset.budget.tokenCount,
+      },
+    });
+    expect(workset.receipt.governance?.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'claim:' + written.claim.id,
+        disposition: 'include',
+        trust: 'source-backed',
+        quality: 'verified',
+        freshness: 'current',
+        conflict: 'none',
+        evidenceCount: 1,
+      }),
+    ]));
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'start-here', id: 'path:package.json' }),
+    ]));
+    expect(workset.receipt.selected).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'claim', id: 'claim:' + written.claim.id }),
+      expect.objectContaining({ kind: 'knowledge-page' }),
+    ]));
+    expect(workset.receipt.omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'claim',
+        reason: 'token-budget',
+        sampleIds: expect.arrayContaining(['claim:' + written.claim.id]),
+      }),
+      expect.objectContaining({ kind: 'knowledge-page', reason: 'token-budget' }),
+    ]));
+  });
+
+  it('records retrieval mode, fallback, and bounded candidate counts in the receipt', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Recover the authentication context.',
+      lens: 'bugfix',
+      currentFacts: ['Git: clean worktree'],
+      semanticCode: {
+        provider: 'semantic',
+        entryPoints: [],
+        relations: [],
+        relatedFiles: ['src/auth.ts'],
+        stats: { nodes: 0, edges: 0, files: 1 },
+      },
+      providerQuality: {
+        selected: 'semantic',
+        selectedQuality: 'semantic',
+        mode: 'auto',
+        lite: {
+          quality: 'heuristic',
+          capabilities: {
+            declarations: true,
+            importHints: true,
+            localRelativeImportTargets: true,
+            resolvedRelations: false,
+            exactLocations: false,
+          },
+          supportedLanguages: ['typescript'],
+        },
+        external: { state: 'unavailable', reason: 'provider unavailable' },
+        semantic: { state: 'ready', symbols: 2, edges: 1, parserErrors: 0 },
+      },
+      retrieval: {
+        mode: 'hybrid',
+        codeProvider: 'semantic',
+        fallbackReason: 'external provider unavailable; local semantic context used',
+        derivedViews: {
+          graph: {
+            generation: 3,
+            freshness: 'stale',
+            rebuildStatus: 'failed',
+            failureReason: 'provider unavailable',
+          },
+        },
+      },
+      startHere: ['src/auth.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      maxTokens: 120,
+    });
+
+    expect(workset.receipt.retrieval).toMatchObject({
+      mode: 'hybrid',
+      codeProvider: 'semantic',
+      fallbackUsed: true,
+      fallbackReason: 'external provider unavailable; local semantic context used',
+      candidateCount: 0,
+      selectedCount: expect.any(Number),
+      omittedCount: expect.any(Number),
+    });
+    expect(workset.receipt.retrieval.derivedViews?.graph).toMatchObject({
+      generation: 3,
+      freshness: 'stale',
+      rebuildStatus: 'failed',
+      failureReason: 'provider unavailable',
+    });
+  });
+
+  it('does not load a workflow for an incompatible target agent', async () => {
+    const root = tempDir();
+    const workspace = await initializeKnowledgeWorkspace({
+      projectId: 'org/repo',
+      dataDir: root,
+      mode: 'local',
+    });
+    await writeCanonicalWorkflow({
+      workspace,
+      workflow: {
+        id: 'codex-release', workspaceId: workspace.id, title: 'Codex release', description: 'release',
+        status: 'active', version: 1, taskLenses: ['release'], triggers: ['publish'], assumptions: [],
+        requiredContext: ['current package version'], guardrails: [], allowedTools: ['npm'],
+        phases: [{ id: 'verify', title: 'Verify', instructions: 'Run package smoke.', branches: [], expectedOutputs: [], verificationGates: [] }],
+        verificationGates: [], claimIds: [], evidenceRefs: [], codeRefs: [], compatibleAgents: ['codex'],
+        body: '', sourcePath: 'workflows/codex-release.md', sourceHash: '', contentHash: '',
+        createdAt: '2026-08-17T00:00:00.000Z', updatedAt: '2026-08-17T00:00:00.000Z',
+      },
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo', dataDir: root, task: 'publish a release', agent: 'claude-code', lens: 'release',
+      currentFacts: [], startHere: [], reliableMemory: [], cautionMemory: [], verificationHints: [],
+      worktreeDirty: false, freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.workflows).toEqual([]);
+    expect(workset.agentLoadout).toEqual({
+      agent: 'claude-code', workflowIds: [], requiredContext: [], allowedTools: [],
+    });
+  });
+
+  it('returns no generic knowledge dump when task terms do not match durable artifacts', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'What is the capital of France?',
+      lens: 'general',
+      currentFacts: [],
+      startHere: [],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Inspect the task-relevant code before editing.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.claims).toHaveLength(0);
+    expect(workset.pages).toHaveLength(0);
+    expect(workset.workflows).toHaveLength(0);
+    expect(workset.prompt).not.toContain('Project knowledge');
+    expect(workset.prompt).not.toContain('Project workflow');
+  });
+
+  it('keeps degraded optional memory out of the brief while retaining its qualification receipt', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the authentication work.',
+      lens: 'feature',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['src/auth.ts'],
+      reliableMemory: [{
+        id: 42,
+        title: 'Old auth strategy that must not guide new edits',
+        type: 'decision',
+        status: 'stale',
+        path: 'src/auth.ts',
+      }],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 1 },
+    });
+
+    expect(workset.prompt).not.toContain('Old auth strategy');
+    expect(workset.receipt.governance?.scope).toBe('optional-evidence');
+    expect(workset.receipt.governance?.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'memory:42', disposition: 'defer', reasons: ['degraded-quality'] }),
+    ]));
+  });
+
+  it('renders exact prior-scan file changes only as a bounded continuation aid', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the authentication work.',
+      lens: 'feature',
+      currentFacts: ['Git: dirty worktree'],
+      codeState: 'Code state: dirty worktree.',
+      codeEvolution: {
+        fromSnapshotId: 'snapshot:1',
+        toSnapshotId: 'snapshot:2',
+        changes: [{ path: 'src/auth.ts', kind: 'modified' }],
+        directlyConnectedPaths: ['src/api.ts'],
+        truncated: false,
+      },
+      startHere: ['src/auth.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: true,
+      freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.prompt).toContain('Code changes since prior scan');
+    expect(workset.prompt).toContain('modified: src/auth.ts');
+    expect(workset.prompt).toContain('connected now: src/api.ts');
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'code-state', id: 'snapshot:snapshot:2' }),
+    ]));
+  });
+
+  it('adds only qualified task-matching durable memory within the Workset budget', async () => {
+    const root = tempDir();
+    const durable = await createManualLongTermMemory({
+      dataDir: root,
+      projectId: 'org/project-a',
+      scope: 'user',
+      kind: 'procedural',
+      portability: 'portable',
+      title: 'Verify package before release',
+      content: 'Run the focused package smoke before publishing an npm release.',
+      tags: ['release', 'package'],
+      applicability: 'When publishing a package from any local project.',
+    });
+    await qualifyLongTermMemory({
+      dataDir: root,
+      id: durable.memory.id,
+      reason: 'The local user explicitly confirmed this release workflow.',
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/project-b',
+      dataDir: root,
+      task: 'Prepare the npm release and verify the package.',
+      lens: 'release',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['package.json'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the package smoke.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      maxTokens: 180,
+    });
+
+    expect(workset.durableMemory).toEqual([
+      expect.objectContaining({ id: durable.memory.id, scope: 'user', kind: 'procedural' }),
+    ]);
+    expect(workset.prompt).toContain('Durable memory');
+    expect(workset.prompt).toContain('Verify package before release');
+    expect(workset.prompt).toContain('durable:' + durable.memory.id);
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'durable-memory', id: 'durable:' + durable.memory.id }),
+    ]));
+    expect(workset.budget.tokenCount).toBeLessThanOrEqual(workset.budget.maxTokens);
+  });
+
+  it('does not inject durable memory after its latest verified workflow outcome failed', async () => {
+    const root = tempDir();
+    const durable = await createManualLongTermMemory({
+      dataDir: root,
+      projectId: 'org/project-a',
+      scope: 'user',
+      kind: 'procedural',
+      portability: 'portable',
+      title: 'Package publishing procedure',
+      content: 'Run the package smoke before publishing an npm release.',
+      tags: ['release', 'package'],
+    });
+    await qualifyLongTermMemory({
+      dataDir: root,
+      id: durable.memory.id,
+      reason: 'Previously checked against a package release.',
+    });
+    const outcomes = new OutcomeStore();
+    await outcomes.init(root);
+    outcomes.record({
+      projectId: 'org/project-b',
+      candidateKind: 'durable-memory',
+      candidateId: durable.memory.id,
+      kind: 'verification-failed',
+      sourceRef: 'workflow-run:failed-release',
+    });
+
+    const workset = await buildTaskWorkset({
+      projectId: 'org/project-b',
+      dataDir: root,
+      task: 'Prepare the npm release and verify the package.',
+      lens: 'release',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['package.json'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the package smoke.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+    });
+
+    expect(workset.durableMemory).toHaveLength(0);
+    expect(workset.prompt).not.toContain('Package publishing procedure');
+    expect(workset.evidenceIds).not.toContain('durable:' + durable.memory.id);
+    expect(workset.receipt.governance?.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'durable:' + durable.memory.id, disposition: 'defer', reasons: ['degraded-quality'] }),
+    ]));
+  });
+
+  it('puts a bounded continuation projection ahead of optional project detail', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the authentication rollout.',
+      lens: 'feature',
+      currentFacts: ['Git: clean worktree'],
+      continuation: {
+        previousSession: {
+          id: 'session:auth',
+          agent: 'claude-code',
+          endedAt: '2026-07-25T08:00:00.000Z',
+          summary: 'Run the focused migration test before enabling the authentication rollout flag.',
+        },
+        memories: [{
+          id: 42,
+          type: 'decision',
+          title: 'Authentication rollout stays behind the feature flag',
+          detail: 'Keep JWT refresh behind AUTH_REFRESH_V2 until the focused migration test passes.',
+        }],
+      },
+      startHere: ['src/auth.ts', 'tests/auth.test.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused authentication test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      maxTokens: 120,
+    });
+
+    expect(workset.prompt).toContain('Resume from prior work');
+    expect(workset.prompt).toContain('focused migration test');
+    expect(workset.prompt).toContain('AUTH_REFRESH_V2');
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'continuation', id: 'session:session:auth' }),
+    ]));
+    expect(workset.budget.tokenCount).toBeLessThanOrEqual(120);
+  });
+
+  it('puts state cautions ahead of optional detail when the token budget is tight', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Fix a failing startup regression with a very detailed issue description.',
+      lens: 'bugfix',
+      currentFacts: [
+        'Package version: 1.2.0',
+        'Latest changelog: 1.2.0 (2026-07-17)',
+        'Git: dirty worktree',
+        'Historical note: docs/old-progress.md (older than latest changelog)',
+      ],
+      codeState: 'Code state: dirty worktree, incomplete scan, current data may be missing.',
+      startHere: ['src/startup.ts', 'tests/startup.test.ts', 'package.json', 'CHANGELOG.md', 'docs/old-progress.md'],
+      reliableMemory: [{
+        id: 1,
+        title: 'A long current memory about startup behavior that is optional under pressure.',
+        type: 'decision',
+        status: 'current',
+        path: 'src/startup.ts',
+      }],
+      cautionMemory: [],
+      verificationHints: ['Run the smallest failing startup regression test first.'],
+      worktreeDirty: true,
+      snapshot: { worktreeState: 'dirty', incomplete: true },
+      freshness: { suspect: 3, stale: 2 },
+      maxTokens: 96,
+    });
+
+    expect(workset.prompt).toContain('Cautions');
+    expect(workset.prompt).toContain('uncommitted changes');
+    expect(workset.prompt).toContain('incomplete');
+    expect(workset.budget.tokenCount).toBeLessThanOrEqual(96);
+    expect(workset.receipt.selected).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'caution', id: 'caution:dirty-worktree' }),
+      expect.objectContaining({ kind: 'caution', id: 'caution:incomplete-scan' }),
+    ]));
+    expect(workset.receipt.omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ reason: 'token-budget' }),
+    ]));
+    expect(workset.receipt.omitted.find(item => item.kind === 'start-here')).toMatchObject({
+      reason: 'token-budget',
+      count: expect.any(Number),
+    });
+    expect(workset.receipt.omitted.find(item => item.kind === 'start-here')!.count).toBeGreaterThan(1);
+  });
+
+  it('records queued maintenance without adding a diagnostic block to the agent prompt', async () => {
+    const root = tempDir();
+    const workset = await buildTaskWorkset({
+      projectId: 'org/repo',
+      dataDir: root,
+      task: 'Continue the auth fix.',
+      lens: 'bugfix',
+      currentFacts: ['Git: clean worktree'],
+      startHere: ['src/auth.ts'],
+      reliableMemory: [],
+      cautionMemory: [],
+      verificationHints: ['Run the focused auth test.'],
+      worktreeDirty: false,
+      freshness: { suspect: 0, stale: 0 },
+      runtimeCautions: [{
+        kind: 'codegraph-refresh-queued',
+        message: 'Code Memory refresh queued; this brief uses the latest completed scan.',
+      }],
+    });
+
+    expect(workset.receipt.scheduledActions).toEqual([
+      'Code Memory refresh queued; this brief uses the latest completed scan.',
+    ]);
+    expect(workset.prompt).not.toContain('Context delivery receipt');
+  });
+});

@@ -1,0 +1,1270 @@
+/**
+ * TeamStore - SQLite-backed persistence for orchestration coordination state.
+ *
+ * Phase 4a: Replaces the file-based team-state.json persistence with
+ * SQLite prepared statements on the shared DB handle (memorix.db).
+ *
+ * Provides:
+ *   - Singleton init/get/reset pattern (same as SessionStore)
+ *   - Shared DB handle via getDatabase()
+ *   - One-time migration from team-state.json
+ *   - Prepared statements for all team CRUD operations
+ *
+ * All team modules (registry, messages, tasks, locks) delegate to this store.
+ */
+
+import { randomUUID } from 'node:crypto';
+import { getDatabase } from '../store/sqlite-db.js';
+import path from 'node:path';
+import fs from 'node:fs';
+import type { TeamEventBus } from './event-bus.js';
+
+export const DEFAULT_TEAM_QUERY_LIMIT = 100;
+export const MAX_TEAM_QUERY_LIMIT = 500;
+
+function clampTeamQueryLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit) || limit == null) return DEFAULT_TEAM_QUERY_LIMIT;
+  return Math.min(MAX_TEAM_QUERY_LIMIT, Math.max(1, Math.floor(limit)));
+}
+
+// ── Types ───────────────────────────────────────────────────────────
+
+export interface TeamAgentRow {
+  agent_id: string;
+  project_id: string;
+  agent_type: string;
+  instance_id: string;
+  name: string;
+  role: string | null;
+  capabilities: string | null; // JSON array
+  status: 'active' | 'inactive';
+  joined_at: number;
+  last_heartbeat: number;
+  left_at: number | null;
+  last_seen_obs_generation: number;
+}
+
+export interface TeamMessageRow {
+  id: string;
+  project_id: string;
+  sender_agent_id: string;
+  recipient_agent_id: string | null; // NULL = broadcast
+  type: string;
+  content: string;
+  payload: string | null; // JSON
+  task_id: string | null;
+  read_at: number | null;
+  created_at: number;
+  to_role: string | null;
+  handoff_status: string | null; // 'open' | 'claimed' | 'completed' | 'archived'
+}
+
+export interface TeamTaskRow {
+  task_id: string;
+  project_id: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  assignee_agent_id: string | null;
+  result: string | null;
+  metadata: string | null; // JSON
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+  required_role: string | null;
+  preferred_role: string | null;
+}
+
+export interface TeamLockRow {
+  file: string;
+  project_id: string;
+  locked_by: string;
+  locked_at: number;
+  expires_at: number;
+}
+
+export interface TeamRoleRow {
+  role_id: string;
+  project_id: string;
+  label: string;
+  description: string | null;
+  preferred_agent_types: string; // JSON array
+  max_concurrent: number;
+  created_at: number;
+}
+
+/** Default role definitions seeded per project */
+export const DEFAULT_ROLES: Array<{ roleId: string; label: string; description: string; preferredAgentTypes: string[]; maxConcurrent: number }> = [
+  { roleId: 'planner', label: 'Planner', description: 'Breaks down requirements, creates tasks, defines dependencies', preferredAgentTypes: ['claude-code', 'cursor', 'codex'], maxConcurrent: 2 },
+  { roleId: 'researcher', label: 'Researcher', description: 'Investigates codebase, gathers context, answers questions', preferredAgentTypes: ['claude-code', 'cursor', 'gemini-cli'], maxConcurrent: 2 },
+  { roleId: 'engineer', label: 'Engineer', description: 'Implements features, fixes bugs, writes tests', preferredAgentTypes: ['claude-code', 'cursor', 'codex', 'windsurf', 'opencode'], maxConcurrent: 4 },
+  { roleId: 'reviewer', label: 'Reviewer', description: 'Reviews code, validates quality, checks consistency', preferredAgentTypes: ['claude-code', 'codex'], maxConcurrent: 2 },
+  { roleId: 'qa', label: 'QA', description: 'Runs tests, verifies fixes, validates edge cases', preferredAgentTypes: ['codex', 'claude-code'], maxConcurrent: 2 },
+  { roleId: 'ops', label: 'Ops', description: 'Deploys, monitors, manages infrastructure and configuration', preferredAgentTypes: ['codex', 'claude-code'], maxConcurrent: 1 },
+];
+
+/** Map agentType → default role */
+export const AGENT_TYPE_ROLE_MAP: Record<string, string> = {
+  'claude-code': 'engineer',
+  'cursor': 'engineer',
+  'codex': 'engineer',
+  'windsurf': 'engineer',
+  'opencode': 'engineer',
+  'gemini-cli': 'researcher',
+  'antigravity': 'researcher',
+  'copilot': 'engineer',
+  'kiro': 'engineer',
+  'trae': 'engineer',
+};
+
+// ── TeamStore ────────────────────────────────────────────────────────
+
+export class TeamStore {
+  private db: any = null;
+  private dataDir: string = '';
+
+  /** Optional event bus for same-process lifecycle notifications.
+   *  Set via setEventBus(). Emit failures never block TeamStore writes. */
+  private eventBus: TeamEventBus | null = null;
+
+  setEventBus(bus: TeamEventBus): void { this.eventBus = bus; }
+  getEventBus(): TeamEventBus | null { return this.eventBus; }
+
+  // ── Agent prepared statements
+  private stmtAgentUpsert: any = null;
+  private stmtAgentFindByInstance: any = null;
+  private stmtAgentFindById: any = null;
+  private stmtAgentListByProject: any = null;
+  private stmtAgentUpdateHeartbeat: any = null;
+  private stmtAgentLeave: any = null;
+  private stmtAgentUpdateWatermark: any = null;
+
+  // ── Message prepared statements
+  private stmtMsgInsert: any = null;
+  private stmtMsgInbox: any = null;
+  private stmtMsgMarkRead: any = null;
+  private stmtMsgMarkAllRead: any = null;
+  private stmtMsgUnreadCount: any = null;
+  private stmtMsgPruneRead: any = null;
+  private stmtMsgClearInbox: any = null;
+  private stmtMsgById: any = null;
+
+  // ── Task prepared statements
+  private stmtTaskInsert: any = null;
+  private stmtTaskClaim: any = null;
+  private stmtTaskReClaim: any = null;
+  private stmtTaskComplete: any = null;
+  private stmtTaskFail: any = null;
+  private stmtTaskRelease: any = null;
+  private stmtTaskReleaseByAgent: any = null;
+  private stmtTaskById: any = null;
+  private stmtTaskListByProject: any = null;
+  private stmtTaskAvailable: any = null;
+  private stmtTaskDepInsert: any = null;
+  private stmtTaskDepsByTask: any = null;
+  private stmtTaskUnmetDeps: any = null;
+
+  // ── Lock prepared statements
+  private stmtLockUpsert: any = null;
+  private stmtLockGet: any = null;
+  private stmtLockDelete: any = null;
+  private stmtLockListByProject: any = null;
+  private stmtLockListByAgent: any = null;
+  private stmtLockDeleteByAgent: any = null;
+  private stmtLockDeleteExpired: any = null;
+
+  // ── Role prepared statements
+  private stmtRoleInsert: any = null;
+  private stmtRoleDelete: any = null;
+  private stmtRoleListByProject: any = null;
+  private stmtRoleGetById: any = null;
+  private stmtRoleCountByProject: any = null;
+
+  async init(dataDir: string): Promise<void> {
+    this.dataDir = dataDir;
+    this.db = getDatabase(dataDir);
+
+    this.prepareAgentStatements();
+    this.prepareMessageStatements();
+    this.prepareTaskStatements();
+    this.prepareLockStatements();
+    this.prepareRoleStatements();
+
+    // Seed default roles for this project if none exist
+    this.seedDefaultRoles(dataDir);
+
+    // One-time migration from team-state.json
+    await this.migrateFromJsonIfNeeded();
+  }
+
+  // ── Agent statements ──────────────────────────────────────────────
+
+  private prepareAgentStatements(): void {
+    this.stmtAgentUpsert = this.db.prepare(`
+      INSERT INTO team_agents
+        (agent_id, project_id, agent_type, instance_id, name, role, capabilities, status, joined_at, last_heartbeat, left_at, last_seen_obs_generation)
+      VALUES
+        (@agent_id, @project_id, @agent_type, @instance_id, @name, @role, @capabilities, @status, @joined_at, @last_heartbeat, @left_at, @last_seen_obs_generation)
+      ON CONFLICT(project_id, agent_type, instance_id) DO UPDATE SET
+        name = excluded.name,
+        role = excluded.role,
+        capabilities = excluded.capabilities,
+        status = excluded.status,
+        last_heartbeat = excluded.last_heartbeat,
+        left_at = excluded.left_at
+    `);
+
+    this.stmtAgentFindByInstance = this.db.prepare(
+      `SELECT * FROM team_agents WHERE project_id = ? AND agent_type = ? AND instance_id = ?`
+    );
+
+    this.stmtAgentFindById = this.db.prepare(
+      `SELECT * FROM team_agents WHERE agent_id = ?`
+    );
+
+    this.stmtAgentListByProject = this.db.prepare(
+      `SELECT * FROM team_agents WHERE project_id = ? ORDER BY joined_at DESC`
+    );
+
+    this.stmtAgentUpdateHeartbeat = this.db.prepare(
+      `UPDATE team_agents SET last_heartbeat = ? WHERE agent_id = ?`
+    );
+
+    this.stmtAgentLeave = this.db.prepare(
+      `UPDATE team_agents SET status = 'inactive', left_at = ? WHERE agent_id = ?`
+    );
+
+    this.stmtAgentUpdateWatermark = this.db.prepare(
+      `UPDATE team_agents SET last_seen_obs_generation = ?, last_heartbeat = ? WHERE agent_id = ?`
+    );
+  }
+
+  // ── Message statements ────────────────────────────────────────────
+
+  private prepareMessageStatements(): void {
+    this.stmtMsgInsert = this.db.prepare(`
+      INSERT INTO team_messages
+        (id, project_id, sender_agent_id, recipient_agent_id, type, content, payload, task_id, read_at, created_at, to_role, handoff_status)
+      VALUES
+        (@id, @project_id, @sender_agent_id, @recipient_agent_id, @type, @content, @payload, @task_id, @read_at, @created_at, @to_role, @handoff_status)
+    `);
+
+    // Inbox: messages where I am the recipient OR recipient is NULL (broadcast)
+    this.stmtMsgInbox = this.db.prepare(`
+      SELECT * FROM team_messages
+      WHERE project_id = ?
+        AND (recipient_agent_id = ? OR recipient_agent_id IS NULL)
+      ORDER BY created_at ASC
+    `);
+
+    this.stmtMsgMarkRead = this.db.prepare(
+      `UPDATE team_messages SET read_at = ? WHERE id = ? AND read_at IS NULL`
+    );
+
+    this.stmtMsgMarkAllRead = this.db.prepare(
+      `UPDATE team_messages SET read_at = ?
+       WHERE project_id = ?
+         AND (recipient_agent_id = ? OR recipient_agent_id IS NULL)
+         AND read_at IS NULL`
+    );
+
+    this.stmtMsgUnreadCount = this.db.prepare(`
+      SELECT COUNT(*) AS cnt FROM team_messages
+      WHERE project_id = ?
+        AND (recipient_agent_id = ? OR recipient_agent_id IS NULL)
+        AND read_at IS NULL
+    `);
+
+    this.stmtMsgPruneRead = this.db.prepare(
+      `DELETE FROM team_messages WHERE project_id = ? AND read_at IS NOT NULL AND read_at < ?`
+    );
+
+    this.stmtMsgClearInbox = this.db.prepare(
+      `DELETE FROM team_messages WHERE project_id = ? AND recipient_agent_id = ?`
+    );
+
+    this.stmtMsgById = this.db.prepare(
+      `SELECT * FROM team_messages WHERE id = ?`
+    );
+  }
+
+  // ── Task statements ───────────────────────────────────────────────
+
+  private prepareTaskStatements(): void {
+    this.stmtTaskInsert = this.db.prepare(`
+      INSERT INTO team_tasks
+        (task_id, project_id, description, status, assignee_agent_id, result, metadata, created_by, created_at, updated_at, required_role, preferred_role)
+      VALUES
+        (@task_id, @project_id, @description, @status, @assignee_agent_id, @result, @metadata, @created_by, @created_at, @updated_at, @required_role, @preferred_role)
+    `);
+
+    // Atomic claim: WHERE guards prevent race conditions across processes
+    this.stmtTaskClaim = this.db.prepare(`
+      UPDATE team_tasks
+      SET    assignee_agent_id = ?, status = 'in_progress', updated_at = ?
+      WHERE  task_id = ? AND status = 'pending' AND assignee_agent_id IS NULL
+    `);
+
+    // Re-claim: same agent re-claiming its own task (idempotent)
+    this.stmtTaskReClaim = this.db.prepare(`
+      UPDATE team_tasks SET updated_at = ?
+      WHERE  task_id = ? AND assignee_agent_id = ? AND status = 'in_progress'
+    `);
+
+    this.stmtTaskComplete = this.db.prepare(`
+      UPDATE team_tasks
+      SET    status = 'completed', result = ?, updated_at = ?
+      WHERE  task_id = ? AND assignee_agent_id = ? AND status = 'in_progress'
+    `);
+
+    this.stmtTaskFail = this.db.prepare(`
+      UPDATE team_tasks
+      SET    status = 'failed', result = ?, updated_at = ?
+      WHERE  task_id = ? AND assignee_agent_id = ? AND status = 'in_progress'
+    `);
+
+    this.stmtTaskRelease = this.db.prepare(`
+      UPDATE team_tasks
+      SET    status = 'pending', assignee_agent_id = NULL, updated_at = ?
+      WHERE  task_id = ? AND assignee_agent_id = ? AND status = 'in_progress'
+    `);
+
+    // Stale rescue: release all tasks held by a departed agent
+    this.stmtTaskReleaseByAgent = this.db.prepare(`
+      UPDATE team_tasks
+      SET    status = 'pending', assignee_agent_id = NULL, updated_at = ?
+      WHERE  assignee_agent_id = ? AND status = 'in_progress'
+    `);
+
+    this.stmtTaskById = this.db.prepare(
+      `SELECT * FROM team_tasks WHERE task_id = ?`
+    );
+
+    this.stmtTaskListByProject = this.db.prepare(
+      `SELECT * FROM team_tasks WHERE project_id = ? ORDER BY created_at DESC`
+    );
+
+    this.stmtTaskAvailable = this.db.prepare(
+      `SELECT * FROM team_tasks WHERE project_id = ? AND status = 'pending' AND assignee_agent_id IS NULL ORDER BY created_at ASC`
+    );
+
+    this.stmtTaskDepInsert = this.db.prepare(
+      `INSERT OR IGNORE INTO team_task_deps (task_id, dep_task_id) VALUES (?, ?)`
+    );
+
+    this.stmtTaskDepsByTask = this.db.prepare(
+      `SELECT dep_task_id FROM team_task_deps WHERE task_id = ?`
+    );
+
+    // Count unmet dependencies for a task
+    this.stmtTaskUnmetDeps = this.db.prepare(`
+      SELECT COUNT(*) AS cnt FROM team_task_deps d
+        JOIN team_tasks t ON d.dep_task_id = t.task_id
+      WHERE d.task_id = ? AND t.status != 'completed'
+    `);
+  }
+
+  // ── Lock statements ───────────────────────────────────────────────
+
+  private prepareLockStatements(): void {
+    this.stmtLockUpsert = this.db.prepare(`
+      INSERT INTO team_locks (file, project_id, locked_by, locked_at, expires_at)
+      VALUES (@file, @project_id, @locked_by, @locked_at, @expires_at)
+      ON CONFLICT(file, project_id) DO UPDATE SET
+        locked_by = excluded.locked_by,
+        locked_at = excluded.locked_at,
+        expires_at = excluded.expires_at
+    `);
+
+    this.stmtLockGet = this.db.prepare(
+      `SELECT * FROM team_locks WHERE file = ? AND project_id = ?`
+    );
+
+    this.stmtLockDelete = this.db.prepare(
+      `DELETE FROM team_locks WHERE file = ? AND project_id = ?`
+    );
+
+    this.stmtLockListByProject = this.db.prepare(
+      `SELECT * FROM team_locks WHERE project_id = ? ORDER BY locked_at DESC`
+    );
+
+    this.stmtLockListByAgent = this.db.prepare(
+      `SELECT * FROM team_locks WHERE project_id = ? AND locked_by = ? ORDER BY locked_at DESC`
+    );
+
+    this.stmtLockDeleteByAgent = this.db.prepare(
+      `DELETE FROM team_locks WHERE locked_by = ?`
+    );
+
+    this.stmtLockDeleteExpired = this.db.prepare(
+      `DELETE FROM team_locks WHERE project_id = ? AND expires_at <= ?`
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Agent Operations
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Register or reactivate an agent.
+   * If an agent with the same (project_id, agent_type, instance_id) exists,
+   * reactivate it (preserving agent_id). Otherwise create a new one.
+   */
+  registerAgent(input: {
+    projectId: string;
+    agentType: string;
+    instanceId?: string;
+    name?: string;
+    role?: string;
+    capabilities?: string[];
+  }): TeamAgentRow {
+    const instanceId = input.instanceId || randomUUID();
+    const now = Date.now();
+
+    // Check for existing agent by instance key
+    const existing = this.stmtAgentFindByInstance.get(
+      input.projectId, input.agentType, instanceId
+    ) as TeamAgentRow | undefined;
+
+    if (existing) {
+      // Reactivate — preserve agent_id, update heartbeat and metadata
+      this.stmtAgentUpsert.run({
+        agent_id: existing.agent_id,
+        project_id: input.projectId,
+        agent_type: input.agentType,
+        instance_id: instanceId,
+        name: input.name ?? existing.name,
+        role: input.role ?? existing.role,
+        capabilities: input.capabilities ? JSON.stringify(input.capabilities) : existing.capabilities,
+        status: 'active',
+        joined_at: existing.joined_at,
+        last_heartbeat: now,
+        left_at: null,
+        last_seen_obs_generation: existing.last_seen_obs_generation,
+      });
+      const row = this.stmtAgentFindById.get(existing.agent_id) as TeamAgentRow;
+      this.eventBus?.emit('agent:joined', { agentId: row.agent_id, projectId: input.projectId, agentType: input.agentType });
+      return row;
+    }
+
+    // New agent
+    const agentId = randomUUID();
+    this.stmtAgentUpsert.run({
+      agent_id: agentId,
+      project_id: input.projectId,
+      agent_type: input.agentType,
+      instance_id: instanceId,
+      name: input.name || input.agentType,
+      role: input.role ?? null,
+      capabilities: input.capabilities ? JSON.stringify(input.capabilities) : null,
+      status: 'active',
+      joined_at: now,
+      last_heartbeat: now,
+      left_at: null,
+      last_seen_obs_generation: 0,
+    });
+    const row = this.stmtAgentFindById.get(agentId) as TeamAgentRow;
+    this.eventBus?.emit('agent:joined', { agentId: row.agent_id, projectId: input.projectId, agentType: input.agentType });
+    return row;
+  }
+
+  getAgent(agentId: string): TeamAgentRow | undefined {
+    return this.stmtAgentFindById.get(agentId) as TeamAgentRow | undefined;
+  }
+
+  getAgentByInstance(projectId: string, agentType: string, instanceId: string): TeamAgentRow | undefined {
+    return this.stmtAgentFindByInstance.get(projectId, agentType, instanceId) as TeamAgentRow | undefined;
+  }
+
+  listAgents(projectId: string, filter?: { status?: 'active' | 'inactive'; limit?: number }): TeamAgentRow[] {
+    const limit = clampTeamQueryLimit(filter?.limit);
+    if (filter?.status) {
+      return this.db.prepare(
+        `SELECT * FROM team_agents WHERE project_id = ? AND status = ? ORDER BY joined_at DESC LIMIT ?`,
+      ).all(projectId, filter.status, limit) as TeamAgentRow[];
+    }
+    return this.db.prepare(
+      `SELECT * FROM team_agents WHERE project_id = ? ORDER BY joined_at DESC LIMIT ?`,
+    ).all(projectId, limit) as TeamAgentRow[];
+  }
+
+  /** List agents across all projects (for global scope) */
+  listAllAgents(limit?: number): TeamAgentRow[] {
+    if (!this.db) return [];
+    return this.db.prepare('SELECT * FROM team_agents ORDER BY last_heartbeat DESC LIMIT ?').all(clampTeamQueryLimit(limit)) as TeamAgentRow[];
+  }
+
+  /** List locks across all projects (for global scope) */
+  listAllLocks(limit?: number): TeamLockRow[] {
+    if (!this.db) return [];
+    // Clean expired globally (not per-project) — bypass stmtLockDeleteExpired which scopes to project_id
+    this.db.prepare('DELETE FROM team_locks WHERE expires_at <= ?').run(Date.now());
+    return this.db.prepare('SELECT * FROM team_locks WHERE expires_at > ? ORDER BY locked_at DESC LIMIT ?').all(Date.now(), clampTeamQueryLimit(limit)) as TeamLockRow[];
+  }
+
+  /** List tasks across all projects (for global scope) */
+  listAllTasks(filter?: { available?: boolean; limit?: number }): TeamTaskRow[] {
+    if (!this.db) return [];
+    const limit = clampTeamQueryLimit(filter?.limit);
+    if (filter?.available) {
+      return this.db.prepare(
+        `SELECT t.* FROM team_tasks t WHERE t.status = 'pending' AND t.assignee_agent_id IS NULL ORDER BY t.created_at DESC LIMIT ?`
+      ).all(limit) as TeamTaskRow[];
+    }
+    return this.db.prepare('SELECT * FROM team_tasks ORDER BY created_at DESC LIMIT ?').all(limit) as TeamTaskRow[];
+  }
+
+  heartbeat(agentId: string): boolean {
+    const info = this.stmtAgentUpdateHeartbeat.run(Date.now(), agentId);
+    return info.changes > 0;
+  }
+
+  leaveAgent(agentId: string): boolean {
+    const agent = this.stmtAgentFindById.get(agentId) as TeamAgentRow | undefined;
+    const info = this.stmtAgentLeave.run(Date.now(), agentId);
+    if (info.changes > 0 && agent) {
+      this.eventBus?.emit('agent:left', { agentId, projectId: agent.project_id });
+    }
+    return info.changes > 0;
+  }
+
+  updateWatermark(agentId: string, generation: number): void {
+    this.stmtAgentUpdateWatermark.run(generation, Date.now(), agentId);
+  }
+
+  /**
+   * Detect and mark stale agents. Returns list of stale agent IDs whose tasks/locks were released.
+   */
+  detectAndMarkStale(projectId: string, staleTtlMs: number): string[] {
+    const threshold = Date.now() - staleTtlMs;
+    const staleAgents = (this.stmtAgentListByProject.all(projectId) as TeamAgentRow[])
+      .filter(a => a.status === 'active' && a.last_heartbeat < threshold);
+
+    const staleIds: string[] = [];
+    const now = Date.now();
+    for (const agent of staleAgents) {
+      this.stmtAgentLeave.run(now, agent.agent_id);
+      // Release tasks
+      const released = this.stmtTaskReleaseByAgent.run(now, agent.agent_id);
+      // Release locks
+      this.stmtLockDeleteByAgent.run(agent.agent_id);
+      staleIds.push(agent.agent_id);
+      // Lifecycle hook: stale agent detected (best-effort)
+      this.eventBus?.emit('agent:stale', { agentId: agent.agent_id, projectId, releasedTasks: released.changes });
+    }
+    return staleIds;
+  }
+
+  getActiveCount(projectId: string): number {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS count FROM team_agents WHERE project_id = ? AND status = 'active'`,
+    ).get(projectId) as { count: number };
+    return Number(row?.count ?? 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Message Operations
+  // ═══════════════════════════════════════════════════════════════════
+
+  sendMessage(input: {
+    projectId: string;
+    senderAgentId: string;
+    recipientAgentId?: string | null;
+    type: string;
+    content: string;
+    payload?: Record<string, unknown>;
+    taskId?: string;
+    toRole?: string | null;
+    handoffStatus?: string | null;
+  }): TeamMessageRow | { error: string } {
+    // Validate sender exists
+    const sender = this.stmtAgentFindById.get(input.senderAgentId) as TeamAgentRow | undefined;
+    if (!sender) {
+      return { error: `Sender agent '${input.senderAgentId}' not found — cannot create message from unknown agent` };
+    }
+
+    // Validate direct recipient exists (broadcast with null recipient is allowed)
+    if (input.recipientAgentId) {
+      const recipient = this.stmtAgentFindById.get(input.recipientAgentId) as TeamAgentRow | undefined;
+      if (!recipient) {
+        return { error: `Recipient agent '${input.recipientAgentId}' not found — cannot send to unknown agent` };
+      }
+    }
+
+    const id = randomUUID();
+    const now = Date.now();
+    const row: TeamMessageRow = {
+      id,
+      project_id: input.projectId,
+      sender_agent_id: input.senderAgentId,
+      recipient_agent_id: input.recipientAgentId ?? null,
+      type: input.type,
+      content: input.content,
+      payload: input.payload ? JSON.stringify(input.payload) : null,
+      task_id: input.taskId ?? null,
+      read_at: null,
+      created_at: now,
+      to_role: input.toRole ?? null,
+      handoff_status: input.handoffStatus ?? null,
+    };
+    this.stmtMsgInsert.run(row);
+    return row;
+  }
+
+  getInbox(projectId: string, agentId: string, limit?: number): TeamMessageRow[] {
+    return this.db.prepare(`
+      SELECT * FROM team_messages
+      WHERE project_id = ?
+        AND (recipient_agent_id = ? OR recipient_agent_id IS NULL)
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(projectId, agentId, clampTeamQueryLimit(limit)) as TeamMessageRow[];
+  }
+
+  getUnreadCount(projectId: string, agentId: string): number {
+    const row = this.stmtMsgUnreadCount.get(projectId, agentId) as { cnt: number };
+    return row.cnt;
+  }
+
+  markMessageRead(messageId: string): boolean {
+    const info = this.stmtMsgMarkRead.run(Date.now(), messageId);
+    return info.changes > 0;
+  }
+
+  markAllRead(projectId: string, agentId: string): number {
+    const info = this.stmtMsgMarkAllRead.run(Date.now(), projectId, agentId);
+    return info.changes;
+  }
+
+  pruneReadMessages(projectId: string, olderThanMs: number): number {
+    const threshold = Date.now() - olderThanMs;
+    const info = this.stmtMsgPruneRead.run(projectId, threshold);
+    return info.changes;
+  }
+
+  clearInbox(projectId: string, agentId: string): number {
+    const info = this.stmtMsgClearInbox.run(projectId, agentId);
+    return info.changes;
+  }
+
+  getMessageById(messageId: string): TeamMessageRow | undefined {
+    return this.stmtMsgById.get(messageId) as TeamMessageRow | undefined;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Task Operations (with atomic claim semantics)
+  // ═══════════════════════════════════════════════════════════════════
+
+  createTask(input: {
+    projectId: string;
+    description: string;
+    deps?: string[];
+    metadata?: Record<string, unknown>;
+    createdBy?: string;
+    requiredRole?: string | null;
+    preferredRole?: string | null;
+  }): TeamTaskRow {
+    const taskId = randomUUID();
+    const now = Date.now();
+    const row: TeamTaskRow = {
+      task_id: taskId,
+      project_id: input.projectId,
+      description: input.description,
+      status: 'pending',
+      assignee_agent_id: null,
+      result: null,
+      metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+      created_by: input.createdBy ?? null,
+      created_at: now,
+      updated_at: now,
+      required_role: input.requiredRole ?? null,
+      preferred_role: input.preferredRole ?? null,
+    };
+    this.stmtTaskInsert.run(row);
+
+    // Insert dependencies
+    if (input.deps?.length) {
+      for (const depId of input.deps) {
+        this.stmtTaskDepInsert.run(taskId, depId);
+      }
+    }
+
+    // Lifecycle hook: task created (best-effort, after successful write)
+    this.eventBus?.emit('task:created', { taskId, projectId: input.projectId, description: input.description });
+
+    return row;
+  }
+
+  getTask(taskId: string): TeamTaskRow | undefined {
+    return this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+  }
+
+  getTaskDeps(taskId: string): string[] {
+    const rows = this.stmtTaskDepsByTask.all(taskId) as { dep_task_id: string }[];
+    return rows.map(r => r.dep_task_id);
+  }
+
+  /**
+   * Atomic task claim with dependency check.
+   * Uses BEGIN IMMEDIATE to serialize the dep check + claim atomically.
+   * Returns { success, task, reason? }.
+   */
+  claimTask(taskId: string, agentId: string): { success: boolean; task?: TeamTaskRow; reason?: string; hint?: string } {
+    const claimTx = this.db.transaction(() => {
+      const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+      if (!task) return { success: false, reason: 'Task not found' };
+
+      // Allow same agent to re-claim
+      if (task.assignee_agent_id === agentId && task.status === 'in_progress') {
+        const now = Date.now();
+        this.stmtTaskReClaim.run(now, taskId, agentId);
+        return { success: true, task: { ...task, updated_at: now } };
+      }
+
+      // Role enforcement: required_role must match agent's role
+      if (task.required_role) {
+        const agent = this.stmtAgentFindById.get(agentId) as TeamAgentRow | undefined;
+        const agentRole = agent?.role ?? '';
+        if (agentRole !== task.required_role) {
+          return {
+            success: false,
+            reason: `Role mismatch: task requires '${task.required_role}', agent has '${agentRole || 'no role'}'`,
+          };
+        }
+      }
+
+      // Check unmet dependencies
+      const unmet = this.stmtTaskUnmetDeps.get(taskId) as { cnt: number };
+      if (unmet.cnt > 0) {
+        return { success: false, reason: `Cannot claim: ${unmet.cnt} unmet dependency(ies)` };
+      }
+
+      // Atomic claim
+      const now = Date.now();
+      const info = this.stmtTaskClaim.run(agentId, now, taskId);
+      if (info.changes === 0) {
+        // Another process claimed it or status changed
+        const current = this.stmtTaskById.get(taskId) as TeamTaskRow;
+        return {
+          success: false,
+          reason: current.assignee_agent_id
+            ? `Task already claimed by ${current.assignee_agent_id}`
+            : `Task status is ${current.status}, not pending`,
+        };
+      }
+
+      // Preferred role hint (soft — claim succeeds, but inform the caller)
+      let hint: string | undefined;
+      if (task.preferred_role) {
+        const agent = this.stmtAgentFindById.get(agentId) as TeamAgentRow | undefined;
+        const agentRole = agent?.role ?? '';
+        if (agentRole !== task.preferred_role) {
+          hint = `Preferred role '${task.preferred_role}' not matched (agent has '${agentRole || 'no role'}') — claim still valid`;
+        }
+      }
+
+      return { success: true, task: this.stmtTaskById.get(taskId) as TeamTaskRow, hint };
+    });
+
+    // Use immediate to acquire write lock before reading
+    const result = claimTx.immediate();
+
+    // Lifecycle hook: task claimed (best-effort, after successful write)
+    if (result.success && result.task) {
+      this.eventBus?.emit('task:claimed', { taskId, projectId: result.task.project_id, agentId });
+    }
+
+    return result;
+  }
+
+  completeTask(taskId: string, agentId: string, result?: string): { success: boolean; reason?: string } {
+    const now = Date.now();
+    const info = this.stmtTaskComplete.run(result ?? null, now, taskId, agentId);
+    if (info.changes === 0) {
+      return { success: false, reason: 'Not the assignee or task not in progress' };
+    }
+
+    // Lifecycle hook: task completed (best-effort)
+    const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+    if (task) {
+      this.eventBus?.emit('task:completed', { taskId, projectId: task.project_id, agentId, result: result ?? undefined });
+    }
+
+    return { success: true };
+  }
+
+  failTask(taskId: string, agentId: string, result?: string): { success: boolean; reason?: string } {
+    const now = Date.now();
+    const info = this.stmtTaskFail.run(result ?? null, now, taskId, agentId);
+    if (info.changes === 0) {
+      return { success: false, reason: 'Not the assignee or task not in progress' };
+    }
+
+    // Lifecycle hook: task failed (best-effort)
+    const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+    if (task) {
+      this.eventBus?.emit('task:failed', { taskId, projectId: task.project_id, agentId, result: result ?? undefined });
+    }
+
+    return { success: true };
+  }
+
+  releaseTask(taskId: string, agentId: string): { success: boolean; reason?: string } {
+    const now = Date.now();
+    const task = this.stmtTaskById.get(taskId) as TeamTaskRow | undefined;
+    const info = this.stmtTaskRelease.run(now, taskId, agentId);
+    if (info.changes === 0) {
+      return { success: false, reason: 'Not the assignee or task not in progress' };
+    }
+
+    // Lifecycle hook: task released (best-effort)
+    if (task) {
+      this.eventBus?.emit('task:released', { taskId, projectId: task.project_id, agentId });
+    }
+
+    return { success: true };
+  }
+
+  releaseTasksByAgent(agentId: string): number {
+    const now = Date.now();
+    const info = this.stmtTaskReleaseByAgent.run(now, agentId);
+    return info.changes;
+  }
+
+  listTasks(projectId: string, filter?: { status?: string; assignee?: string; available?: boolean; limit?: number }): TeamTaskRow[] {
+    const clauses = ['project_id = ?'];
+    const values: unknown[] = [projectId];
+    if (filter?.available) clauses.push("status = 'pending'", 'assignee_agent_id IS NULL');
+    if (filter?.status) {
+      clauses.push('status = ?');
+      values.push(filter.status);
+    }
+    if (filter?.assignee) {
+      clauses.push('assignee_agent_id = ?');
+      values.push(filter.assignee);
+    }
+    values.push(clampTeamQueryLimit(filter?.limit));
+    // Available work is a FIFO queue. Keep the general task board newest-first,
+    // but make dispatch order stable even when tasks share a millisecond timestamp.
+    const orderBy = filter?.available
+      ? 'created_at ASC, rowid ASC'
+      : 'created_at DESC, rowid DESC';
+    return this.db.prepare(
+      `SELECT * FROM team_tasks WHERE ${clauses.join(' AND ')} ORDER BY ${orderBy} LIMIT ?`,
+    ).all(...values) as TeamTaskRow[];
+  }
+
+  /**
+   * List available tasks for a specific agent, sorted by role affinity.
+   * Tasks whose preferred_role matches the agent's role come first,
+   * then tasks whose required_role matches, then role-agnostic tasks.
+   * Tasks whose required_role does NOT match the agent's role are excluded.
+   */
+  listTasksForAgent(projectId: string, agentId: string): TeamTaskRow[] {
+    const agent = this.stmtAgentFindById.get(agentId) as TeamAgentRow | undefined;
+    if (!agent) return [];
+    const agentRole = agent.role;
+
+    const available = this.listTasks(projectId, { available: true, limit: MAX_TEAM_QUERY_LIMIT });
+
+    // Filter out tasks whose required_role doesn't match
+    const eligible = available.filter(t => !t.required_role || t.required_role === agentRole);
+
+    // Sort: preferred_role match → required_role match → no role constraint
+    const score = (t: TeamTaskRow): number => {
+      if (t.preferred_role === agentRole) return 0; // best match
+      if (t.required_role === agentRole) return 1;   // eligible but not preferred
+      if (!t.required_role) return 2;                  // role-agnostic
+      return 3;                                        // shouldn't reach (filtered above)
+    };
+
+    eligible.sort((a, b) => score(a) - score(b));
+    return eligible;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Lock Operations
+  // ═══════════════════════════════════════════════════════════════════
+
+  private readonly DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+  acquireLock(projectId: string, file: string, agentId: string, ttlMs?: number): { success: boolean; lockedBy: string } {
+    const ttl = ttlMs ?? this.DEFAULT_LOCK_TTL_MS;
+    const now = Date.now();
+
+    // Clean expired lock for this file first
+    this.stmtLockDeleteExpired.run(projectId, now);
+
+    const existing = this.stmtLockGet.get(file, projectId) as TeamLockRow | undefined;
+    if (existing) {
+      if (existing.locked_by === agentId) {
+        // Same agent — refresh TTL
+        this.stmtLockUpsert.run({
+          file,
+          project_id: projectId,
+          locked_by: agentId,
+          locked_at: existing.locked_at,
+          expires_at: now + ttl,
+        });
+        return { success: true, lockedBy: agentId };
+      }
+      // Different agent holds the lock
+      return { success: false, lockedBy: existing.locked_by };
+    }
+
+    // No lock — acquire
+    this.stmtLockUpsert.run({
+      file,
+      project_id: projectId,
+      locked_by: agentId,
+      locked_at: now,
+      expires_at: now + ttl,
+    });
+    return { success: true, lockedBy: agentId };
+  }
+
+  releaseLock(projectId: string, file: string, agentId: string): boolean {
+    const existing = this.stmtLockGet.get(file, projectId) as TeamLockRow | undefined;
+    if (!existing || existing.locked_by !== agentId) return false;
+    this.stmtLockDelete.run(file, projectId);
+    return true;
+  }
+
+  getLockStatus(projectId: string, file: string): TeamLockRow | null {
+    // Clean expired first
+    this.stmtLockDeleteExpired.run(projectId, Date.now());
+    const row = this.stmtLockGet.get(file, projectId) as TeamLockRow | undefined;
+    return row ?? null;
+  }
+
+  listLocks(projectId: string, agentId?: string, limit?: number): TeamLockRow[] {
+    // Clean expired first
+    this.stmtLockDeleteExpired.run(projectId, Date.now());
+    if (agentId) {
+      return this.db.prepare(
+        `SELECT * FROM team_locks WHERE project_id = ? AND locked_by = ? ORDER BY locked_at DESC LIMIT ?`,
+      ).all(projectId, agentId, clampTeamQueryLimit(limit)) as TeamLockRow[];
+    }
+    return this.db.prepare(
+      `SELECT * FROM team_locks WHERE project_id = ? ORDER BY locked_at DESC LIMIT ?`,
+    ).all(projectId, clampTeamQueryLimit(limit)) as TeamLockRow[];
+  }
+
+  releaseAllLocks(agentId: string): number {
+    const info = this.stmtLockDeleteByAgent.run(agentId);
+    return info.changes;
+  }
+
+  cleanExpiredLocks(projectId: string): number {
+    const info = this.stmtLockDeleteExpired.run(projectId, Date.now());
+    return info.changes;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Migration from team-state.json
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async migrateFromJsonIfNeeded(): Promise<void> {
+    // Only migrate if team tables are empty AND team-state.json exists
+    const agentCount = this.db.prepare(`SELECT COUNT(*) AS cnt FROM team_agents`).get();
+    if (agentCount.cnt > 0) return;
+
+    // Look for team-state.json in the project directory (parent of dataDir/.memorix)
+    // team-state.json lives at projectRoot/team-state.json
+    const candidates = [
+      path.join(this.dataDir, 'team-state.json'),
+      path.join(this.dataDir, '..', 'team-state.json'),
+    ];
+
+    let jsonPath: string | null = null;
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        jsonPath = p;
+        break;
+      }
+    }
+    if (!jsonPath) return;
+
+    try {
+      const raw = fs.readFileSync(jsonPath, 'utf-8');
+      const snap = JSON.parse(raw);
+      if (snap.version !== 1) return;
+
+      console.error(`[memorix] Migrating team-state.json to SQLite...`);
+      let agentsMigrated = 0;
+      let messagesMigrated = 0;
+      let tasksMigrated = 0;
+      let locksMigrated = 0;
+
+      // Disable FK enforcement during migration — legacy data may have dangling refs
+      this.db.pragma('foreign_keys = OFF');
+      this.db.transaction(() => {
+        // Migrate agents
+        if (snap.registry?.agents) {
+          for (const [id, raw] of Object.entries(snap.registry.agents) as [string, any][]) {
+            this.stmtAgentUpsert.run({
+              agent_id: id,
+              project_id: 'migrated', // Will be updated on next session_start
+              agent_type: 'unknown',
+              instance_id: id, // Use agent_id as instance_id for migrated agents
+              name: raw.name ?? '',
+              role: raw.role ?? null,
+              capabilities: raw.capabilities ? JSON.stringify(raw.capabilities) : null,
+              status: raw.status ?? 'inactive',
+              joined_at: raw.joinedAt ? new Date(raw.joinedAt).getTime() : Date.now(),
+              last_heartbeat: raw.lastSeenAt ? new Date(raw.lastSeenAt).getTime() : Date.now(),
+              left_at: raw.leftAt ? new Date(raw.leftAt).getTime() : null,
+              last_seen_obs_generation: 0,
+            });
+            agentsMigrated++;
+          }
+        }
+
+        // Migrate messages
+        if (snap.messages?.inboxes) {
+          for (const [agentId, msgs] of Object.entries(snap.messages.inboxes) as [string, any[]][]) {
+            for (const msg of msgs) {
+              this.stmtMsgInsert.run({
+                id: msg.id ?? randomUUID(),
+                project_id: 'migrated',
+                sender_agent_id: msg.from ?? 'unknown',
+                recipient_agent_id: msg.to === '__broadcast__' ? null : (msg.to ?? agentId),
+                type: msg.type ?? 'direct',
+                content: msg.content ?? '',
+                payload: null,
+                task_id: null,
+                read_at: msg.read ? Date.now() : null,
+                created_at: msg.timestamp ? new Date(msg.timestamp).getTime() : Date.now(),
+                to_role: null,
+                handoff_status: null,
+              });
+              messagesMigrated++;
+            }
+          }
+        }
+
+        // Migrate tasks
+        if (snap.tasks?.tasks) {
+          for (const [id, raw] of Object.entries(snap.tasks.tasks) as [string, any][]) {
+            this.stmtTaskInsert.run({
+              task_id: id,
+              project_id: 'migrated',
+              description: raw.description ?? '',
+              status: raw.status ?? 'pending',
+              assignee_agent_id: raw.assignee ?? null,
+              result: raw.result ?? null,
+              metadata: raw.metadata ? JSON.stringify(raw.metadata) : null,
+              created_by: null,
+              created_at: raw.createdAt ? new Date(raw.createdAt).getTime() : Date.now(),
+              updated_at: raw.updatedAt ? new Date(raw.updatedAt).getTime() : Date.now(),
+              required_role: null,
+              preferred_role: null,
+            });
+            // Migrate deps
+            if (Array.isArray(raw.deps)) {
+              for (const dep of raw.deps) {
+                this.stmtTaskDepInsert.run(id, dep);
+              }
+            }
+            tasksMigrated++;
+          }
+        }
+
+        // Migrate locks
+        if (snap.locks?.locks) {
+          for (const [file, raw] of Object.entries(snap.locks.locks) as [string, any][]) {
+            this.stmtLockUpsert.run({
+              file,
+              project_id: 'migrated',
+              locked_by: raw.lockedBy ?? 'unknown',
+              locked_at: raw.lockedAt ? new Date(raw.lockedAt).getTime() : Date.now(),
+              expires_at: raw.expiresAt ? new Date(raw.expiresAt).getTime() : Date.now(),
+            });
+            locksMigrated++;
+          }
+        }
+      })();
+
+      this.db.pragma('foreign_keys = ON');
+
+      console.error(
+        `[memorix] Team migration complete: ${agentsMigrated} agents, ${messagesMigrated} messages, ${tasksMigrated} tasks, ${locksMigrated} locks.`
+      );
+
+      // Rename the JSON file to mark migration done
+      try {
+        fs.renameSync(jsonPath, jsonPath + '.migrated');
+      } catch { /* best-effort rename */ }
+
+    } catch (err) {
+      console.error(`[memorix] team-state.json migration failed (non-fatal): ${err}`);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Role Operations
+  // ═══════════════════════════════════════════════════════════════════
+
+  private prepareRoleStatements(): void {
+    this.stmtRoleInsert = this.db.prepare(`
+      INSERT OR IGNORE INTO team_roles
+        (role_id, project_id, label, description, preferred_agent_types, max_concurrent, created_at)
+      VALUES
+        (@role_id, @project_id, @label, @description, @preferred_agent_types, @max_concurrent, @created_at)
+    `);
+
+    this.stmtRoleDelete = this.db.prepare(
+      `DELETE FROM team_roles WHERE role_id = ? AND project_id = ?`
+    );
+
+    this.stmtRoleListByProject = this.db.prepare(
+      `SELECT * FROM team_roles WHERE project_id = ? ORDER BY label ASC`
+    );
+
+    this.stmtRoleGetById = this.db.prepare(
+      `SELECT * FROM team_roles WHERE role_id = ?`
+    );
+
+    this.stmtRoleCountByProject = this.db.prepare(
+      `SELECT COUNT(*) AS cnt FROM team_roles WHERE project_id = ?`
+    );
+  }
+
+  /**
+   * Seed default roles for a project if none exist yet.
+   * Uses projectId derived from the dataDir path.
+   */
+  private seedDefaultRoles(dataDir: string): void {
+    // Derive project_id from dataDir (same logic as server.ts uses)
+    const projectId = path.basename(path.resolve(dataDir, '..'));
+    const count = (this.stmtRoleCountByProject.get(projectId) as { cnt: number }).cnt;
+    if (count > 0) return; // Already seeded
+
+    const now = Date.now();
+    for (const def of DEFAULT_ROLES) {
+      this.stmtRoleInsert.run({
+        role_id: `${projectId}:${def.roleId}`,
+        project_id: projectId,
+        label: def.label,
+        description: def.description,
+        preferred_agent_types: JSON.stringify(def.preferredAgentTypes),
+        max_concurrent: def.maxConcurrent,
+        created_at: now,
+      });
+    }
+  }
+
+  addRole(projectId: string, input: { roleId: string; label: string; description?: string; preferredAgentTypes?: string[]; maxConcurrent?: number }): TeamRoleRow {
+    const now = Date.now();
+    const row: TeamRoleRow = {
+      role_id: `${projectId}:${input.roleId}`,
+      project_id: projectId,
+      label: input.label,
+      description: input.description ?? null,
+      preferred_agent_types: JSON.stringify(input.preferredAgentTypes ?? []),
+      max_concurrent: input.maxConcurrent ?? 1,
+      created_at: now,
+    };
+    this.stmtRoleInsert.run(row);
+    return row;
+  }
+
+  removeRole(projectId: string, roleId: string): boolean {
+    const fullId = roleId.includes(':') ? roleId : `${projectId}:${roleId}`;
+    const info = this.stmtRoleDelete.run(fullId, projectId);
+    return info.changes > 0;
+  }
+
+  listRoles(projectId: string): TeamRoleRow[] {
+    return this.stmtRoleListByProject.all(projectId) as TeamRoleRow[];
+  }
+
+  getRole(roleId: string): TeamRoleRow | undefined {
+    return this.stmtRoleGetById.get(roleId) as TeamRoleRow | undefined;
+  }
+
+  /**
+   * Get role occupancy: for each role, how many active agents currently fill it.
+   */
+  getRoleOccupancy(projectId: string): Array<{ role: TeamRoleRow; activeAgents: TeamAgentRow[]; vacant: number }> {
+    const roles = this.listRoles(projectId);
+    const activeAgents = this.listAgents(projectId, { status: 'active' });
+
+    return roles.map(role => {
+      const shortRoleId = role.role_id.split(':').pop()!;
+      const occupants = activeAgents.filter(a => a.role === shortRoleId || a.role === role.role_id);
+      return {
+        role,
+        activeAgents: occupants,
+        vacant: Math.max(0, role.max_concurrent - occupants.length),
+      };
+    });
+  }
+
+  /**
+   * Get handoff messages for a project, optionally filtered by role or status.
+   */
+  listHandoffs(projectId: string, filter?: { toRole?: string; status?: string }): TeamMessageRow[] {
+    let sql = `SELECT * FROM team_messages WHERE project_id = ? AND to_role IS NOT NULL`;
+    const params: any[] = [projectId];
+    if (filter?.toRole) {
+      sql += ` AND to_role = ?`;
+      params.push(filter.toRole);
+    }
+    if (filter?.status) {
+      sql += ` AND handoff_status = ?`;
+      params.push(filter.status);
+    }
+    sql += ` ORDER BY created_at DESC`;
+    return this.db.prepare(sql).all(...params) as TeamMessageRow[];
+  }
+
+  /**
+   * Update handoff status for a message.
+   */
+  updateHandoffStatus(messageId: string, status: string): boolean {
+    const info = this.db.prepare(
+      `UPDATE team_messages SET handoff_status = ? WHERE id = ?`
+    ).run(status, messageId);
+    return info.changes > 0;
+  }
+
+  // ── Accessor for raw DB (used by cross-process tests) ─────────────
+
+  getDb(): any {
+    return this.db;
+  }
+}
+
+// ── Singleton access ────────────────────────────────────────────────
+
+let _teamStore: TeamStore | null = null;
+let _teamStoreDataDir: string | null = null;
+
+export function getTeamStore(): TeamStore {
+  if (!_teamStore) {
+    throw new Error('[memorix] TeamStore not initialized — call initTeamStore() first');
+  }
+  return _teamStore;
+}
+
+export function isTeamStoreInitialized(): boolean {
+  return _teamStore !== null;
+}
+
+export async function initTeamStore(dataDir: string): Promise<TeamStore> {
+  if (_teamStore && _teamStoreDataDir === dataDir) return _teamStore;
+
+  _teamStore = null;
+  _teamStoreDataDir = null;
+
+  const store = new TeamStore();
+  await store.init(dataDir);
+  _teamStore = store;
+  _teamStoreDataDir = dataDir;
+  return store;
+}
+
+export function resetTeamStore(): void {
+  _teamStore = null;
+  _teamStoreDataDir = null;
+}

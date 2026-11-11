@@ -1,0 +1,526 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import doctorCommand from '../../src/cli/commands/doctor.js';
+import repairCommand from '../../src/cli/commands/repair.js';
+import { inspectAgentIntegrations, parseCodexPluginList } from '../../src/cli/commands/agent-integrations.js';
+import { getCliVersion } from '../../src/cli/version.js';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, spawnSync: vi.fn() };
+});
+
+async function runCommand(command: any, args: Record<string, unknown>) {
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((...parts) => logs.push(parts.map(String).join(' ')));
+  const errSpy = vi.spyOn(console, 'error').mockImplementation((...parts) => errors.push(parts.map(String).join(' ')));
+  const originalExitCode = process.exitCode;
+  process.exitCode = undefined;
+
+  try {
+    await command.run?.({ args, rawArgs: [], cmd: command } as any);
+    return {
+      stdout: logs.join('\n'),
+      stderr: errors.join('\n'),
+      exitCode: process.exitCode ?? 0,
+    };
+  } finally {
+    process.exitCode = originalExitCode;
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+  }
+}
+
+describe('agent doctor and repair', () => {
+  const originalCwd = process.cwd();
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
+  let sandboxRoot = '';
+  let repoDir = '';
+
+  beforeEach(() => {
+    sandboxRoot = mkdtempSync(path.join(tmpdir(), 'memorix-agent-doctor-'));
+    repoDir = path.join(sandboxRoot, 'repo');
+    process.env.HOME = sandboxRoot;
+    process.env.USERPROFILE = sandboxRoot;
+    mkdirSync(path.join(repoDir, '.claude'), { recursive: true });
+    execSync('git init', { cwd: repoDir, stdio: 'ignore' });
+    process.chdir(repoDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
+    rmSync(sandboxRoot, { recursive: true, force: true });
+    vi.mocked(spawnSync).mockReset();
+  });
+
+  function writeStaleClaudeSetup() {
+    writeFileSync(path.join(repoDir, 'CLAUDE.md'), [
+      '# Memorix - Agent Instructions for Claude Code',
+      '',
+      'Use `memorix_search` when prior project context would help.',
+      '',
+      '## Dev Log',
+      '',
+      '- progress.txt: Current development state - read this first in every new session',
+      '',
+    ].join('\n'), 'utf-8');
+
+    writeFileSync(path.join(repoDir, '.claude', 'settings.json'), JSON.stringify({
+      mcpServers: {
+        memorix: {
+          command: 'node',
+          args: [
+            'E:\\old\\memorix\\.worktrees\\1.1.6-release-hardening\\dist\\cli\\index.js',
+            'serve',
+            '--mode',
+            'micro',
+          ],
+        },
+      },
+    }, null, 2), 'utf-8');
+  }
+
+  function writeStaleClaudeLocalMcpSetup() {
+    writeFileSync(path.join(sandboxRoot, '.claude.json'), JSON.stringify({
+      projects: {
+        [repoDir.replace(/\\/g, '/')]: {
+          mcpServers: {
+            memorix: {
+              type: 'stdio',
+              command: 'node',
+              args: [
+                path.join(repoDir, '.worktrees', '1.1.6-release-hardening', 'dist', 'cli', 'index.js'),
+                'serve',
+                '--mode',
+                'micro',
+              ],
+            },
+          },
+        },
+      },
+    }, null, 2), 'utf-8');
+  }
+
+  function writeCurrentClaudeGuidance() {
+    writeFileSync(path.join(repoDir, 'CLAUDE.md'), [
+      '# Memorix - Agent Instructions for Claude Code',
+      '',
+      '## Memory Autopilot',
+      '',
+      '- Default first step for non-trivial coding work: call `memorix_project_context` with the user task.',
+      '- Continuation fallback is mandatory: `memorix resume "<task>"` for prior work.',
+      '- Do not call more Memorix retrieval tools after a complete brief.',
+      '- For read-only work, do not call `memorix_store` unless the user asks to preserve a record.',
+      '',
+    ].join('\n'), 'utf-8');
+  }
+
+  function writeOutdatedGlobalClaudeGuidance() {
+    mkdirSync(path.join(sandboxRoot, '.claude'), { recursive: true });
+    writeFileSync(path.join(sandboxRoot, '.claude', 'CLAUDE.md'), [
+      '# Old Claude instructions',
+      '',
+      '- read progress.txt first in every new session',
+      '',
+    ].join('\n'), 'utf-8');
+  }
+
+  function writeCurrentClaudeLocalMcpSetup() {
+    writeFileSync(path.join(sandboxRoot, '.claude.json'), JSON.stringify({
+      projects: {
+        [repoDir.replace(/\\/g, '/')]: {
+          mcpServers: {
+            memorix: {
+              type: 'stdio',
+              command: 'memorix',
+              args: ['serve'],
+              alwaysLoad: true,
+            },
+          },
+        },
+      },
+    }, null, 2), 'utf-8');
+  }
+
+  function writeCurrentCodexPluginSetup(options: { trustedHooks?: boolean } = {}) {
+    const trustedHooks = options.trustedHooks ?? true;
+    const pluginPath = path.join(sandboxRoot, 'plugins', 'memorix');
+    mkdirSync(path.join(pluginPath, '.codex-plugin'), { recursive: true });
+    mkdirSync(path.join(pluginPath, 'hooks'), { recursive: true });
+    mkdirSync(path.join(sandboxRoot, '.codex'), { recursive: true });
+    mkdirSync(path.join(sandboxRoot, '.agents', 'plugins'), { recursive: true });
+
+    writeFileSync(path.join(pluginPath, '.codex-plugin', 'plugin.json'), JSON.stringify({
+      name: 'memorix',
+      version: getCliVersion(),
+      hooks: './hooks/hooks.json',
+    }, null, 2), 'utf-8');
+    writeFileSync(path.join(pluginPath, 'hooks', 'hooks.json'), JSON.stringify({
+      hooks: {
+        SessionStart: [],
+        UserPromptSubmit: [],
+        PostToolUse: [],
+        PreCompact: [],
+        Stop: [],
+      },
+    }, null, 2), 'utf-8');
+    writeFileSync(path.join(pluginPath, '.mcp.json'), JSON.stringify({
+      mcpServers: {
+        memorix: { command: 'memorix', args: ['serve'] },
+      },
+    }, null, 2), 'utf-8');
+    const hookTrust = [
+      '[hooks.state."memorix@personal:hooks/hooks.json:session_start:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:user_prompt_submit:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:post_tool_use:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:pre_compact:0:0"]',
+      'trusted_hash = "sha256:test"',
+      '[hooks.state."memorix@personal:hooks/hooks.json:stop:0:0"]',
+      'trusted_hash = "sha256:test"',
+    ];
+    writeFileSync(path.join(sandboxRoot, '.codex', 'config.toml'), trustedHooks
+      ? hookTrust.join('\n')
+      : '[plugins."memorix@personal"]\nenabled = true\n', 'utf-8');
+    writeFileSync(path.join(sandboxRoot, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
+      name: 'personal',
+      plugins: [{
+        name: 'memorix',
+        source: { source: 'local', path: './plugins/memorix' },
+      }],
+    }, null, 2), 'utf-8');
+  }
+
+  function writeCurrentCodexGuidance() {
+    const codexDir = path.join(sandboxRoot, '.codex');
+    mkdirSync(codexDir, { recursive: true });
+    writeFileSync(path.join(codexDir, 'AGENTS.md'), [
+      '# Memorix - Agent Instructions for Codex',
+      '',
+      '## Memory Autopilot',
+      '',
+      '- Default first step for non-trivial coding work: call `memorix_project_context` with the user task.',
+      '- Continuation fallback is mandatory: `memorix resume "<task>"` for prior work.',
+      '- Do not call more Memorix retrieval tools after a complete brief.',
+      '- For read-only work, do not call `memorix_store` unless the user asks to preserve a record.',
+      '',
+    ].join('\n'), 'utf-8');
+  }
+
+  function mockCodexPluginList(enabled = true) {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify({
+        installed: [{
+          pluginId: 'memorix@personal',
+          name: 'memorix',
+          marketplaceName: 'personal',
+          version: getCliVersion(),
+          installed: true,
+          enabled,
+        }],
+        available: [],
+      }),
+      stderr: '',
+      output: [],
+      pid: 0,
+      signal: null,
+    } as ReturnType<typeof spawnSync>);
+  }
+
+  it('doctor agents detects stale MCP paths and outdated Claude guidance', async () => {
+    writeStaleClaudeSetup();
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'project',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const claude = parsed.agents.entries.find((entry: any) => entry.agent === 'claude');
+
+    expect(claude.mcp.status).toBe('repairable');
+    expect(claude.mcp.issues).toContain('stale-command-path');
+    expect(claude.mcp.issues).toContain('claude-always-load-missing');
+    expect(claude.guidance.status).toBe('repairable');
+    expect(claude.guidance.issues).toContain('guidance-outdated');
+    expect(parsed.agents.repairCommand).toContain('memorix repair agents --agent claude');
+  });
+
+  it('repair agents upgrades owned guidance and rewrites the Memorix MCP entry', async () => {
+    writeStaleClaudeSetup();
+
+    const result = await runCommand(repairCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'project',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.repair.changed).toContain('claude:mcp:project');
+    expect(parsed.repair.changed).toContain('claude:guidance:project');
+
+    const settings = JSON.parse(readFileSync(path.join(repoDir, '.claude', 'settings.json'), 'utf-8'));
+    expect(settings.mcpServers.memorix).toMatchObject({
+      command: 'memorix',
+      args: ['serve', '--mode', 'lite'],
+      alwaysLoad: true,
+    });
+
+    const guidance = readFileSync(path.join(repoDir, 'CLAUDE.md'), 'utf-8');
+    expect(guidance).toContain('Default first step for non-trivial coding work');
+    expect(guidance).toContain('memorix_project_context');
+    expect(guidance).not.toContain('read this first in every new session');
+  });
+
+  it('doctor agents detects stale Claude local MCP config', async () => {
+    writeStaleClaudeLocalMcpSetup();
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'local',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const claude = parsed.agents.entries.find((entry: any) => entry.agent === 'claude');
+
+    expect(claude.mcp.status).toBe('repairable');
+    expect(claude.mcp.issues).toContain('stale-command-path');
+    expect(claude.mcp.issues).toContain('nonstandard-mcp-command');
+    expect(claude.mcp.issues).toContain('claude-always-load-missing');
+    expect(claude.mcp.checks[0].scope).toBe('local');
+  });
+
+  it('doctor agents treats one healthy scope as enough in all-scope mode', async () => {
+    writeCurrentClaudeGuidance();
+    writeCurrentClaudeLocalMcpSetup();
+    writeOutdatedGlobalClaudeGuidance();
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'all',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const claude = parsed.agents.entries.find((entry: any) => entry.agent === 'claude');
+
+    expect(claude.mcp.status).toBe('ok');
+    expect(claude.mcp.issues).toEqual([]);
+    expect(claude.guidance.status).toBe('ok');
+    expect(claude.guidance.issues).toEqual([]);
+    expect(parsed.agents.summary.ok).toBe(1);
+  });
+
+  it('repair agents rewrites Claude local MCP config to memorix serve', async () => {
+    writeStaleClaudeLocalMcpSetup();
+
+    const result = await runCommand(repairCommand, {
+      _: ['agents'],
+      agent: 'claude',
+      scope: 'local',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.repair.changed).toContain('claude:mcp:local');
+
+    const config = JSON.parse(readFileSync(path.join(sandboxRoot, '.claude.json'), 'utf-8'));
+    const project = config.projects[repoDir.replace(/\\/g, '/')];
+    expect(project.mcpServers.memorix).toEqual({
+      type: 'stdio',
+      command: 'memorix',
+      args: ['serve', '--mode', 'lite'],
+      alwaysLoad: true,
+    });
+  });
+
+  it('doctor agents verifies the Codex bundle, marketplace, enabled plugin, and hook contract', async () => {
+    writeCurrentCodexPluginSetup();
+    mockCodexPluginList(true);
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    const codex = parsed.agents.entries.find((entry: any) => entry.agent === 'codex');
+
+    expect(codex.plugin.status).toBe('ok');
+    expect(codex.plugin.checks.map((check: any) => check.kind)).toEqual([
+      'bundle',
+      'marketplace',
+      'runtime',
+      'hook-trust',
+    ]);
+    expect(codex.plugin.checks[0].hooks.declared).toEqual(expect.arrayContaining([
+      'SessionStart',
+      'UserPromptSubmit',
+      'PostToolUse',
+      'PreCompact',
+      'Stop',
+    ]));
+    expect(codex.plugin.checks[2].runtime).toMatchObject({ installed: true, enabled: true });
+    expect(codex.plugin.checks[3].hookTrust.trusted).toHaveLength(5);
+    expect(codex.mcp).toMatchObject({ status: 'ok', issues: [] });
+    expect(codex.mcp.checks[0]).toMatchObject({
+      managedByPlugin: true,
+      server: { command: 'memorix', args: ['serve'] },
+    });
+  });
+
+  it('uses the enabled Codex plugin MCP before hooks receive user trust', async () => {
+    writeCurrentCodexPluginSetup({ trustedHooks: false });
+    writeCurrentCodexGuidance();
+    mockCodexPluginList(true);
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const codex = parsed.agents.entries.find((entry: any) => entry.agent === 'codex');
+
+    expect(codex.mcp).toMatchObject({ status: 'ok', issues: [] });
+    expect(codex.plugin.status).toBe('ok');
+    expect(codex.plugin.issues).toContain('codex-hook-trust-pending');
+    expect(parsed.agents.summary).toMatchObject({ ok: 1, repairable: 0 });
+
+    const humanResult = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: false,
+    });
+    expect(humanResult.stdout).toContain('Hooks: waiting for Codex approval on first use; MCP remains available.');
+    expect(humanResult.stdout).toContain('No file repair needed.');
+    expect(humanResult.stdout).not.toContain('Repair:');
+  });
+
+  it('parses a Codex plugin list even when a Windows diagnostic precedes its JSON', () => {
+    const parsed = parseCodexPluginList(`warning from Codex\n${JSON.stringify({
+      installed: [{
+        pluginId: 'memorix@personal',
+        installed: true,
+        enabled: true,
+      }],
+      available: [],
+    })}`);
+
+    expect(parsed).toMatchObject({ installed: true, enabled: true });
+  });
+
+  it('doctor agents reports a disabled Codex plugin as repairable', async () => {
+    writeCurrentCodexPluginSetup();
+    mockCodexPluginList(false);
+
+    const result = await runCommand(doctorCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    const parsed = JSON.parse(result.stdout);
+    const codex = parsed.agents.entries.find((entry: any) => entry.agent === 'codex');
+    expect(codex.plugin.status).toBe('repairable');
+    expect(codex.plugin.issues).toContain('codex-plugin-disabled');
+  });
+
+  it('repair agents leaves a disabled Codex plugin for the plugin browser', async () => {
+    writeCurrentCodexPluginSetup();
+    mockCodexPluginList(false);
+
+    const result = await runCommand(repairCommand, {
+      _: ['agents'],
+      agent: 'codex',
+      scope: 'global',
+      json: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.repair.changed).not.toContain('codex:plugin:global');
+    expect(parsed.repair.skipped).toContain('codex:plugin:global:enable-in-plugin-browser');
+  });
+
+  it('treats default Grok MCP as host-owned and reports a written HTTP entry', async () => {
+    const missing = await inspectAgentIntegrations({
+      projectRoot: repoDir,
+      agent: 'grok',
+      scope: 'global',
+    });
+    expect(missing.entries[0].mcp.status).toBe('skipped');
+    expect(missing.entries[0].mcp.issues).toContain('mcp-host-owned');
+
+    mkdirSync(path.join(sandboxRoot, '.grok'), { recursive: true });
+    writeFileSync(path.join(sandboxRoot, '.grok', 'config.toml'), [
+      '[mcp_servers.memorix]',
+      'url = "http://localhost:3211/mcp"',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const present = await inspectAgentIntegrations({
+      projectRoot: repoDir,
+      agent: 'grok',
+      scope: 'global',
+    });
+    expect(present.entries[0].mcp.status).toBe('ok');
+    expect(present.entries[0].mcp.checks[0].server).toMatchObject({
+      transport: 'http',
+      url: 'http://localhost:3211/mcp',
+    });
+  });
+
+  it('includes registry capability parity in the doctor report', async () => {
+    const report = await inspectAgentIntegrations({
+      projectRoot: repoDir,
+      agent: 'qwen',
+      scope: 'project',
+    });
+
+    expect(report.entries).toHaveLength(1);
+    expect(report.entries[0].capability).toMatchObject({
+      manifestVersion: '1',
+      defaultTransport: 'none',
+      expectedArtifacts: expect.arrayContaining(['hooks', 'rules', 'guidance']),
+      lifecycle: {
+        install: true,
+        repair: false,
+        doctor: false,
+        uninstall: true,
+      },
+    });
+    expect(report.entries[0].capability.source.registry).toBe('src/integrations/registry.ts');
+  });
+});

@@ -318,6 +318,8 @@ Provider values:
 - `transformers`
 
 If embedding is unavailable, Memorix falls back to BM25/full-text search.
+
+When `base_url` is an Ollama endpoint on port `11434` and still ends in `/v1`, Memorix rewrites the request to that host's native `/api/embed` and sends `keep_alive: "5m"`. Leave `base_url` on `/v1`. Pointing it at `/api/embed` makes the OpenAI response parser fail. The rewrite does not apply to any other port, so OpenAI-compatible providers stay on `/v1/embeddings`.
 `transformers` is no longer installed by default; install
 `@huggingface/transformers` explicitly in the project or global prefix where
 Memorix runs if you choose that provider. `fastembed` remains a supported local

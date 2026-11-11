@@ -1,6 +1,8 @@
 name: Publish to npm and MCP Registry
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       publish_npm:
@@ -45,7 +47,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - name: Publish the npm package
-        if: ${{ inputs.publish_npm }}
+        if: ${{ github.event_name == 'release' || inputs.publish_npm }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

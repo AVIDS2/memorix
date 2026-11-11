@@ -69,6 +69,10 @@ artifacts for the VPS/hosted build path only.
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
 - [ ] Release blocker: GitHub Actions cannot start jobs while the repository
   account is locked for billing; the local npm login also returns E401.
+- [x] Release integrity guard: `.github/workflows/publish.yml` now runs for a
+  published GitHub Release as well as manual dispatch, and release events force
+  the npm publish/visibility gate before MCP Registry publication. The existing
+  `v1.10.3` mismatch still requires restored npm credentials to repair.
 - [x] Issue #385 safety fix: consolidation now tokenizes Unicode letters and
   numbers, treats two empty fingerprints as unrelated, and retains exact
   Korean duplicate consolidation. Automatic retention, consolidation, and

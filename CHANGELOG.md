@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
   compaction, and lifecycle shutdown.
 - Release workflow now runs automatically for published GitHub Releases and
   requires npm visibility before MCP Registry publication.
+- Workset assembly now accepts only request-scoped derived-view receipts,
+  preventing a concurrent search from leaking FTS/Orama state into context.
 
 ### Changed
 - Search execution now returns a request-scoped receipt to compact search,

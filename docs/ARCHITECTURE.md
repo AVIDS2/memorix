@@ -176,6 +176,11 @@ existing 20-case offline task matrix passes with a fresh 40k local-store gate;
 ranking and admission policy still live in their current modules, and the
 matrix is not an unseen live-task benchmark.
 
+Workset assembly follows the same rule: it uses derived-view status supplied by
+the current context build and does not read a process-global last-search view.
+The remaining P3 work is to move more ranking/admission decisions behind the
+facade and add unseen issue-resolution evaluations.
+
 **P4 - 1.12 ecosystem boundary:** generate host capability manifests from one
 registry, validate setup/doctor/repair/uninstall from the same manifest, and
 keep provider and agent integrations outside the kernel. Add package smoke,

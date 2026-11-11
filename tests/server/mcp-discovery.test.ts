@@ -110,6 +110,8 @@ describe('MCP discovery compatibility at the production server entry', () => {
     expect(current.projectRoot).toBe(nextRoot);
     expect(current.projectId).not.toBe(original.projectId);
     expect(original.projectRoot).toBe(projectRoot);
+    handleTransportClose?.();
+    await server?.close();
   });
   it('handles discover before initialize, then serves versionless tools/list and tools/call', async () => {
     const input = new PassThrough();

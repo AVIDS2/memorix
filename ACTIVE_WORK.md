@@ -79,18 +79,24 @@ artifacts for the VPS/hosted build path only.
   74.6s seed, 33.6ms warm SDK search, 418.7ms HTTP MCP cold search,
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
 - [ ] Release blocker: GitHub Actions cannot start jobs while the repository
-  account is locked for billing; the local npm login also returns E401.
+  account is locked for billing. npm credentials are restored and npm publication
+  is no longer blocked.
 - [x] Release integrity guard: `.github/workflows/publish.yml` now runs for a
   published GitHub Release as well as manual dispatch, and release events force
-  the npm publish/visibility gate before MCP Registry publication. The existing
-  `v1.10.3` mismatch still requires restored npm credentials to repair.
+  the npm publish/visibility gate before MCP Registry publication.
+- [x] 2026-11-11 `memorix@1.10.3` published from the existing `v1.10.3` tag
+  using the configured npm bypass-2FA token. Registry verification reports
+  `latest=1.10.3`, shasum `46410b77e0808be58d445bdf2abafdac4f7ba718`.
+  The local publish ran the tag build and full tag suite first; npm's
+  `prepublishOnly` was bypassed only because its audit step incorrectly tries to
+  resolve private workspace `@memorix/ai` from the public registry.
 - [x] Issue #385 safety fix: consolidation now tokenizes Unicode letters and
   numbers, treats two empty fingerprints as unrelated, and retains exact
   Korean duplicate consolidation. Automatic retention, consolidation, and
   long-term maintenance re-check `memory.autoCleanup` at execution time and
   complete without mutation when it is disabled.
-  Repository source/tag/release are at 1.10.3, but npm and MCP Registry remain
-  at 1.10.2. Do not claim 1.10.3 is published until those external gates clear.
+  Repository source/tag/release and npm are at 1.10.3. MCP Registry visibility
+  still requires a successful OIDC workflow after the GitHub billing lock clears.
 
 
 ## 1.10.3 Patch and Runcrate (2026-11-05)

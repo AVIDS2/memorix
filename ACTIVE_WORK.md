@@ -39,7 +39,8 @@ artifacts for the VPS/hosted build path only.
   frozen config snapshot.
 - [x] 1.11 derived-view adapters: SQLite FTS5 and Orama now expose the common
   `DerivedView` lifecycle with explicit status, rebuild/refresh, compact, and
-  close behavior; focused tests cover stale/missing and shutdown states.
+  close behavior; CodeGraph now exposes the same lifecycle over Lite refresh
+  and SQLite compaction. Focused tests cover stale/missing and shutdown states.
 - [ ] 1.11 P2: route observation, Git, and explicit MCP writes through one
   canonical write pipeline with an idempotent derived-work outbox.
   Observation inserts and topic-key updates now commit vector backfill,

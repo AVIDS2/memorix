@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
   acknowledge it, while failures remain recoverable by maintenance.
 - Added common `DerivedView` adapters for SQLite FTS5 and Orama with explicit
   status, rebuild/refresh, compact, and close lifecycle methods.
+- Added a CodeGraph `DerivedView` adapter for Lite refresh, status, SQLite
+  compaction, and lifecycle shutdown.
 - Release workflow now runs automatically for published GitHub Releases and
   requires npm visibility before MCP Registry publication.
 

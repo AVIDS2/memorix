@@ -127,7 +127,8 @@ progress is durable in SQLite. The MCP server captures a `RuntimeContext` after
 project binding and refreshes it on runtime activation and project switch;
 CodeGraph host operations consume that immutable configuration snapshot.
 
-SQLite FTS5 and Orama now have concrete `DerivedView` adapters alongside Lance.
+SQLite FTS5, Orama, and CodeGraph now have concrete `DerivedView` adapters
+alongside Lance.
 Their lifecycle reports missing, stale, unavailable, and ready states instead
 of making each host infer index health from an empty result.
 

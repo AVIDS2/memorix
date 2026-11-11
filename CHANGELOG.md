@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
   compaction, and lifecycle shutdown.
 - Release workflow now runs automatically for published GitHub Releases and
   requires npm visibility before MCP Registry publication.
+- `memorix@1.10.3` is now publicly available on npm from the existing release
+  tag; its registry shasum is `46410b77e0808be58d445bdf2abafdac4f7ba718`.
 - Workset assembly now accepts only request-scoped derived-view receipts,
   preventing a concurrent search from leaking FTS/Orama state into context.
 

@@ -27,7 +27,6 @@ import type { WorkflowSelection } from './workflow-types.js';
 import type { ObservationReader } from '../types.js';
 import type { LongTermMemory, LongTermMemoryEvidence } from '../memory/long-term-types.js';
 import type { TaskContinuityLedger } from './task-continuity.js';
-import { getSearchDerivedViews } from '../store/orama-store.js';
 import type { RetrievalDerivedViews } from '../search/derived-view-receipt.js';
 
 export type WorksetCautionKind =
@@ -1250,7 +1249,6 @@ export async function buildTaskWorkset(input: BuildTaskWorksetInput): Promise<Ta
   });
   const omittedReceipt = receiptOmissions(rendered.omittedItems, base.hiddenCautionMemoryCount);
   const derivedViews: RetrievalDerivedViews = {
-    ...getSearchDerivedViews(),
     ...(input.retrieval?.derivedViews ?? {}),
   };
   const retrieval = {

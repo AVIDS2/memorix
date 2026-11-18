@@ -49,6 +49,24 @@ All notable changes to this project will be documented in this file.
   on Windows/Node 22 with embeddings disabled. This is offline fixture evidence,
   not a claim about remote embedding quality.
 
+## [1.10.4] - 2026-11-18
+
+### Fixed
+
+- Embedding API requests retry transport-level failures such as stale
+  keep-alive sockets while preserving request deadlines, cancellation, and the
+  explicit retry opt-out (#397).
+- Large API embedding-cache restores yield through the timer phase in bounded
+  batches and start after provider initialization, preventing cache recovery
+  from delaying formation deadlines (#398).
+
+### Changed
+
+- CJK-heavy queries can use Lance neighbor order by default, with configuration
+  overrides and a hybrid fallback when the vector index is unavailable (#395).
+- npm 1.10.4 release metadata is synchronized across agent plugins and MCP
+  Registry metadata.
+
 ## [1.10.3] - 2026-11-05
 
 ### Added

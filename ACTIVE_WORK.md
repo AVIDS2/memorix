@@ -80,7 +80,8 @@ artifacts for the VPS/hosted build path only.
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
 - [ ] Release blocker: GitHub Actions cannot start jobs while the repository
   account is locked for billing. npm credentials are restored and 1.10.3 is
-  publicly visible on the registry; local release gates remain available.
+  publicly visible on the registry; local release gates remain available for
+  the 1.10.4 candidate.
 - [x] #397 embedding transport failures now retry on the existing bounded
   backoff ladder. Timeout and caller cancellation remain terminal, and
   `retry=false` skips transport retries.
@@ -102,8 +103,24 @@ artifacts for the VPS/hosted build path only.
   Korean duplicate consolidation. Automatic retention, consolidation, and
   long-term maintenance re-check `memory.autoCleanup` at execution time and
   complete without mutation when it is disabled.
-  Repository source/tag/release and npm are at 1.10.3. MCP Registry visibility
-  still requires a successful OIDC workflow after the GitHub billing lock clears.
+  The last published source/tag/release and npm package are at 1.10.3. The
+  1.10.4 candidate is locally verified and awaits the manual npm publish;
+  MCP Registry visibility still requires a successful OIDC workflow after the
+  GitHub billing lock clears.
+
+## 1.10.4 Release Candidate (2026-11-18)
+
+- [x] Merged #399: embedding transport retries and bounded timer-yielding API
+  cache restoration for the #397/#398 incidents.
+- [x] Merged #395: configurable CJK Lance neighbor ordering with hybrid
+  fallback.
+- [x] Synchronized package, plugin, server metadata, changelog, and release
+  documentation at `1.10.4`.
+- [x] Validation: typecheck, build, 40 focused tests, and the full local suite
+  (3330 passed, 5 skipped; one Windows temp-directory cleanup race passed on
+  isolated rerun).
+- [ ] Publish npm `memorix@1.10.4`, create the tag/release, and verify the
+  registry after the release candidate is committed.
 
 
 ## 1.10.3 Patch and Runcrate (2026-11-05)
@@ -136,8 +153,10 @@ artifacts for the VPS/hosted build path only.
 
 ## Current Product State
 
-- `1.10.3` is the prepared patch release on the 1.10 line. It addresses
+- `1.10.3` was the prepared patch release on the 1.10 line. It addressed
   LanceDB semantic-index growth and two agent integration defects.
+- `1.10.4` is the current release candidate with embedding transport recovery,
+  startup cache responsiveness, and CJK vector-order retrieval.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves
   the old MCP clients while adding the modern 2026-07-28 core contract.

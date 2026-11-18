@@ -135,6 +135,28 @@ describe('hydrateIndex cached vectors', () => {
     expect(hasObservationVector(observation.projectId, observation.id)).toBe(true);
   });
 
+  it('starts cached-vector hydration on a later event-loop turn', async () => {
+    const vector = [0.1, 0.2, 0.3];
+    const provider = makeProvider([vector]);
+    embedding.getEmbeddingProvider.mockResolvedValue(provider);
+    const observation = makeObservation(8);
+    let timerFired = false;
+    const timer = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        timerFired = true;
+        resolve();
+      }, 0);
+    });
+
+    await hydrateIndexForStartup([observation]);
+    const hydration = getDeferredCachedVectorHydration();
+    expect(hydration).not.toBeNull();
+    await timer;
+    expect(timerFired).toBe(true);
+    await hydration;
+    expect(hasObservationVector(observation.projectId, observation.id)).toBe(true);
+  });
+
   it('keeps the startup index when a normal database request arrives concurrently', async () => {
     let resolveStartup!: (provider: null) => void;
     let resolveNormal!: (provider: ReturnType<typeof makeProvider>) => void;

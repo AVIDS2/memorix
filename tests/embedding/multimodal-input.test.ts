@@ -6,6 +6,7 @@ import {
   type EmbeddingProvider,
 } from '../../src/embedding/provider.ts';
 import { APIEmbeddingProvider } from '../../src/embedding/api-provider.ts';
+import { clearOllamaOriginCache } from '../../src/embedding/ollama-embed.js';
 
 function withEmbeddingEnv(env: Record<string, string>, fn: () => Promise<void>): Promise<void> {
   const previous = new Map<string, string | undefined>();
@@ -22,6 +23,7 @@ function withEmbeddingEnv(env: Record<string, string>, fn: () => Promise<void>):
 }
 
 afterEach(() => {
+  clearOllamaOriginCache();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -142,8 +144,16 @@ describe('API multimodal mapping', () => {
       MEMORIX_EMBEDDING_MODEL: 'jina-embeddings-v4',
       MEMORIX_EMBEDDING_DIMENSIONS: '3',
     }, async () => {
-      const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
-        const body = JSON.parse(String(init.body));
+      const fetchMock = vi.fn().mockImplementation(async (input, init) => {
+        const url = typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+        if (url.endsWith('/api/version')) {
+          return { ok: false, status: 404, json: async () => ({}), headers: { get: () => null } };
+        }
+        const body = JSON.parse(String(init?.body));
         const isProbe = body.input === 'dimension probe';
         return {
           ok: true,
@@ -166,7 +176,8 @@ describe('API multimodal mapping', () => {
       );
 
       const bodies = fetchMock.mock.calls
-        .map((call) => JSON.parse(String(call[1].body)))
+        .filter(([callUrl]) => !String(callUrl).endsWith('/api/version'))
+        .map((call) => JSON.parse(String(call[1]?.body)))
         .filter((body) => body.input !== 'dimension probe');
       const queryBody = bodies.find((body) => body.task === 'retrieval.query');
       const documentBody = bodies.find((body) => body.task === 'retrieval.passage');

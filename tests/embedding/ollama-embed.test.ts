@@ -90,4 +90,19 @@ describe('ollama embedding keepalive', () => {
       { object: 'embedding', index: 0, embedding: [0.1, 0.2] },
     ]);
   });
+
+  it('passes the caller abort signal into the version probe', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchImpl = vi.fn();
+    const routed = await routeOllamaEmbedding(
+      'https://embeddings.invalid/v1/embeddings',
+      { model: 'example-embed', input: 'probe' },
+      fetchImpl,
+      { signal: controller.signal, probeTimeoutMs: 1000 },
+    );
+
+    expect(routed.rewritten).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

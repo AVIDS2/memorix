@@ -9,6 +9,12 @@ export const OLLAMA_EMBED_KEEP_ALIVE = '5m';
 
 const ollamaOrigins = new Map<string, boolean>();
 
+export type OllamaProbeOptions = {
+  signal?: AbortSignal;
+  /** Max time for `GET /api/version`; capped by caller embedding timeout when provided. */
+  probeTimeoutMs?: number;
+};
+
 export function clearOllamaOriginCache(): void {
   ollamaOrigins.clear();
 }
@@ -17,25 +23,31 @@ export async function routeOllamaEmbedding(
   url: string,
   body: Record<string, unknown>,
   fetchImpl: typeof fetch = fetch,
+  probeOptions?: OllamaProbeOptions,
 ): Promise<{ url: string; body: Record<string, unknown>; rewritten: boolean }> {
   const parsed = parseUrl(url);
   if (!parsed) return { url, body, rewritten: false };
   const openAIRoute = parsed.pathname.endsWith('/v1/embeddings');
   const nativeRoute = parsed.pathname.endsWith('/api/embed');
   if (!openAIRoute && !nativeRoute) return { url, body, rewritten: false };
-  if (!await originServesOllama(parsed.origin, fetchImpl)) return { url, body, rewritten: false };
+  if (!await originServesOllama(parsed.origin, fetchImpl, probeOptions)) return { url, body, rewritten: false };
   if (nativeRoute) return { url, body, rewritten: true };
   parsed.pathname = parsed.pathname.replace(/\/v1\/embeddings$/, '/api/embed');
   return { url: parsed.toString(), body: withEmbeddingKeepAlive(body), rewritten: true };
 }
 
-export async function originServesOllama(origin: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+export async function originServesOllama(
+  origin: string,
+  fetchImpl: typeof fetch = fetch,
+  probeOptions?: OllamaProbeOptions,
+): Promise<boolean> {
   const cached = ollamaOrigins.get(origin);
   if (cached != null) return cached;
+  if (probeOptions?.signal?.aborted) return false;
   try {
     const response = await fetchImpl(`${origin}/api/version`, {
       method: 'GET',
-      signal: AbortSignal.timeout(1000),
+      signal: buildProbeSignal(probeOptions),
     });
     if (!response.ok) {
       ollamaOrigins.set(origin, false);
@@ -44,7 +56,9 @@ export async function originServesOllama(origin: string, fetchImpl: typeof fetch
     const detected = isOllamaVersionPayload(await response.json());
     ollamaOrigins.set(origin, detected);
     return detected;
-  } catch {
+  } catch (err: unknown) {
+    if (isAbortError(err) || probeOptions?.signal?.aborted) return false;
+    ollamaOrigins.set(origin, false);
     return false;
   }
 }
@@ -82,4 +96,23 @@ function parseUrl(url: string): URL | null {
   } catch {
     return null;
   }
+}
+
+function buildProbeSignal(probeOptions?: OllamaProbeOptions): AbortSignal {
+  const timeoutMs = Math.max(
+    1,
+    Math.min(
+      typeof probeOptions?.probeTimeoutMs === 'number' && Number.isFinite(probeOptions.probeTimeoutMs)
+        ? Math.floor(probeOptions.probeTimeoutMs)
+        : 1000,
+      60_000,
+    ),
+  );
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  if (probeOptions?.signal) return AbortSignal.any([probeOptions.signal, timeoutSignal]);
+  return timeoutSignal;
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
 }

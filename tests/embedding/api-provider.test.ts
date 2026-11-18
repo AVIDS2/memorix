@@ -12,6 +12,9 @@ import { readFile } from 'node:fs/promises';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+/** Queued embedding API responses (`mockResolvedValueOnce` feeds this queue). */
+const pendingFetchResponses: unknown[] = [];
+
 const mockDiskFiles = new Map<string, string>();
 let cacheMetadataPayload: string | undefined;
 
@@ -35,6 +38,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { APIEmbeddingProvider } from '../../src/embedding/api-provider.ts';
+import { clearOllamaOriginCache } from '../../src/embedding/ollama-embed.js';
 
 // Helper: create a mock embedding response
 function mockEmbeddingResponse(embeddings: number[][], model = 'text-embedding-3-small') {
@@ -63,14 +67,60 @@ function makeVector(dims: number, seed = 0.1): number[] {
   return Array.from({ length: dims }, (_, i) => Math.sin(seed * (i + 1)));
 }
 
+function resolveFetchUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  return input.url;
+}
+
+function mockOllamaVersionNotFound() {
+  return {
+    ok: false,
+    status: 404,
+    json: async () => ({}),
+    headers: mockHeaders(),
+  };
+}
+
+function mockOllamaVersionResponse(version = '0.6.5') {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ version }),
+    headers: mockHeaders(),
+  };
+}
+
+function embeddingPostCalls() {
+  return mockFetch.mock.calls.filter(([url]) => {
+    const href = resolveFetchUrl(url);
+    return href.endsWith('/embeddings') || href.endsWith('/api/embed');
+  });
+}
+
 describe('API Embedding Provider', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubGlobal('fetch', mockFetch);
+    clearOllamaOriginCache();
+    pendingFetchResponses.length = 0;
     mockDiskFiles.clear();
     cacheMetadataPayload = undefined;
+    mockFetch.mockResolvedValueOnce = ((value: unknown) => {
+      pendingFetchResponses.push(value);
+      return mockFetch;
+    }) as typeof mockFetch.mockResolvedValueOnce;
+    mockFetch.mockImplementation(async (input: RequestInfo | URL) => {
+      const href = resolveFetchUrl(input);
+      if (href.endsWith('/api/version')) return mockOllamaVersionNotFound();
+      const next = pendingFetchResponses.shift();
+      if (next === undefined) {
+        throw new Error(`No mock fetch response queued for ${href}`);
+      }
+      return next;
+    });
     process.env = {
       ...originalEnv,
       MEMORIX_EMBEDDING: 'api',
@@ -124,10 +174,10 @@ describe('API Embedding Provider', () => {
 
       expect(provider.dimensions).toBe(1536);
       expect(provider.name).toBe('api-text-embedding-3-small');
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      // Verify probe request
-      const [url, options] = mockFetch.mock.calls[0];
+      // Verify probe request (after Ollama origin detection)
+      const [url, options] = embeddingPostCalls()[0];
       expect(url).toBe('https://api.test.com/v1/embeddings');
       const body = JSON.parse(options.body);
       expect(body.model).toBe('text-embedding-3-small');
@@ -142,8 +192,37 @@ describe('API Embedding Provider', () => {
       const provider = await APIEmbeddingProvider.create();
 
       expect(provider.dimensions).toBe(512);
-      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const body = JSON.parse(embeddingPostCalls()[0][1].body);
       expect(body.dimensions).toBe(512);
+    });
+
+    it('rewrites Ollama OpenAI-compatible embedding calls to /api/embed with keep_alive', async () => {
+      process.env.MEMORIX_EMBEDDING_BASE_URL = 'https://ollama.local:19999/v1';
+
+      const dimVec = makeVector(768);
+      mockFetch.mockImplementation(async (input: RequestInfo | URL) => {
+        const href = resolveFetchUrl(input);
+        if (href === 'https://ollama.local:19999/api/version') return mockOllamaVersionResponse('0.6.5');
+        if (href.endsWith('/api/version')) return mockOllamaVersionNotFound();
+        const next = pendingFetchResponses.shift();
+        if (next === undefined) throw new Error(`No mock fetch response queued for ${href}`);
+        return next;
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ model: 'nomic-embed-text', embeddings: [dimVec] }),
+        headers: mockHeaders(),
+      });
+
+      const provider = await APIEmbeddingProvider.create();
+      expect(provider.dimensions).toBe(768);
+
+      const embedCall = embeddingPostCalls().find(([url]) => String(url).endsWith('/api/embed'));
+      expect(embedCall).toBeDefined();
+      const embedBody = JSON.parse(embedCall![1].body);
+      expect(embedBody.keep_alive).toBe('5m');
+      expect(embedBody.input).toBe('dimension probe');
     });
 
     it('should not reuse cached probe dimensions across requested dimension changes', async () => {
@@ -159,7 +238,7 @@ describe('API Embedding Provider', () => {
       const nativeProvider = await APIEmbeddingProvider.create();
 
       expect(nativeProvider.dimensions).toBe(1536);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('should not fall back to memory LLM API key when embedding key is not set', async () => {
@@ -233,7 +312,7 @@ describe('API Embedding Provider', () => {
       const result2 = await provider.embed('cache-single-test');
 
       // Second call should not trigger a new fetch
-      expect(mockFetch).toHaveBeenCalledTimes(2); // probe + 1 embed only
+      expect(mockFetch).toHaveBeenCalledTimes(3); // ollama version + probe + 1 embed only
       expect(result1).toEqual(result2);
     });
 
@@ -259,7 +338,7 @@ describe('API Embedding Provider', () => {
 
       expect(secondResult).toEqual(largeEmbed);
       expect(secondResult.length).toBe(3072);
-      expect(mockFetch).toHaveBeenCalledTimes(4);
+      expect(mockFetch).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -347,8 +426,9 @@ describe('API Embedding Provider', () => {
       expect(results[10]).toEqual(chunk2[0]);
       expect(results[11]).toEqual(chunk2[1]);
 
-      const firstBatchBody = JSON.parse(mockFetch.mock.calls[1][1].body);
-      const secondBatchBody = JSON.parse(mockFetch.mock.calls[2][1].body);
+      const posts = embeddingPostCalls();
+      const firstBatchBody = JSON.parse(posts[1][1].body);
+      const secondBatchBody = JSON.parse(posts[2][1].body);
       expect(firstBatchBody.input).toHaveLength(10);
       expect(secondBatchBody.input).toHaveLength(2);
     });
@@ -375,8 +455,9 @@ describe('API Embedding Provider', () => {
       expect(results).toHaveLength(4);
       expect(results.every((item) => Array.isArray(item) && item.length === 1536)).toBe(true);
 
-      const firstRetryBody = JSON.parse(mockFetch.mock.calls[2][1].body);
-      const secondRetryBody = JSON.parse(mockFetch.mock.calls[3][1].body);
+      const posts = embeddingPostCalls();
+      const firstRetryBody = JSON.parse(posts[2][1].body);
+      const secondRetryBody = JSON.parse(posts[3][1].body);
       expect(firstRetryBody.input).toEqual(['split-a', 'split-b']);
       expect(secondRetryBody.input).toEqual(['split-c', 'split-d']);
     });
@@ -395,7 +476,7 @@ describe('API Embedding Provider', () => {
 
       await expect(provider.embedBatch(['billing-a', 'billing-b', 'billing-c']))
         .rejects.toThrow('402');
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -413,7 +494,7 @@ describe('API Embedding Provider', () => {
       });
 
       await expect(provider.embed('no-retry test', { timeoutMs: 100, retry: false })).rejects.toThrow('429');
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('should retry on 429 rate limit', async () => {
@@ -433,8 +514,8 @@ describe('API Embedding Provider', () => {
 
       const result = await provider.embed('retry test');
       expect(result).toEqual(embedVec);
-      // probe + 429 + retry success = 3
-      expect(mockFetch).toHaveBeenCalledTimes(3);
+      // version + probe + 429 + retry success = 4
+      expect(mockFetch).toHaveBeenCalledTimes(4);
     });
 
     it('should retry on 500 server error', async () => {
@@ -485,7 +566,7 @@ describe('API Embedding Provider', () => {
 
       await expect(provider.embed('body timeout', { timeoutMs: 100, retry: false }))
         .rejects.toThrow(/Embedding API timeout after 100ms/);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('aborts response parsing when the caller signal is cancelled', async () => {

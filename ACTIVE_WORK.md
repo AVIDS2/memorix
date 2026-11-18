@@ -119,8 +119,10 @@ artifacts for the VPS/hosted build path only.
 - [x] Validation: typecheck, build, 40 focused tests, and the full local suite
   (3330 passed, 5 skipped; one Windows temp-directory cleanup race passed on
   isolated rerun).
-- [ ] Publish npm `memorix@1.10.4`, create the tag/release, and verify the
-  registry after the release candidate is committed.
+- [x] Published npm `memorix@1.10.4` and verified the official registry
+  (`dist.shasum=7140e1126f8754b4bbadcd89945754d0304e8293`). Created tag
+  `v1.10.4` and GitHub Release after npm visibility completed; MCP Registry
+  publication remains gated by the GitHub Actions billing lock.
 
 
 ## 1.10.3 Patch and Runcrate (2026-11-05)

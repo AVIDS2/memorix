@@ -127,7 +127,7 @@ Historical/deep-reference documents may describe older designs. If they conflict
 
 ## Current Product Line
 
-The current product line is **1.10.3**; it includes the CodeGraph, lazy-vector,
+The current product line is **1.10.4**; it includes the CodeGraph, lazy-vector,
 search-regression, browser-launch, and Runcrate updates on top of the LanceDB
 growth fix, derived-view receipts, and the optional Cheaper Inference preset.
 Multi-device store sync is opt-in and keeps local SQLite canonical; existing

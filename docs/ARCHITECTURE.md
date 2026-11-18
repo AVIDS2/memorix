@@ -406,6 +406,13 @@ Responsibilities:
 - optional embedding-backed semantic search
 - optional LLM-assisted quality improvements
 
+Remote embedding is treated as a retryable transport boundary. HTTP status
+retries and connection failures use the same bounded backoff, while caller
+deadlines and explicit retry opt-outs remain authoritative. The API embedding
+cache is restored in bounded timer-yielding batches after provider
+initialization; a cache restore cannot monopolize the control-plane event loop
+or make formation timeouts depend on cache size.
+
 ### Platform and Ecosystem Layer
 
 This is the layer that makes Memorix more than a simple MCP memory server.

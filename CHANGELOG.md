@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Fixed
+- Embedding API requests now retry transport-level failures such as stale
+  keep-alive sockets, while preserving timeout, cancellation, and `retry = false`
+  behavior (#397).
+- Large API embedding-cache restores yield through the timer phase in small
+  batches and start after provider initialization, keeping formation deadlines
+  and HTTP control-plane work responsive (#398).
 - Fixed consolidation false positives for Korean and punctuation-only records;
   queued automatic cleanup jobs now honor `auto_cleanup = false` at execution
   time (#385).

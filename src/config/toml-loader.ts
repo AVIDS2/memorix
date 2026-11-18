@@ -28,6 +28,10 @@ export interface MemorixTomlConfig {
     api_key?: string;
     dimensions?: number;
   };
+  retrieval?: {
+    cjk?: 'vector' | 'hybrid' | string;
+    ascii?: 'vector' | 'hybrid' | string;
+  };
   /** Optional HTTP rerank against a compatible /rerank API. */
   rerank?: {
     provider?: 'off' | 'http' | string;
@@ -105,6 +109,7 @@ function mergeTomlConfig(base: MemorixTomlConfig, override: MemorixTomlConfig): 
       llm: { ...base.memory?.llm, ...override.memory?.llm },
     },
     embedding: { ...base.embedding, ...override.embedding },
+    retrieval: { ...base.retrieval, ...override.retrieval },
     rerank: { ...base.rerank, ...override.rerank },
     hooks: { ...base.hooks, ...override.hooks },
     git: { ...base.git, ...override.git },

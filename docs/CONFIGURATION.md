@@ -318,6 +318,21 @@ Provider values:
 - `transformers`
 
 If embedding is unavailable, Memorix falls back to BM25/full-text search.
+
+### `[retrieval]`
+
+Chooses the ranker after a query is embedded. Project `memorix.toml` overrides `~/.memorix/config.toml`, same as `[embedding]`. Invalid values are ignored.
+
+```toml
+[retrieval]
+cjk = "vector"
+ascii = "hybrid"
+```
+
+- `vector`: rank by the Lance neighbor order and dedupe by memory id. Recency and the affinity tie-break still apply afterwards. If the Lance table has no vectors, search falls back to `hybrid` and the diagnostics record `lance vector index empty; hybrid search used`.
+- `hybrid`: the existing Orama hybrid ranker.
+
+`cjk` applies when more than 30% of the query characters are CJK. Everything else uses `ascii`. Defaults are `cjk = "vector"` and `ascii = "hybrid"`. `MEMORIX_RETRIEVAL_CJK` and `MEMORIX_RETRIEVAL_ASCII` override the files.
 `transformers` is no longer installed by default; install
 `@huggingface/transformers` explicitly in the project or global prefix where
 Memorix runs if you choose that provider. `fastembed` remains a supported local

@@ -456,6 +456,33 @@ describe('API Embedding Provider', () => {
       expect(result).toEqual(embedVec);
     });
 
+    it('should retry transport failures such as stale keep-alive sockets', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+
+      const embedVec = makeVector(1536, 0.7);
+      mockFetch
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce(mockEmbeddingResponse([embedVec]));
+
+      await expect(provider.embed('transport retry')).resolves.toEqual(embedVec);
+      // probe + transport failure + fresh-connection retry
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not retry transport failures when retry is disabled', async () => {
+      const probeVec = makeVector(1536);
+      mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));
+      const provider = await APIEmbeddingProvider.create();
+
+      mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+      await expect(provider.embed('transport no retry', { retry: false }))
+        .rejects.toThrow('fetch failed');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should throw on 401 unauthorized (no retry)', async () => {
       const probeVec = makeVector(1536);
       mockFetch.mockResolvedValueOnce(mockEmbeddingResponse([probeVec]));

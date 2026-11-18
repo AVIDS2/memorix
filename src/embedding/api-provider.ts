@@ -180,6 +180,7 @@ const DEFAULT_MAX_BATCH_SIZE = 2048;
 const DASHSCOPE_MAX_BATCH_SIZE = 10;
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 500;
+const CACHE_LOAD_YIELD_EVERY = 32;
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, MAX_INPUT_CHARS);
@@ -480,8 +481,10 @@ async function loadCacheJsonl(filePath: string): Promise<number> {
     } catch {
       // Skip a corrupt line; the rest of the cache remains usable.
     }
-    if (onDiskCount % 250 === 0) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
+    if (onDiskCount % CACHE_LOAD_YIELD_EVERY === 0) {
+      // Timers are the formation budget's watchdog. A check-phase-only yield
+      // can keep a long cache restore ahead of timers on a busy control plane.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     }
   }
   diskCacheEntryCount = onDiskCount;
@@ -996,7 +999,9 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     // after search already printed. getCachedEmbeddings() still loads the
     // cache when a later hybrid/attach path actually needs vectors.
     if (allowNetworkProbe) {
-      startDiskCacheLoad();
+      // Let the request that initialized the provider reach its first await
+      // before parsing a large cache on this process's event loop.
+      setImmediate(startDiskCacheLoad);
     }
 
     return new APIEmbeddingProvider(config, probeDimensions);
@@ -1086,11 +1091,10 @@ export class APIEmbeddingProvider implements EmbeddingProvider {
     }
     const hash = textHash(normalized, this.cacheKeyNamespace);
 
-    // Fast path: cache already loaded (warm process) — instant lookup
-    if (diskCacheLoaded) {
-      const cached = cache.get(hash);
-      if (cached) return cached;
-    }
+    // Fast path: a vector generated earlier in this process is valid even
+    // while the disk cache is still restoring in the background.
+    const cached = cache.get(hash);
+    if (cached) return cached;
 
     // Cold-start path: cache is still loading in background.
     // Race the cache completion (may have a hit) against the API call.
@@ -1353,6 +1357,12 @@ async function fetchWithRetry(
     clearTimeout(timeout);
     if (err instanceof Error && (err.name === 'AbortError' || controller.signal.aborted || options.signal?.aborted)) {
       throw new Error(`Embedding API timeout after ${timeoutMs}ms: ${url}`);
+    }
+    if (options.retry !== false && attempt < MAX_RETRIES) {
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+      console.error(`[memorix] Embedding transport failure, retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms`);
+      await waitForRetry(delay, options.signal);
+      return fetchWithRetry(url, apiKey, body, options, attempt + 1, nativeGemini);
     }
     throw err;
   }

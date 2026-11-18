@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-11-11
+**Last updated:** 2026-11-18
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -79,8 +79,15 @@ artifacts for the VPS/hosted build path only.
   74.6s seed, 33.6ms warm SDK search, 418.7ms HTTP MCP cold search,
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
 - [ ] Release blocker: GitHub Actions cannot start jobs while the repository
-  account is locked for billing. npm credentials are restored and npm publication
-  is no longer blocked.
+  account is locked for billing. npm credentials are restored and 1.10.3 is
+  publicly visible on the registry; local release gates remain available.
+- [x] #397 embedding transport failures now retry on the existing bounded
+  backoff ladder. Timeout and caller cancellation remain terminal, and
+  `retry=false` skips transport retries.
+- [x] #398 API embedding-cache restore now yields every 32 records through the
+  timer phase and begins after provider initialization. A same-process cache
+  hit is recognized while disk restoration is still pending, preventing a
+  duplicate embedding request.
 - [x] Release integrity guard: `.github/workflows/publish.yml` now runs for a
   published GitHub Release as well as manual dispatch, and release events force
   the npm publish/visibility gate before MCP Registry publication.

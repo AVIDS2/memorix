@@ -161,6 +161,12 @@ new work through retry exhaustion and lease recovery. Recurring jobs process a
 new event before returning to their long schedule; provider retry cooldowns
 remain in force. The new SQLite flag defaults to false for pre-1.11 rows.
 
+Observation lifecycle mutations use the same projection boundary: resolving an
+observation or changing its admission/visibility registers an
+`observation-project` job inside the canonical transaction. Evidence and
+CodeGraph projection success acknowledges that job; a failure leaves it
+recoverable for maintenance.
+
 Automatic cleanup jobs re-check the resolved behavior configuration when they
 execute. Disabling `memory.autoCleanup` therefore neutralizes already queued
 retention, consolidation, and long-term maintenance work without affecting

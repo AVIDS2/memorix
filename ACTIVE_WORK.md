@@ -60,6 +60,12 @@ artifacts for the VPS/hosted build path only.
   exhaustion, lease recovery, and recurring-job reschedule preserve that work;
   provider cooldown remains bounded. Existing maintenance rows migrate by
   adding a defaulted `rerun_requested` column.
+- [x] 1.11 P2 lifecycle projection slice: `resolveObservations()` and
+  `updateObservationAdmission()` now register `observation-project` work in
+  the same canonical transaction as the lifecycle mutation. Successful
+  evidence projection acknowledges the job; failed projection leaves it
+  pending for maintenance retry. Git ingest, hooks, and explicit MCP writes
+  already inherit this through `storeObservation()`.
 - [ ] 1.11 P3: move ranking, freshness, provenance, admission, abstention, and
   progressive disclosure into one RetrievalFacade. The current slice attaches
   each result to its own diagnostics and derived-view receipt; compact search,

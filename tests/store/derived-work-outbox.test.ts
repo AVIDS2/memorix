@@ -7,7 +7,13 @@ import { closeAllDatabases, getDatabase } from '../../src/store/sqlite-db.js';
 import { MaintenanceJobStore, MaintenanceJobWorker } from '../../src/runtime/maintenance-jobs.js';
 import { resetObservationStore } from '../../src/store/obs-store.js';
 import { resetDb } from '../../src/store/orama-store.js';
-import { initObservations, resetObservationRuntime, storeObservation } from '../../src/memory/observations.js';
+import {
+  initObservations,
+  resetObservationRuntime,
+  storeObservation,
+  resolveObservations,
+  updateObservationAdmission,
+} from '../../src/memory/observations.js';
 
 describe('canonical write derived-work outbox', () => {
   let dataDir = '';
@@ -142,6 +148,59 @@ describe('canonical write derived-work outbox', () => {
       { project_id: 'org/repo', kind: 'vector-backfill', status: 'pending' },
     ]);
     store.close();
+  });
+
+  it('re-enqueues projection work when an observation is resolved', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-resolve-projection-'));
+    const oldEmbedding = process.env.MEMORIX_EMBEDDING;
+    process.env.MEMORIX_EMBEDDING = 'off';
+    try {
+      await initObservations(dataDir);
+      const { observation } = await storeObservation({
+        projectId: 'org/repo', entityName: 'auth', type: 'decision',
+        title: 'Resolve stale evidence', narrative: 'The projection must follow lifecycle changes.',
+      });
+
+      await resolveObservations([observation.id]);
+
+      const projectionJobs = new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })
+        .filter((job) => job.kind === 'observation-project');
+      expect(projectionJobs.length).toBeGreaterThanOrEqual(2);
+      expect(projectionJobs.at(-1)).toEqual(expect.objectContaining({ status: 'completed' }));
+    } finally {
+      if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
+      else process.env.MEMORIX_EMBEDDING = oldEmbedding;
+    }
+  });
+
+  it('re-enqueues projection work when admission metadata changes', async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-admission-projection-'));
+    const oldEmbedding = process.env.MEMORIX_EMBEDDING;
+    process.env.MEMORIX_EMBEDDING = 'off';
+    try {
+      await initObservations(dataDir);
+      const { observation } = await storeObservation({
+        projectId: 'org/repo', entityName: 'capture', type: 'discovery',
+        title: 'Qualify candidate evidence', narrative: 'Admission changes are canonical mutations.',
+        admissionState: 'candidate', sourceDetail: 'hook',
+      });
+
+      await updateObservationAdmission({
+        observationId: observation.id,
+        projectId: 'org/repo',
+        expectedState: 'candidate',
+        admissionState: 'qualified',
+        admissionReason: 'Reviewed by maintainer',
+      });
+
+      const projectionJobs = new MaintenanceJobStore(dataDir).list({ projectId: 'org/repo' })
+        .filter((job) => job.kind === 'observation-project');
+      expect(projectionJobs.length).toBeGreaterThanOrEqual(2);
+      expect(projectionJobs.at(-1)).toEqual(expect.objectContaining({ status: 'completed' }));
+    } finally {
+      if (oldEmbedding === undefined) delete process.env.MEMORIX_EMBEDDING;
+      else process.env.MEMORIX_EMBEDDING = oldEmbedding;
+    }
   });
 
   it('persists maintenance progress instead of only a lifecycle status', async () => {

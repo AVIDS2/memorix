@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Fixed
+- Lifecycle changes that resolve or qualify an observation now enqueue their
+  evidence/CodeGraph projection in the same canonical transaction. Successful
+  projection acknowledges the durable job, while failures remain pending for
+  maintenance retry.
 - Derived-view retrieval receipts now use a kernel-owned registry with stable
   names, replacement, snapshot creation, and isolated reader failures. New
   FTS, Orama, Lance, or CodeGraph adapters can share the same health boundary.

@@ -117,6 +117,10 @@ artifacts for the VPS/hosted build path only.
   kernel-owned `DerivedViewRegistry` for stable names, replacement, snapshots,
   and reader failure isolation. FTS, Orama, and embedding receipt assembly no
   longer constructs the named view map ad hoc.
+- [x] 2026-11-19 verification after #402 and #403: 360 test files passed,
+  3 skipped; 3,340 tests passed, 5 skipped. The only full-suite failure was the
+  known Windows temporary-directory cleanup race in `mcp-discovery`; isolated
+  rerun passed 3/3.
 - [x] Synchronized package, plugin, server metadata, changelog, and release
   documentation at `1.10.4`.
 - [x] Validation: typecheck, build, 40 focused tests, and the full local suite

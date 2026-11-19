@@ -132,6 +132,12 @@ alongside Lance.
 Their lifecycle reports missing, stale, unavailable, and ready states instead
 of making each host infer index health from an empty result.
 
+The retrieval health receipts now pass through one kernel-owned
+`DerivedViewRegistry`. It owns stable view names, replacement, snapshot
+creation, and reader failure isolation; concrete adapters still own their
+storage lifecycle. Adding a new derived view therefore cannot silently invent
+another receipt shape or leak a raw adapter exception into retrieval context.
+
 **P2 - 1.11 durable write pipeline:** add a small canonical write service and
 an idempotent derived-work outbox. Observation capture, Git ingest, and
 explicit MCP store calls use the same pipeline. Keep formation and provider

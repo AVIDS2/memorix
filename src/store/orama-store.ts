@@ -43,7 +43,9 @@ import {
   embeddingHealthReceipt,
   sanitizeDerivedViewFailureReason,
   type RetrievalDerivedViews,
+  type RetrievalDerivedViewReceipt,
 } from '../search/derived-view-receipt.js';
+import { DerivedViewRegistry } from '../core/derived-view-registry.js';
 
 let db: AnyOrama | null = null;
 let dbInitPromise: Promise<AnyOrama> | null = null;
@@ -69,6 +71,7 @@ export interface SearchDiagnostics extends RetrievalReceipt {
   rawCandidateCount: number;
 }
 const lastSearchDiagnosticsByProject = new Map<string, SearchDiagnostics>();
+const searchDerivedViewRegistry = new DerivedViewRegistry<RetrievalDerivedViewReceipt>();
 export interface SearchExecution {
   entries: IndexEntry[];
   diagnostics: SearchDiagnostics;
@@ -101,15 +104,22 @@ export function getLastSearchDiagnostics(projectId?: string): SearchDiagnostics 
  * remains owned by the request that actually needs semantic search.
  */
 export function getSearchDerivedViews(): RetrievalDerivedViews {
-  const views: RetrievalDerivedViews = {};
+  return searchDerivedViewRegistry.snapshot() as RetrievalDerivedViews;
+}
+
+searchDerivedViewRegistry.register('fts', readFtsDerivedViewReceipt);
+searchDerivedViewRegistry.register('orama', readOramaDerivedViewReceipt);
+searchDerivedViewRegistry.register('embedding', readEmbeddingDerivedViewReceipt);
+
+function readFtsDerivedViewReceipt(): RetrievalDerivedViewReceipt {
   const store = getOptionalObservationStore();
   if (store) {
     try {
       const generation = store.getGeneration();
       if (store.hasLexicalIndex?.()) {
-        views.fts = { generation, freshness: 'current', rebuildStatus: 'idle' };
+        return { generation, freshness: 'current', rebuildStatus: 'idle' };
       } else {
-        views.fts = {
+        return {
           generation,
           freshness: 'unknown',
           rebuildStatus: 'unavailable',
@@ -119,21 +129,22 @@ export function getSearchDerivedViews(): RetrievalDerivedViews {
         };
       }
     } catch (error) {
-      views.fts = {
+      return {
         freshness: 'unknown',
         rebuildStatus: 'failed',
         failureReason: sanitizeDerivedViewFailureReason(error instanceof Error ? error.message : String(error)),
       };
     }
-  } else {
-    views.fts = {
-      freshness: 'unknown',
-      rebuildStatus: 'unavailable',
-      failureReason: 'observation store is not initialized',
-    };
   }
+  return {
+    freshness: 'unknown',
+    rebuildStatus: 'unavailable',
+    failureReason: 'observation store is not initialized',
+  };
+}
 
-  views.orama = db
+function readOramaDerivedViewReceipt(): RetrievalDerivedViewReceipt {
+  return db
     ? { generation: dbGeneration, freshness: 'current', rebuildStatus: 'idle' }
     : {
       generation: dbGeneration,
@@ -141,7 +152,9 @@ export function getSearchDerivedViews(): RetrievalDerivedViews {
       rebuildStatus: 'unavailable',
       failureReason: 'Orama index is not initialized',
     };
+}
 
+function readEmbeddingDerivedViewReceipt(): RetrievalDerivedViewReceipt {
   let embeddingHealth: EmbeddingRuntimeHealth | undefined;
   try {
     embeddingHealth = (embeddingRuntime as unknown as {
@@ -150,9 +163,7 @@ export function getSearchDerivedViews(): RetrievalDerivedViews {
   } catch {
     // Legacy provider mocks/adapters may not expose health metadata.
   }
-  views.embedding = embeddingHealthReceipt(embeddingHealth, embeddingEnabled);
-
-  return views;
+  return embeddingHealthReceipt(embeddingHealth, embeddingEnabled);
 }
 
 function rememberSearchDiagnostics(key: string, value: SearchDiagnostics): void {

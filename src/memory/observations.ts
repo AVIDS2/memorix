@@ -338,13 +338,22 @@ async function enqueueObservationDerivedWork(tx: StoreTransaction, observation: 
       payload: { observationId: observation.id },
     });
   }
+  await enqueueObservationProjectionWork(tx, observation);
+  return true;
+}
+
+/** Register a recoverable projection for any canonical observation mutation. */
+async function enqueueObservationProjectionWork(
+  tx: StoreTransaction,
+  observation: Observation,
+): Promise<void> {
+  if (!tx.enqueueMaintenanceJob) return;
   await tx.enqueueMaintenanceJob({
     projectId: observation.projectId,
     kind: 'observation-project',
     dedupeKey: 'observation-project:' + observation.id,
     payload: { observationId: observation.id },
   });
-  return true;
 }
 
 function isVectorCompatibleWithCurrentIndex(embedding: number[] | null): boolean {
@@ -1110,6 +1119,7 @@ export async function updateObservationAdmission(input: {
       const next = apply(current);
       if (!next) return;
       await tx.update(next);
+      await enqueueObservationProjectionWork(tx, next);
       updated = next;
     });
   } else {
@@ -1131,6 +1141,10 @@ export async function updateObservationAdmission(input: {
     });
   } catch {
     // SQLite is canonical. The next index hydration repairs a missed update.
+  }
+
+  if (await persistEvidenceCard(updated)) {
+    await acknowledgeObservationProjection(updated);
   }
 
   if (updated.admissionState === 'qualified' && resolveObservationVisibility(updated) === 'project') {
@@ -1215,11 +1229,18 @@ export async function resolveObservations(
   if (projectDir && resolved.length > 0) {
     const store = getObservationStore();
     await store.atomic(async (tx) => {
-      await Promise.all(changed.map((observation) => tx.update(observation)));
+      await Promise.all(changed.map(async (observation) => {
+        await tx.update(observation);
+        await enqueueObservationProjectionWork(tx, observation);
+      }));
     });
   }
 
-  for (const observation of changed) await persistEvidenceCard(observation);
+  for (const observation of changed) {
+    if (await persistEvidenceCard(observation)) {
+      await acknowledgeObservationProjection(observation);
+    }
+  }
 
   return { resolved, notFound };
 }

@@ -333,6 +333,8 @@ ascii = "hybrid"
 - `hybrid`: the existing Orama hybrid ranker.
 
 `cjk` applies when more than 30% of the query characters are CJK. Everything else uses `ascii`. Defaults are `cjk = "vector"` and `ascii = "hybrid"`. `MEMORIX_RETRIEVAL_CJK` and `MEMORIX_RETRIEVAL_ASCII` override the files.
+
+When an embeddings host answers `GET /api/version` with an Ollama version string, Memorix rewrites that origin's `/v1/embeddings` requests to `/api/embed` and sends `keep_alive: "5m"` unless the request already sets one. The port is irrelevant. Leave `base_url` on `/v1`; a native `/api/embed` base URL does not match the OpenAI parser. Hosts that do not serve Ollama's version endpoint stay on `/v1/embeddings`.
 `transformers` is no longer installed by default; install
 `@huggingface/transformers` explicitly in the project or global prefix where
 Memorix runs if you choose that provider. `fastembed` remains a supported local

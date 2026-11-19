@@ -78,10 +78,9 @@ artifacts for the VPS/hosted build path only.
 - [x] 2026-11-05 Windows/Node 22 offline 40k gate: 40,000 seeded records,
   74.6s seed, 33.6ms warm SDK search, 418.7ms HTTP MCP cold search,
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
-- [ ] Release blocker: GitHub Actions cannot start jobs while the repository
-  account is locked for billing. npm credentials are restored and 1.10.3 is
-  publicly visible on the registry; local release gates remain available for
-  the 1.10.4 candidate.
+- [ ] GitHub Actions cannot start jobs while the repository account is locked
+  for billing. The release was completed through verified local publishing;
+  future automated workflow runs remain blocked by the account state.
 - [x] #397 embedding transport failures now retry on the existing bounded
   backoff ladder. Timeout and caller cancellation remain terminal, and
   `retry=false` skips transport retries.
@@ -103,12 +102,11 @@ artifacts for the VPS/hosted build path only.
   Korean duplicate consolidation. Automatic retention, consolidation, and
   long-term maintenance re-check `memory.autoCleanup` at execution time and
   complete without mutation when it is disabled.
-  The last published source/tag/release and npm package are at 1.10.3. The
-  1.10.4 candidate is locally verified and awaits the manual npm publish;
-  MCP Registry visibility still requires a successful OIDC workflow after the
-  GitHub billing lock clears.
+  The last published source/tag/release and npm package are at 1.10.4. The
+  official MCP Registry record is also 1.10.4 after direct publisher release;
+  only GitHub Actions automation remains blocked by billing lock.
 
-## 1.10.4 Release Candidate (2026-11-18)
+## 1.10.4 Release Closeout (2026-11-18)
 
 - [x] Merged #399: embedding transport retries and bounded timer-yielding API
   cache restoration for the #397/#398 incidents.
@@ -121,8 +119,10 @@ artifacts for the VPS/hosted build path only.
   isolated rerun).
 - [x] Published npm `memorix@1.10.4` and verified the official registry
   (`dist.shasum=7140e1126f8754b4bbadcd89945754d0304e8293`). Created tag
-  `v1.10.4` and GitHub Release after npm visibility completed; MCP Registry
-  publication remains gated by the GitHub Actions billing lock.
+  `v1.10.4` and GitHub Release after npm visibility completed.
+- [x] Published `io.github.AVIDS2/memorix` version `1.10.4` directly with the
+  official MCP publisher and verified the live Registry record and npm package
+  version both report `1.10.4`.
 
 
 ## 1.10.3 Patch and Runcrate (2026-11-05)
@@ -157,7 +157,7 @@ artifacts for the VPS/hosted build path only.
 
 - `1.10.3` was the prepared patch release on the 1.10 line. It addressed
   LanceDB semantic-index growth and two agent integration defects.
-- `1.10.4` is the current release candidate with embedding transport recovery,
+- `1.10.4` is the current released version with embedding transport recovery,
   startup cache responsiveness, and CJK vector-order retrieval.
 - The release keeps the canonical Dashboard Memory Map, removes the obsolete
   renderer/dependencies, makes reachable capabilities visible, and preserves

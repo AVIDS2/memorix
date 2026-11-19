@@ -37,8 +37,9 @@ artifacts for the VPS/hosted build path only.
   durable in SQLite. The main MCP server captures an immutable `RuntimeContext`
   at bind/activation/switch boundaries and CodeGraph host paths consume its
   frozen config snapshot.
-- [ ] 1.11 P1 remainder: expose a single adapter registry and migrate any
-  remaining dashboard/diagnostic paths that still inspect raw index state.
+- [x] 1.11 P1 remainder slice: expose a single receipt registry for derived
+  views. Remaining dashboard/diagnostic paths that inspect raw index state are
+  tracked separately from the kernel contract.
 - [x] 1.11 derived-view adapters: SQLite FTS5 and Orama now expose the common
   `DerivedView` lifecycle with explicit status, rebuild/refresh, compact, and
   close behavior; CodeGraph now exposes the same lifecycle over Lite refresh
@@ -112,6 +113,10 @@ artifacts for the VPS/hosted build path only.
   cache restoration for the #397/#398 incidents.
 - [x] Merged #395: configurable CJK Lance neighbor ordering with hybrid
   fallback.
+- [x] 1.11 P1 remainder slice: retrieval health receipts now use the
+  kernel-owned `DerivedViewRegistry` for stable names, replacement, snapshots,
+  and reader failure isolation. FTS, Orama, and embedding receipt assembly no
+  longer constructs the named view map ad hoc.
 - [x] Synchronized package, plugin, server metadata, changelog, and release
   documentation at `1.10.4`.
 - [x] Validation: typecheck, build, 40 focused tests, and the full local suite

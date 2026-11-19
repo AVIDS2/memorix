@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Fixed
+- Derived-view retrieval receipts now use a kernel-owned registry with stable
+  names, replacement, snapshot creation, and isolated reader failures. New
+  FTS, Orama, Lance, or CodeGraph adapters can share the same health boundary.
 - Embedding API requests now retry transport-level failures such as stale
   keep-alive sockets, while preserving timeout, cancellation, and `retry = false`
   behavior (#397).

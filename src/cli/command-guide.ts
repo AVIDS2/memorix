@@ -9,7 +9,7 @@ const GUIDES: Record<string, CliCommandGuide> = {
     summary: 'Store, search, inspect, resolve, consolidate, and promote project memory.',
     usage: [
       'memorix memory search --query "timeout regression" [--limit 10]',
-      'memorix memory store --text "..." [--title "..."] [--visibility project|personal|team]',
+      'memorix memory store --text "..." [--title "..."] [--type discovery] [--entity <name>] [--topic-key <key>] [--facts a,b] [--files a,b] [--concepts a,b] [--visibility project|personal|team]',
       'memorix memory detail --id 42',
       'memorix memory recent [--limit 10]',
       'memorix memory resolve --ids 42,43 [--status resolved|archived]',
@@ -23,6 +23,8 @@ const GUIDES: Record<string, CliCommandGuide> = {
     ],
     notes: [
       'Personal and team visibility require `memorix identity join` or `memorix identity use` first.',
+      'The same project and the same --topic-key update the existing observation and return upserted: true. A missing key creates a new observation. Lookup uses only the project selected by --cwd.',
+      'memorix remember does not forward --entity or --topic-key. Topic-key upsert uses memorix memory store.',
       'Candidates never enter a task Workset. Only manual or user-confirmed `user + portable` memory may cross local projects.',
     ],
   },

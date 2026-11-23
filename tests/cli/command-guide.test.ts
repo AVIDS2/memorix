@@ -5,6 +5,8 @@ describe('CLI command guide', () => {
   it('renders action-oriented help for manual command namespaces', () => {
     const guide = renderCliGuide('memory');
     expect(guide).toContain('memorix memory store');
+    expect(guide).toContain('--topic-key <key>');
+    expect(guide).toContain('does not forward --entity or --topic-key');
     expect(guide).toContain('memorix identity join');
     expect(guide).toContain('--cwd <git-project>');
   });

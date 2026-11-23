@@ -33,6 +33,7 @@ import { CURRENT_MCP_PROTOCOL_VERSION, MCP_SERVER_NAME, getMcpDiagnostics } from
 import { createMcpStartupDiscoverResult, getMcpServerInfo } from '../../server/mcp-discovery.js';
 import { parseTcpPortOrReport } from '../port.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
+import { createCachedProjectDetector } from './project-detection-cache.js';
 
 /**
  * HTTP MCP is a shared control plane. A normal thinking break should not
@@ -363,10 +364,13 @@ export default defineCommand({
     const statelessBindingStore = new McpBindingStore();
     await statelessBindingStore.init(controlPlaneBaseDir);
     const modernRuntimePool = new ModernMcpRuntimePool(MAX_STORE_CACHE_ENTRIES);
+    // Stateless requests resolve their project on every call. Memoize it so a
+    // non-Git root does not spawn `git rev-parse` (synchronously) per request.
+    const detectRequestProject = createCachedProjectDetector(detectorMod.detectProject);
 
     async function resolveModernDataDir(root: string, persisted?: { dataDir?: string }): Promise<string> {
       if (persisted?.dataDir) return persisted.dataDir;
-      const detected = detectorMod.detectProject(root);
+      const detected = detectRequestProject(root);
       return detected
         ? persistMod.getProjectDataDir(detected.id)
         : controlPlaneBaseDir;
@@ -383,7 +387,7 @@ export default defineCommand({
       const root = persisted?.projectRoot ?? requestedRoot ?? projectRoot;
       const dataDir = await resolveModernDataDir(root, persisted);
       const binding = persisted ?? (() => {
-        const detected = detectorMod.detectProject(root);
+        const detected = detectRequestProject(root);
         if (!detected) return undefined;
         const existing = statelessBindingStore.findByProjectRoot(detected.rootPath);
         return existing ? statelessBindingStore.touch(existing.handleId) ?? existing : undefined;
@@ -706,7 +710,7 @@ export default defineCommand({
           const requestedRoot = typeof req.headers['mcp-project-root'] === 'string'
             ? req.headers['mcp-project-root']
             : projectRoot;
-          const detected = detectorMod.detectProject(requestedRoot);
+          const detected = detectRequestProject(requestedRoot);
           if (detected) {
             const bindingDataDir = await persistMod.getProjectDataDir(detected.id);
             const binding = statelessBindingStore.findByProjectRoot(detected.rootPath)

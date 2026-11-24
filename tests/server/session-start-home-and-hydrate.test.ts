@@ -105,7 +105,7 @@ describe('memorix_session_start home bind and hydrate', () => {
         handleId: 'mxh_test_handle',
         createdAt: '2026-10-21T00:00:00.000Z',
         lastUsedAt: '2026-10-21T00:05:00.000Z',
-        expiresAt: '2026-11-20T00:05:00.000Z',
+        expiresAt: '2099-01-01T00:05:00.000Z',
       },
     });
     let releaseLoadAll: (() => void) | undefined;
@@ -145,7 +145,7 @@ describe('memorix_session_start home bind and hydrate', () => {
         state: 'active',
         createdAt: '2026-10-21T00:00:00.000Z',
         lastUsedAt: '2026-10-21T00:05:00.000Z',
-        expiresAt: '2026-11-20T00:05:00.000Z',
+        expiresAt: '2099-01-01T00:05:00.000Z',
       });
       expect(result.structuredContent.binding.handle.idHash).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(JSON.stringify(result.structuredContent.binding)).not.toContain(project);

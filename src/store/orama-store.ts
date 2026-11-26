@@ -1232,11 +1232,14 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
   // deterministic empty result despite the FTS5 index having real matches.
   const canUsePersistentLexical = persistentCorpusEligible && Boolean(hasQuery) && !queryVector &&
     (quality === 'fast' || tier === 'fast' || !embeddingEnabled || embeddingUnavailable);
-  if (!persistent) persistent = persistentCorpusEligible && queryVector && embeddingProviderForSearch
-    ? await searchPersistentSemantically(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch)
-    : canUsePersistentLexical
-      ? await searchPersistentLexically(options, projectIds, requestLimit)
-      : null;
+  // 10000 only decides whether the whole corpus is hydrated into Orama.
+  // A small project still fuses Lance with FTS once a query vector exists.
+  const lexicalReady = Boolean(getOptionalObservationStore()?.hasLexicalIndex?.());
+  if (!persistent && queryVector && embeddingProviderForSearch && (persistentCorpusEligible || lexicalReady)) {
+    persistent = await searchPersistentSemantically(options, projectIds, requestLimit, queryVector, embeddingProviderForSearch);
+  } else if (!persistent && canUsePersistentLexical) {
+    persistent = await searchPersistentLexically(options, projectIds, requestLimit);
+  }
 
   // In lazy large-corpus mode Orama is intentionally empty. If a semantic
   // shadow index has not been built yet, retain a correct lexical answer

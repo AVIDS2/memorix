@@ -35,7 +35,8 @@ import { createRetrievalPlan, type RetrievalReceipt } from '../core/retrieval-co
 import {
   createSemanticIndexProfile,
   searchSemanticVectors,
-  listSemanticVectorIds,
+  listSemanticVectorKeys,
+  semanticVectorKey,
   type SemanticIndexProfile,
   type SemanticVectorRecord,
 } from '../search/semantic-index.js';
@@ -690,10 +691,10 @@ export function getActiveSemanticIndexProfile(): SemanticIndexProfile | null {
   return indexEmbeddingProvider ? createSemanticIndexProfile(indexEmbeddingProvider) : null;
 }
 
-/** Read the durable semantic shadow's IDs without loading vector payloads. */
-export async function getPersistentSemanticVectorIds(dataDir: string): Promise<Set<number> | null> {
+/** Read durable semantic-shadow keys (`projectId:observationId`) without vector payloads. */
+export async function getPersistentSemanticVectorIds(dataDir: string): Promise<Set<string> | null> {
   if (!indexEmbeddingProvider) return null;
-  return listSemanticVectorIds(dataDir, createSemanticIndexProfile(indexEmbeddingProvider));
+  return listSemanticVectorKeys(dataDir, createSemanticIndexProfile(indexEmbeddingProvider));
 }
 
 /** Queue one derived vector without delaying the durable observation write. */
@@ -816,7 +817,7 @@ async function attachCachedVectors(
   const semanticDataDir = (await import('../memory/observations.js')).getObservationDataDir();
   const semanticProfile = getActiveSemanticIndexProfile();
   const persistedSemanticIds = semanticDataDir && semanticProfile
-    ? await listSemanticVectorIds(semanticDataDir, semanticProfile).catch(() => null)
+    ? await listSemanticVectorKeys(semanticDataDir, semanticProfile).catch(() => null)
     : null;
   const batchSize = 200;
   for (let start = 0; start < observations.length; start += batchSize) {
@@ -833,7 +834,7 @@ async function attachCachedVectors(
       const vector = cachedVectors[index];
       if (!isCompatibleCachedVector(vector)) continue;
       const observation = batch[index];
-      if (semanticDataDir && semanticProfile && !persistedSemanticIds?.has(observation.id)) {
+      if (semanticDataDir && semanticProfile && !persistedSemanticIds?.has(semanticVectorKey(observation.projectId, observation.id))) {
         semanticRecords.push({
           observationId: observation.id,
           projectId: observation.projectId,

@@ -185,7 +185,7 @@ describe('prepareSearchIndex', () => {
     ]);
     mockLoadIdCounter.mockResolvedValue(23);
     mockHydrateIndexForStartup.mockResolvedValue(2);
-    mockGetPersistentSemanticVectorIds.mockResolvedValue(new Set([21]));
+    mockGetPersistentSemanticVectorIds.mockResolvedValue(new Set(['AVIDS2/memorix:21']));
 
     const { initObservations, prepareSearchIndex, getVectorMissingIds } = await import('../../src/memory/observations.ts');
     await initObservations('E:/tmp/project');

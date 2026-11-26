@@ -92,7 +92,15 @@ export default defineCommand({
           }
           const limit = parsePositiveInt(args.limit as string | undefined, 10);
           const quality = coerceRetrievalQuality(args.quality as string | undefined);
-          const result = await compactSearch({ query, limit, quality, projectId: project.id, reader }, 'cli');
+          const status = args.status ? coerceObservationStatus(args.status) : undefined;
+          const result = await compactSearch({
+            query,
+            limit,
+            quality,
+            projectId: project.id,
+            reader,
+            ...(status ? { status } : {}),
+          }, 'cli');
           emitResult({ project, entries: result.entries, retrieval: result.receipt }, result.formatted, asJson);
           return;
         }

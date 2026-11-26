@@ -30,6 +30,7 @@ import { withTimeout, withTimeoutSignal } from '../timeout.js';
 import { getObservationStore } from './obs-store.js';
 import { getResolvedConfig } from '../config/resolved-config.js';
 import { isCjkHeavyQuery } from '../config/retrieval-strategy.js';
+import { labelMatchReasons, promoteOverlappingNeighbors, queryOverlapTokens } from '../search/match-reasons.js';
 import { createSemanticDerivedView } from '../search/semantic-view.js';
 import { createRetrievalPlan, type RetrievalReceipt } from '../core/retrieval-contracts.js';
 import {
@@ -1093,7 +1094,7 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
   // Session dedup demotes already-surfaced entries after ranking, so it needs
   // the same headroom to let unseen candidates rise into the final limit.
   const requestLimit = projectIds || (options.surfacedIds && options.surfacedIds.length > 0)
-    ? (options.limit ?? 20) * 3
+    ? Math.max((options.limit ?? 20) * 3, 40)
     : (options.limit ?? 20);
 
   // Default field boosts — overridden by intent-specific boosts when detected
@@ -1508,6 +1509,38 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
     intermediate = intermediate.filter(e => new Date(e.rawTime).getTime() <= untilDate);
   }
 
+  // 近邻：只把窗口里一个词都没对上的位置，换成窗口外标题对得上问话的卡。
+  // 向量分权重不动。零重叠的语义第 1 名只要窗口里没有零重叠空位，就不会被换走。
+  if (hasQuery && originalQuery && projectIds) {
+    const overlapTokens = queryOverlapTokens(originalQuery);
+    const lexical = await searchPersistentLexically(options, projectIds, (options.limit ?? 20) * 3);
+    for (const hit of lexical?.hits ?? []) {
+      const doc = hit.document as unknown as MemorixDocument;
+      if (intermediate.some((entry) => entry.id === doc.observationId)) continue;
+      intermediate.push({
+        id: doc.observationId,
+        time: formatTime(doc.createdAt),
+        rawTime: doc.createdAt,
+        type: doc.type as ObservationType,
+        icon: OBSERVATION_ICONS[doc.type as ObservationType] ?? '[UNKNOWN]',
+        title: doc.title,
+        tokens: doc.tokens,
+        score: hit.score ?? 0,
+        projectId: doc.projectId,
+        source: (doc.source || 'agent') as 'agent' | 'git' | 'manual',
+        sourceDetail: (doc.sourceDetail || undefined) as 'explicit' | 'hook' | 'git-ingest' | undefined,
+        valueCategory: (doc.valueCategory || undefined) as 'core' | 'contextual' | 'ephemeral' | undefined,
+        admissionState: (doc.admissionState || undefined) as IndexEntry['admissionState'],
+        visibility: (doc.visibility || undefined) as IndexEntry['visibility'],
+        entityName: doc.entityName || undefined,
+        documentType: (doc.documentType || 'observation') as 'observation' | 'mini-skill',
+        knowledgeLayer: (doc.knowledgeLayer || 'project-truth') as KnowledgeLayer,
+        _isCommandLog: isCommandLogEntry(doc.title),
+      });
+    }
+    intermediate = promoteOverlappingNeighbors(intermediate, options.limit ?? 20, overlapTokens);
+  }
+
   // Apply original limit after post-filtering (we intentionally over-requested when project filtering is active)
   if (projectIds) {
     intermediate = intermediate.slice(0, options.limit ?? 20);
@@ -1699,16 +1732,16 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
       const entry = entryMap.get(makeEntryKey(doc.projectId, doc.observationId));
       if (!entry) continue;
 
-      const reasons: string[] = [];
+      const fieldHits: string[] = [];
       const fields: [string, string][] = [
         ['title', doc.title], ['entity', doc.entityName], ['concept', doc.concepts],
         ['narrative', doc.narrative], ['fact', doc.facts], ['file', doc.filesModified],
       ];
       for (const [name, value] of fields) {
         const valueLower = value.toLowerCase();
-        if (queryTokens.some(t => valueLower.includes(t))) reasons.push(name);
+        if (queryTokens.some(t => valueLower.includes(t))) fieldHits.push(name);
       }
-      if (reasons.length === 0) reasons.push('fuzzy');
+      const reasons = labelMatchReasons(fieldHits, requestMode);
 
       // Prepend a single evidence-type tag (max 1) ahead of field-match labels.
       // Priority: git evidence > synthesized > core core

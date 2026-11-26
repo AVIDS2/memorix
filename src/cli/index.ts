@@ -183,6 +183,7 @@ const main = defineCommand({
         query: { type: 'string', description: 'Search query (also accepts the first positional argument)', required: false },
         limit: { type: 'string', description: 'Maximum results' },
         quality: { type: 'string', description: 'Retrieval profile: fast, balanced (default), or thorough' },
+        status: { type: 'string', description: 'Observation status: active, resolved, or archived' },
         json: { type: 'boolean', description: 'Emit machine-readable JSON output' },
       },
       async run({ args }) {
@@ -190,6 +191,7 @@ const main = defineCommand({
           query: args.query ?? (args._ as string[] | undefined)?.[0],
           limit: args.limit,
           quality: args.quality,
+          status: args.status,
           json: args.json,
         });
       },

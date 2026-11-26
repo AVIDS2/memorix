@@ -33,6 +33,11 @@ import { CURRENT_MCP_PROTOCOL_VERSION, MCP_SERVER_NAME, getMcpDiagnostics } from
 import { createMcpStartupDiscoverResult, getMcpServerInfo } from '../../server/mcp-discovery.js';
 import { parseTcpPortOrReport } from '../port.js';
 import { mcpFileUriToPath } from '../mcp-root-path.js';
+import {
+  DEFAULT_SESSION_DISCONNECT_GRACE_MS,
+  createSessionStreamWatch,
+  parseSessionDisconnectGraceMs,
+} from './http-session-stream-watch.js';
 
 /**
  * HTTP MCP is a shared control plane. A normal thinking break should not
@@ -297,6 +302,7 @@ export default defineCommand({
     console.error(`[memorix] HTTP transport starting on ${host}:${port}`);
     console.error(`[memorix] Project root: ${projectRoot}`);
     const sessionTimeoutMs = parseSessionTimeoutMs(process.env.MEMORIX_SESSION_TIMEOUT_MS);
+    const sessionDisconnectGraceMs = parseSessionDisconnectGraceMs(process.env.MEMORIX_SESSION_DISCONNECT_GRACE_MS);
     const httpBodyLimitBytes = parseHttpBodyLimit(process.env.MEMORIX_HTTP_MAX_BODY_BYTES);
     const maxHttpSessions = parseMaxHttpSessions(process.env.MEMORIX_MAX_HTTP_SESSIONS);
     const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
@@ -305,6 +311,11 @@ export default defineCommand({
       sessionTimeoutMs === 0
         ? '[memorix] HTTP session idle timeout: disabled'
         : `[memorix] HTTP session idle timeout: ${Math.round(sessionTimeoutMs / 60000)}min (${sessionTimeoutMs}ms)`,
+    );
+    console.error(
+      sessionDisconnectGraceMs === 0
+        ? '[memorix] HTTP session disconnect cleanup: disabled'
+        : `[memorix] HTTP session disconnect cleanup: ${Math.round(sessionDisconnectGraceMs / 1000)}s after the client stream closes`,
     );
     console.error(`[memorix] HTTP session limit: ${maxHttpSessions}`);
 
@@ -462,6 +473,30 @@ export default defineCommand({
     // Keep a short-lived tombstone so an expired client gets an actionable
     // reinitialize response instead of a generic bad request.
     const expiredSessions = new Map<string, number>();
+
+    /** Close a session the server decided to release, leaving a reinitialize tombstone. */
+    function expireSession(sid: string, reason: string): void {
+      const state = sessions.get(sid);
+      if (!state) return;
+      console.error(`[memorix] Session ${sid.slice(0, 8)}… ${reason}, closing`);
+      expiredSessions.set(sid, Date.now() + EXPIRED_SESSION_TTL_MS);
+      sessionStreamWatch.forget(sid);
+      sessions.delete(sid);
+      sessionLastActivity.delete(sid);
+      state.transport.close().catch(() => {});
+    }
+
+    // Release sessions whose client left without sending DELETE /mcp: the SDK
+    // client keeps a GET/SSE stream open for its whole life, so a closed stream
+    // followed by silence means the client is gone.
+    const sessionStreamWatch = createSessionStreamWatch({
+      graceMs: sessionDisconnectGraceMs,
+      getLastActivity: (sid) => (sessions.has(sid) ? sessionLastActivity.get(sid) ?? 0 : undefined),
+      onAbandoned: (sid) => expireSession(
+        sid,
+        `client stream closed ${Math.round(sessionDisconnectGraceMs / 1000)}s ago with no further request`,
+      ),
+    });
 
     // Probe session noise reduction: defer init logs, suppress short-lived sessions
     let suppressedProbeCount = 0;
@@ -795,6 +830,7 @@ export default defineCommand({
             }
             sessions.delete(sid);
             sessionLastActivity.delete(sid);
+            sessionStreamWatch.forget(sid);
           }
           handleTransportClose();
           for (const lease of sessionLeases) lease.release();
@@ -938,6 +974,8 @@ export default defineCommand({
 
       // GET may keep an SSE stream open; it does not enter the business tool
       // layer and must not occupy the singleton runtime gate.
+      sessionStreamWatch.streamOpened(sessionId);
+      res.once('close', () => sessionStreamWatch.streamClosed(sessionId, res.statusCode === 200));
       await sessions.get(sessionId)!.transport.handleRequest(req, res);
     }
 
@@ -2205,14 +2243,10 @@ export default defineCommand({
       evictIdleDatabases(MAX_STORE_CACHE_ENTRIES);
       void modernRuntimePool.evictIdle();
       if (SESSION_TIMEOUT_MS === 0) return;
-      for (const [sid, state] of sessions) {
+      for (const sid of sessions.keys()) {
         const lastActive = sessionLastActivity.get(sid) ?? 0;
         if (now - lastActive > SESSION_TIMEOUT_MS) {
-          console.error(`[memorix] Session ${sid.slice(0, 8)}… timed out (idle ${Math.round((now - lastActive) / 60000)}min), closing`);
-          expiredSessions.set(sid, now + EXPIRED_SESSION_TTL_MS);
-          state.transport.close().catch(() => {});
-          sessions.delete(sid);
-          sessionLastActivity.delete(sid);
+          expireSession(sid, `timed out (idle ${Math.round((now - lastActive) / 60000)}min)`);
         }
       }
     }, 60_000); // Check every minute
@@ -2243,6 +2277,7 @@ export default defineCommand({
       dashboardStoreLeases.clear();
       for (const lease of teamStoreLeases.values()) lease.release();
       teamStoreLeases.clear();
+      sessionStreamWatch.dispose();
       for (const [sid, state] of sessions) {
         try {
           await state.transport.close();
@@ -2316,6 +2351,8 @@ export default defineCommand({
 /** @internal */
 export const _testing = {
   DEFAULT_SESSION_TIMEOUT_MS,
+  DEFAULT_SESSION_DISCONNECT_GRACE_MS,
+  parseSessionDisconnectGraceMs,
   DEFAULT_HTTP_BODY_LIMIT_BYTES,
   MAX_HTTP_BODY_LIMIT_BYTES,
   MIN_HTTP_BODY_LIMIT_BYTES,

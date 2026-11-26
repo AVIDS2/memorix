@@ -99,6 +99,16 @@ describe('createSessionStreamWatch', () => {
     expect(abandoned).toEqual(['s1']);
   });
 
+  it('expires after the real stream closes even when a refused GET finishes last', () => {
+    const watch = makeWatch();
+    watch.streamOpened('s1');
+    watch.streamOpened('s1');
+    watch.streamClosed('s1', true);
+    watch.streamClosed('s1', false);
+    vi.advanceTimersByTime(GRACE);
+    expect(abandoned).toEqual(['s1']);
+  });
+
   it('never reports a session that already closed', () => {
     const watch = makeWatch();
     watch.streamOpened('s1');

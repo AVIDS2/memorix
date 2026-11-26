@@ -65,6 +65,7 @@ export function createSessionStreamWatch(options: SessionStreamWatchOptions): Se
   const setTimer = options.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
   const clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const openStreams = new Map<string, number>();
+  const closedStreams = new Set<string>();
   const pending = new Map<string, TimerHandle>();
 
   function cancel(sessionId: string): void {
@@ -83,13 +84,15 @@ export function createSessionStreamWatch(options: SessionStreamWatchOptions): Se
 
     streamClosed(sessionId, wasStream) {
       if (!openStreams.has(sessionId)) return;
+      if (wasStream) closedStreams.add(sessionId);
       const remaining = Math.max(0, (openStreams.get(sessionId) ?? 0) - 1);
       if (remaining > 0) {
         openStreams.set(sessionId, remaining);
         return;
       }
       openStreams.delete(sessionId);
-      if (!wasStream || options.graceMs === 0) return;
+      const hadStream = closedStreams.delete(sessionId);
+      if (!hadStream || options.graceMs === 0) return;
       if (options.getLastActivity(sessionId) === undefined) return;
 
       cancel(sessionId);
@@ -118,12 +121,14 @@ export function createSessionStreamWatch(options: SessionStreamWatchOptions): Se
     forget(sessionId) {
       cancel(sessionId);
       openStreams.delete(sessionId);
+      closedStreams.delete(sessionId);
     },
 
     dispose() {
       for (const handle of pending.values()) clearTimer(handle);
       pending.clear();
       openStreams.clear();
+      closedStreams.clear();
     },
 
     pendingCount() {

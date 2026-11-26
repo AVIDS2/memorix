@@ -474,6 +474,7 @@ export default defineCommand({
 
     // Session activity tracking (for GC timeout)
     const sessionLastActivity = new Map<string, number>();
+    const sessionActiveRequests = new Map<string, number>();
     // Keep a short-lived tombstone so an expired client gets an actionable
     // reinitialize response instead of a generic bad request.
     const expiredSessions = new Map<string, number>();
@@ -496,6 +497,7 @@ export default defineCommand({
     const sessionStreamWatch = createSessionStreamWatch({
       graceMs: sessionDisconnectGraceMs,
       getLastActivity: (sid) => (sessions.has(sid) ? sessionLastActivity.get(sid) ?? 0 : undefined),
+      isBusy: (sid) => (sessionActiveRequests.get(sid) ?? 0) > 0,
       onAbandoned: (sid) => expireSession(
         sid,
         `client stream closed ${Math.round(sessionDisconnectGraceMs / 1000)}s ago with no further request`,
@@ -766,10 +768,17 @@ export default defineCommand({
         sessionLastActivity.set(sessionId, Date.now());
         patchMcpResponse(res);
         const session = sessions.get(sessionId)!;
-        await withBusinessRuntimeQueue(async () => {
-          await session.activateProjectRuntime();
-          await session.transport.handleRequest(req, res, body);
-        });
+        sessionActiveRequests.set(sessionId, (sessionActiveRequests.get(sessionId) ?? 0) + 1);
+        try {
+          await withBusinessRuntimeQueue(async () => {
+            await session.activateProjectRuntime();
+            await session.transport.handleRequest(req, res, body);
+          });
+        } finally {
+          const remaining = (sessionActiveRequests.get(sessionId) ?? 1) - 1;
+          if (remaining > 0) sessionActiveRequests.set(sessionId, remaining);
+          else sessionActiveRequests.delete(sessionId);
+        }
         return;
       }
 

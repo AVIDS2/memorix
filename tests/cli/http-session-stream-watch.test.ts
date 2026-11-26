@@ -18,6 +18,7 @@ describe('parseSessionDisconnectGraceMs', () => {
     expect(parseSessionDisconnectGraceMs('0')).toBe(0);
     expect(parseSessionDisconnectGraceMs('-5')).toBe(120_000);
     expect(parseSessionDisconnectGraceMs('soon')).toBe(120_000);
+    expect(parseSessionDisconnectGraceMs('2147483648')).toBe(120_000);
   });
 });
 
@@ -130,5 +131,30 @@ describe('createSessionStreamWatch', () => {
     expect(watch.pendingCount()).toBe(0);
     vi.advanceTimersByTime(60_000);
     expect(abandoned).toEqual([]);
+  });
+
+  it('keeps a long request alive after its GET stream disconnected', () => {
+    let busy = true;
+    const watch = createSessionStreamWatch({
+      graceMs: GRACE,
+      getLastActivity: (sid) => lastActivity.get(sid),
+      isBusy: () => busy,
+      onAbandoned: (sid) => abandoned.push(sid),
+    });
+    watch.streamOpened('s1');
+    watch.streamClosed('s1', true);
+    vi.advanceTimersByTime(GRACE * 3);
+    expect(abandoned).toEqual([]);
+    busy = false;
+    vi.advanceTimersByTime(GRACE);
+    expect(abandoned).toEqual(['s1']);
+  });
+
+  it('does not re-arm a forgotten stream when its close event arrives late', () => {
+    const watch = makeWatch();
+    watch.streamOpened('s1');
+    watch.forget('s1');
+    watch.streamClosed('s1', true);
+    expect(watch.pendingCount()).toBe(0);
   });
 });

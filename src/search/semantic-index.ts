@@ -133,7 +133,7 @@ async function openState(dataDir: string, profile: SemanticIndexProfile): Promis
   return { key: stateKey(dataDir, profile), dataDir, profile, connection, table };
 }
 
-/** Identity of one vector row. Observation ids are global, so the project is part of the key. */
+/** Identity of one vector row; keep project scope through every derived operation. */
 export function semanticVectorKey(projectId: string, observationId: number): string {
   return `${projectId}:${Math.trunc(observationId)}`;
 }
@@ -224,31 +224,10 @@ async function optimizeState(state: SemanticIndexState): Promise<void> {
   });
 }
 
-async function deleteMismatchedProjectRows(table: any, records: SemanticVectorRecord[]): Promise<void> {
-  const projectById = new Map<number, string>();
-  for (const record of records) {
-    const observationId = Math.trunc(record.observationId);
-    if (Number.isSafeInteger(observationId)) projectById.set(observationId, record.projectId);
-  }
-  if (projectById.size === 0) return;
-  const rows = await table
-    .query()
-    .where(`observation_id IN (${[...projectById.keys()].join(', ')})`)
-    .select(['observation_id', 'project_id'])
-    .toArray();
-  const conflicts = rows.filter((row: any) => projectById.get(Number(row.observation_id)) !== String(row.project_id ?? ''));
-  if (conflicts.length === 0) return;
-  const clauses = conflicts.map((row: any) => (
-    `(observation_id = ${Math.trunc(Number(row.observation_id))} AND project_id = '${escapeSqlString(String(row.project_id ?? ''))}')`
-  ));
-  await table.delete(clauses.join(' OR '));
-}
-
 async function mergeVectors(dataDir: string, profile: SemanticIndexProfile, records: SemanticVectorRecord[]): Promise<void> {
   if (records.length === 0) return;
   const state = await getState(dataDir, profile, records);
   if (!state?.table) return;
-  await deleteMismatchedProjectRows(state.table, records);
   const rows = records.map(toLanceRow);
   await state.table
     .mergeInsert(['project_id', 'observation_id'])

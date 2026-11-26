@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      - name: Verify legacy disconnect cleanup and stateless discovery on the built host
+        run: node scripts/http-session-lifecycle-smoke.mjs
 
   typecheck:
     runs-on: ubuntu-latest

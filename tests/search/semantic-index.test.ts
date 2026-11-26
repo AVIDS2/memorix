@@ -120,9 +120,14 @@ describe('persistent semantic shadow index', () => {
 
     expect(monorepo?.map((result) => result.observationId)).toEqual([6468]);
     expect(monorepo?.[0]?.projectId).toBe('ruan-cat/monorepo');
-    expect(common ?? []).toEqual([]);
+    expect(common?.map((result) => result.observationId)).toEqual([6468]);
+    expect(common?.[0]?.projectId).toBe('ruan-cat/common');
     expect(keys?.has(semanticVectorKey('ruan-cat/monorepo', 6468))).toBe(true);
-    expect(keys?.has(semanticVectorKey('ruan-cat/common', 6468))).toBe(false);
+    expect(keys?.has(semanticVectorKey('ruan-cat/common', 6468))).toBe(true);
+
+    await deleteSemanticVector(dataDir, profile, 6468, 'ruan-cat/monorepo');
+    expect((await listSemanticVectorKeys(dataDir, profile))?.has(semanticVectorKey('ruan-cat/common', 6468))).toBe(true);
+    expect((await listSemanticVectorKeys(dataDir, profile))?.has(semanticVectorKey('ruan-cat/monorepo', 6468))).toBe(false);
   });
 
   it('returns null when the derived table has not been built', async () => {

@@ -24,7 +24,7 @@ export function parseSessionDisconnectGraceMs(raw: string | undefined): number {
   const value = raw?.trim();
   if (!value) return DEFAULT_SESSION_DISCONNECT_GRACE_MS;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SESSION_DISCONNECT_GRACE_MS;
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 2_147_483_647) return DEFAULT_SESSION_DISCONNECT_GRACE_MS;
   return Math.floor(parsed);
 }
 
@@ -35,6 +35,8 @@ export interface SessionStreamWatchOptions {
   graceMs: number;
   /** Last request time of a live session, or `undefined` once the session is gone. */
   getLastActivity: (sessionId: string) => number | undefined;
+  /** A queued or running request must finish before disconnect cleanup. */
+  isBusy?: (sessionId: string) => boolean;
   /** Called once when a session is considered abandoned. */
   onAbandoned: (sessionId: string) => void;
   now?: () => number;
@@ -74,11 +76,13 @@ export function createSessionStreamWatch(options: SessionStreamWatchOptions): Se
 
   return {
     streamOpened(sessionId) {
+      if (options.graceMs === 0) return;
       cancel(sessionId);
       openStreams.set(sessionId, (openStreams.get(sessionId) ?? 0) + 1);
     },
 
     streamClosed(sessionId, wasStream) {
+      if (!openStreams.has(sessionId)) return;
       const remaining = Math.max(0, (openStreams.get(sessionId) ?? 0) - 1);
       if (remaining > 0) {
         openStreams.set(sessionId, remaining);
@@ -90,7 +94,7 @@ export function createSessionStreamWatch(options: SessionStreamWatchOptions): Se
 
       cancel(sessionId);
       const closedAt = now();
-      const handle = setTimer(() => {
+      const check = () => {
         pending.delete(sessionId);
         if ((openStreams.get(sessionId) ?? 0) > 0) return;
         const lastActivity = options.getLastActivity(sessionId);
@@ -98,8 +102,15 @@ export function createSessionStreamWatch(options: SessionStreamWatchOptions): Se
         // The client is still talking to us without its stream: leave the
         // session to the idle timeout instead of cutting a live client.
         if (lastActivity > closedAt) return;
+        if (options.isBusy?.(sessionId)) {
+          const next = setTimer(check, options.graceMs);
+          next.unref?.();
+          pending.set(sessionId, next);
+          return;
+        }
         options.onAbandoned(sessionId);
-      }, options.graceMs);
+      };
+      const handle = setTimer(check, options.graceMs);
       handle.unref?.();
       pending.set(sessionId, handle);
     },

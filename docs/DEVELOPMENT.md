@@ -13,7 +13,14 @@ Memorix is a TypeScript project built around:
 
 ## Current Development Baseline
 
-The current release line is **1.10.4** and package metadata is kept
+For HTTP session lifecycle changes, build the CLI and run
+`node scripts/http-session-lifecycle-smoke.mjs`. This uses an isolated home and
+data directory and checks silent disconnect expiry, reconnection, idle SSE,
+POST-only clients, continued POST activity after a stream close, and repeated
+stateless discovery outside Git. CI runs the same smoke on all three desktop
+platforms after the test suite.
+
+The current release line is **1.10.5** and package metadata is kept
 synchronized with the root package and MCP Registry manifest. The next larger
 feature phase follows the 1.11 relay-preview plan.
 

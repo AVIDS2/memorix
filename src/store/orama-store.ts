@@ -1514,13 +1514,19 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
     intermediate = intermediate.filter(e => new Date(e.rawTime).getTime() <= untilDate);
   }
 
-  // 近邻：只把窗口里一个词都没对上的位置，换成窗口外标题对得上问话的卡。
-  // 向量分权重不动。零重叠的语义第 1 名只要窗口里没有零重叠空位，就不会被换走。
-  if (hasQuery && originalQuery && projectIds) {
+  // 近邻只补向量序。词法和 hybrid 自己的候选已经在窗口里，再搜一次会把
+  // probe、个人可见性和会话去重的基线改掉。补进来的词法行仍走同一套可见性过滤。
+  if (hasQuery && originalQuery && projectIds && lanceOrderUsed) {
     const overlapTokens = queryOverlapTokens(originalQuery);
     const lexical = await searchPersistentLexically(options, projectIds, (options.limit ?? 20) * 3);
     for (const hit of lexical?.hits ?? []) {
       const doc = hit.document as unknown as MemorixDocument;
+      if (!projectIds.includes(doc.projectId)) continue;
+      if (!canReadObservation(doc, options.reader, projectIds)) continue;
+      if (statusFilter !== 'all' && (doc.status || 'active') !== statusFilter) continue;
+      if (options.type === 'probe' ? doc.type !== 'probe' : doc.type === 'probe') continue;
+      if (options.type && options.type !== 'probe' && doc.type !== options.type) continue;
+      if (options.source && doc.source !== options.source) continue;
       const candidateKey = makeEntryKey(doc.projectId, doc.observationId);
       if (intermediate.some((entry) => makeEntryKey(entry.projectId, entry.id) === candidateKey)) continue;
       intermediate.push({

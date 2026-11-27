@@ -57,6 +57,9 @@ describe('ProjectBindingController', () => {
   it('records verified remote and handle lease diagnostics without secrets', () => {
     const binding = createProjectBindingController(path.resolve('diagnostics-project'));
     binding.recordResolvedProject('owner/diagnostics-project', path.resolve('diagnostics-project'));
+    const createdAt = '2026-10-21T00:00:00.000Z';
+    const lastUsedAt = '2026-10-21T00:05:00.000Z';
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const receipt = binding.receipt({
       dataDir: path.resolve('diagnostics-data'),
@@ -64,9 +67,9 @@ describe('ProjectBindingController', () => {
       gitRemote: 'https://user:secret@example.com/owner/diagnostics-project.git',
       handle: {
         handleId: 'mxh_private_handle',
-        createdAt: '2026-10-21T00:00:00.000Z',
-        lastUsedAt: '2026-10-21T00:05:00.000Z',
-        expiresAt: '2026-11-20T00:05:00.000Z',
+        createdAt,
+        lastUsedAt,
+        expiresAt,
       },
     });
 
@@ -74,13 +77,31 @@ describe('ProjectBindingController', () => {
     expect(receipt.gitRemote?.hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(receipt.handle).toMatchObject({
       state: 'active',
-      createdAt: '2026-10-21T00:00:00.000Z',
-      lastUsedAt: '2026-10-21T00:05:00.000Z',
-      expiresAt: '2026-11-20T00:05:00.000Z',
+      createdAt,
+      lastUsedAt,
+      expiresAt,
     });
     expect(receipt.handle?.idHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(JSON.stringify(receipt)).not.toContain('secret');
     expect(JSON.stringify(receipt)).not.toContain('mxh_private_handle');
     expect(JSON.stringify(receipt)).not.toContain('https://');
+  });
+
+  it('marks a handle expired when expiresAt is not after now', () => {
+    const binding = createProjectBindingController(path.resolve('diagnostics-project'));
+    binding.recordResolvedProject('owner/diagnostics-project', path.resolve('diagnostics-project'));
+    const expiresAt = new Date(Date.now() - 1000).toISOString();
+
+    const receipt = binding.receipt({
+      handle: {
+        handleId: 'mxh_private_handle',
+        createdAt: '2026-10-21T00:00:00.000Z',
+        lastUsedAt: '2026-10-21T00:05:00.000Z',
+        expiresAt,
+      },
+    });
+
+    expect(receipt.handle).toMatchObject({ state: 'expired', expiresAt });
+    expect(JSON.stringify(receipt)).not.toContain('mxh_private_handle');
   });
 });

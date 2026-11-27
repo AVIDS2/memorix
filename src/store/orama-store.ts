@@ -35,7 +35,8 @@ import { createRetrievalPlan, type RetrievalReceipt } from '../core/retrieval-co
 import {
   createSemanticIndexProfile,
   searchSemanticVectors,
-  listSemanticVectorIds,
+  listSemanticVectorKeys,
+  semanticVectorKey,
   type SemanticIndexProfile,
   type SemanticVectorRecord,
 } from '../search/semantic-index.js';
@@ -370,12 +371,14 @@ async function searchLanceInVectorOrder(
 
     const store = getObservationStore();
     const hits: SearchHitLike[] = [];
-    const seen = new Set<number>();
+    const seen = new Set<string>();
     for (const hit of vectorHits) {
-      if (seen.has(hit.observationId)) continue;
-      seen.add(hit.observationId);
+      if (projectIds ? !projectIds.includes(hit.projectId) : options.projectId && hit.projectId !== options.projectId) continue;
+      const key = semanticVectorKey(hit.projectId, hit.observationId);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const observation = await store.getById(hit.observationId);
-      if (!observation) continue;
+      if (!observation || observation.projectId !== hit.projectId) continue;
       if (projectIds && !projectIds.includes(observation.projectId)) continue;
       if (options.status !== 'all' && (observation.status ?? 'active') !== (options.status ?? 'active')) continue;
       if (options.type && observation.type !== options.type) continue;
@@ -421,7 +424,7 @@ async function searchPersistentSemantically(
     const lexical = await searchPersistentLexically(options, projectIds, limit);
     const store = getObservationStore();
     const documents = new Map<string, MemorixDocument>();
-    const vectorDocumentKeys = new Map<number, string>();
+    const vectorDocumentKeys = new Map<string, string>();
     const addObservation = (observation: Observation): void => {
       const document = observationToSearchDocument(observation);
       documents.set(makeEntryKey(document.projectId, document.observationId), document);
@@ -432,14 +435,15 @@ async function searchPersistentSemantically(
     }
 
     const vectorObservations = await Promise.all(vectorHits.map(async (hit) => {
+      if (projectIds ? !projectIds.includes(hit.projectId) : options.projectId && hit.projectId !== options.projectId) return null;
       const observation = await store.getById(hit.observationId);
-      if (!observation) return null;
+      if (!observation || observation.projectId !== hit.projectId) return null;
       if (projectIds && !projectIds.includes(observation.projectId)) return null;
       if (options.status !== 'all' && (observation.status ?? 'active') !== (options.status ?? 'active')) return null;
       if (options.type && observation.type !== options.type) return null;
       if (options.source && observation.source !== options.source) return null;
       addObservation(observation);
-      vectorDocumentKeys.set(hit.observationId, makeEntryKey(observation.projectId, observation.id));
+      vectorDocumentKeys.set(semanticVectorKey(hit.projectId, hit.observationId), makeEntryKey(observation.projectId, observation.id));
       return observation;
     }));
 
@@ -452,7 +456,8 @@ async function searchPersistentSemantically(
       scores.set(key, (scores.get(key) ?? 0) + 0.6 / (RRF_K + index + 1));
     }
     for (const [index, hit] of vectorHits.entries()) {
-      const key = vectorDocumentKeys.get(hit.observationId) ?? makeEntryKey(hit.projectId, hit.observationId);
+      const key = vectorDocumentKeys.get(semanticVectorKey(hit.projectId, hit.observationId));
+      if (!key) continue;
       if (!documents.has(key)) continue;
       scores.set(key, (scores.get(key) ?? 0) + 0.4 / (RRF_K + index + 1));
     }
@@ -472,8 +477,8 @@ async function searchPersistentSemantically(
         count: vectorHits.length,
         hits: vectorHits
           .map((hit, index) => {
-            const key = vectorDocumentKeys.get(hit.observationId) ?? makeEntryKey(hit.projectId, hit.observationId);
-            const document = documents.get(key);
+            const key = vectorDocumentKeys.get(semanticVectorKey(hit.projectId, hit.observationId));
+            const document = key ? documents.get(key) : undefined;
             return document ? { id: document.id, score: 0.4 / (RRF_K + index + 1), document } : null;
           })
           .filter((hit): hit is SearchHitLike => hit !== null)
@@ -690,10 +695,10 @@ export function getActiveSemanticIndexProfile(): SemanticIndexProfile | null {
   return indexEmbeddingProvider ? createSemanticIndexProfile(indexEmbeddingProvider) : null;
 }
 
-/** Read the durable semantic shadow's IDs without loading vector payloads. */
-export async function getPersistentSemanticVectorIds(dataDir: string): Promise<Set<number> | null> {
+/** Read durable semantic-shadow keys (`projectId:observationId`) without vector payloads. */
+export async function getPersistentSemanticVectorIds(dataDir: string): Promise<Set<string> | null> {
   if (!indexEmbeddingProvider) return null;
-  return listSemanticVectorIds(dataDir, createSemanticIndexProfile(indexEmbeddingProvider));
+  return listSemanticVectorKeys(dataDir, createSemanticIndexProfile(indexEmbeddingProvider));
 }
 
 /** Queue one derived vector without delaying the durable observation write. */
@@ -816,7 +821,7 @@ async function attachCachedVectors(
   const semanticDataDir = (await import('../memory/observations.js')).getObservationDataDir();
   const semanticProfile = getActiveSemanticIndexProfile();
   const persistedSemanticIds = semanticDataDir && semanticProfile
-    ? await listSemanticVectorIds(semanticDataDir, semanticProfile).catch(() => null)
+    ? await listSemanticVectorKeys(semanticDataDir, semanticProfile).catch(() => null)
     : null;
   const batchSize = 200;
   for (let start = 0; start < observations.length; start += batchSize) {
@@ -833,7 +838,7 @@ async function attachCachedVectors(
       const vector = cachedVectors[index];
       if (!isCompatibleCachedVector(vector)) continue;
       const observation = batch[index];
-      if (semanticDataDir && semanticProfile && !persistedSemanticIds?.has(observation.id)) {
+      if (semanticDataDir && semanticProfile && !persistedSemanticIds?.has(semanticVectorKey(observation.projectId, observation.id))) {
         semanticRecords.push({
           observationId: observation.id,
           projectId: observation.projectId,

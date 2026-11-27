@@ -97,4 +97,35 @@ describe('persistent semantic search recovery', () => {
     expect(entries[0]?.title).toBe('Maintenance search recovery');
     expect(calls).toBe(2);
   });
+
+  it.each(['hybrid', 'vector'])('rejects a mislabelled vector before hydrating canonical memory (%s)', async (strategy) => {
+    state.semanticHits.mockResolvedValue([
+      { observationId: 1, projectId: 'different-project', distance: 0.01 },
+    ]);
+    const store = getObservationStore();
+    const getById = vi.spyOn(store, 'getById');
+    vi.stubEnv('MEMORIX_RETRIEVAL_ASCII', strategy);
+    try {
+      const entries = await searchObservations({
+        query: 'maintenance recovery', projectId: 'recovery-project', limit: 5,
+      });
+      expect(entries[0]?.title).toBe('Maintenance search recovery');
+      expect(getById).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+      getById.mockRestore();
+    }
+  });
+
+  it.each(['hybrid', 'vector'])('does not remap a stale vector to another project in global search (%s)', async (strategy) => {
+    state.semanticHits.mockResolvedValue([
+      { observationId: 1, projectId: 'different-project', distance: 0.01 },
+    ]);
+    vi.stubEnv('MEMORIX_RETRIEVAL_ASCII', strategy);
+    try {
+      expect(await searchObservations({ query: 'celestial nebula', limit: 5 })).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

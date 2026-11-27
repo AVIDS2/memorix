@@ -11,6 +11,8 @@ import {
   getSemanticIndexStats,
   optimizeSemanticIndexes,
   listSemanticVectorIds,
+  listSemanticVectorKeys,
+  semanticVectorKey,
   isSemanticIndexAvailable,
   resetSemanticIndexRuntime,
   searchSemanticVectors,
@@ -53,7 +55,7 @@ describe('persistent semantic shadow index', () => {
     expect(results?.map((result) => result.observationId)).toEqual([1, 2]);
     expect(results?.every((result) => !('title' in result))).toBe(true);
 
-    await deleteSemanticVector(dataDir, profile, 1);
+    await deleteSemanticVector(dataDir, profile, 1, 'project-alpha');
     const afterDelete = await searchSemanticVectors({
       dataDir,
       profile,
@@ -84,6 +86,48 @@ describe('persistent semantic shadow index', () => {
       if (previousThreshold === undefined) delete process.env.MEMORIX_SEMANTIC_INDEX_THRESHOLD;
       else process.env.MEMORIX_SEMANTIC_INDEX_THRESHOLD = previousThreshold;
     }
+  });
+
+  it('keeps two projects when they share an observation id', async () => {
+    if (!(await isSemanticIndexAvailable())) {
+      throw new Error('LanceDB is unavailable in the supported Node test environment');
+    }
+    dataDir = await mkdtemp(path.join(tmpdir(), 'memorix-semantic-projects-'));
+    const profile = createSemanticIndexProfile({ name: 'project-identity', dimensions: 3 });
+
+    await upsertSemanticVectors(dataDir, profile, [
+      { observationId: 6468, projectId: 'ruan-cat/common', status: 'active', vector: [0, 1, 0] },
+    ]);
+    await upsertSemanticVectors(dataDir, profile, [
+      { observationId: 6468, projectId: 'ruan-cat/monorepo', status: 'active', vector: [1, 0, 0] },
+    ]);
+
+    const monorepo = await searchSemanticVectors({
+      dataDir,
+      profile,
+      vector: [1, 0, 0],
+      projectId: 'ruan-cat/monorepo',
+      limit: 5,
+    });
+    const common = await searchSemanticVectors({
+      dataDir,
+      profile,
+      vector: [0, 1, 0],
+      projectId: 'ruan-cat/common',
+      limit: 5,
+    });
+    const keys = await listSemanticVectorKeys(dataDir, profile);
+
+    expect(monorepo?.map((result) => result.observationId)).toEqual([6468]);
+    expect(monorepo?.[0]?.projectId).toBe('ruan-cat/monorepo');
+    expect(common?.map((result) => result.observationId)).toEqual([6468]);
+    expect(common?.[0]?.projectId).toBe('ruan-cat/common');
+    expect(keys?.has(semanticVectorKey('ruan-cat/monorepo', 6468))).toBe(true);
+    expect(keys?.has(semanticVectorKey('ruan-cat/common', 6468))).toBe(true);
+
+    await deleteSemanticVector(dataDir, profile, 6468, 'ruan-cat/monorepo');
+    expect((await listSemanticVectorKeys(dataDir, profile))?.has(semanticVectorKey('ruan-cat/common', 6468))).toBe(true);
+    expect((await listSemanticVectorKeys(dataDir, profile))?.has(semanticVectorKey('ruan-cat/monorepo', 6468))).toBe(false);
   });
 
   it('returns null when the derived table has not been built', async () => {

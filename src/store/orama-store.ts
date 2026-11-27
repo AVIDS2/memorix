@@ -1521,7 +1521,8 @@ export async function searchObservationsDetailed(options: SearchOptions): Promis
     const lexical = await searchPersistentLexically(options, projectIds, (options.limit ?? 20) * 3);
     for (const hit of lexical?.hits ?? []) {
       const doc = hit.document as unknown as MemorixDocument;
-      if (intermediate.some((entry) => entry.id === doc.observationId)) continue;
+      const candidateKey = makeEntryKey(doc.projectId, doc.observationId);
+      if (intermediate.some((entry) => makeEntryKey(entry.projectId, entry.id) === candidateKey)) continue;
       intermediate.push({
         id: doc.observationId,
         time: formatTime(doc.createdAt),

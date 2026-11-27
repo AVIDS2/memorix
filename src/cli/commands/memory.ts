@@ -678,7 +678,9 @@ function printMemoryUsage(): void {
   console.log('Usage:');
   console.log('  memorix memory search --query "timeout bug" [--limit 10] [--quality fast|balanced|thorough]');
   console.log('  memorix memory recent [--limit 10]');
-  console.log('  memorix memory store --text "..." [--title "..."] [--type discovery] [--visibility project|personal|team]');
+  console.log('  memorix memory store --text "..." [--title "..."] [--type discovery] [--entity <name>] [--topic-key <key>] [--facts a,b] [--files a,b] [--concepts a,b] [--visibility project|personal|team]');
+  console.log('  The same project and the same --topic-key update the existing observation and return upserted: true.');
+  console.log('  memorix remember does not forward --entity or --topic-key.');
   console.log('  memorix memory suggest-topic-key --type decision --title "..."');
   console.log('  memorix memory detail --id 42');
   console.log('  memorix memory detail obs:42@org/project');

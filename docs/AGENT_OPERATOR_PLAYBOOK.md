@@ -171,6 +171,13 @@ If the user's HTTP MCP client needs a longer idle period, set
 Example: `MEMORIX_SESSION_TIMEOUT_MS=86400000` keeps sessions alive for 24
 hours. Set it to `0` only when the host has its own reliable session cleanup.
 
+Legacy HTTP sessions whose last GET/SSE stream closed are also released after
+two minutes without reconnection or further requests. Queued/running POSTs
+are protected and clients that never open GET streams retain idle-timeout
+behavior. Set `MEMORIX_SESSION_DISCONNECT_GRACE_MS=0` before starting the
+service to disable disconnect cleanup. An expired client should initialize
+again after the explicit `404` reinitialize response.
+
 ### Do not confuse project config and global config
 
 Memorix intentionally supports both:

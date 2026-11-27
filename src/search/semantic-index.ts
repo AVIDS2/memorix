@@ -133,6 +133,11 @@ async function openState(dataDir: string, profile: SemanticIndexProfile): Promis
   return { key: stateKey(dataDir, profile), dataDir, profile, connection, table };
 }
 
+/** Identity of one vector row; keep project scope through every derived operation. */
+export function semanticVectorKey(projectId: string, observationId: number): string {
+  return `${projectId}:${Math.trunc(observationId)}`;
+}
+
 function toLanceRow(record: SemanticVectorRecord): Record<string, unknown> {
   return {
     observation_id: record.observationId,
@@ -225,7 +230,7 @@ async function mergeVectors(dataDir: string, profile: SemanticIndexProfile, reco
   if (!state?.table) return;
   const rows = records.map(toLanceRow);
   await state.table
-    .mergeInsert('observation_id')
+    .mergeInsert(['project_id', 'observation_id'])
     .whenMatchedUpdateAll()
     .whenNotMatchedInsertAll()
     .execute(rows);
@@ -283,15 +288,37 @@ export function upsertSemanticVectors(
   return queueOperation(stateKey(dataDir, profile), () => mergeVectors(dataDir, profile, records));
 }
 
+/** Return persisted project/id keys without loading vector payloads. */
+export async function listSemanticVectorKeys(
+  dataDir: string,
+  profile: SemanticIndexProfile,
+): Promise<Set<string> | null> {
+  const state = await getState(dataDir, profile);
+  if (!state?.table) return null;
+  const rows = await state.table.query().select(['observation_id', 'project_id']).toArray();
+  const keys = new Set<string>();
+  for (const row of rows) {
+    const observationId = Number(row.observation_id);
+    const projectId = String(row.project_id ?? '');
+    if (!Number.isSafeInteger(observationId) || !projectId) continue;
+    keys.add(semanticVectorKey(projectId, observationId));
+  }
+  return keys;
+}
+
 /** Return persisted vector IDs without loading vector payloads. */
 export async function listSemanticVectorIds(
   dataDir: string,
   profile: SemanticIndexProfile,
 ): Promise<Set<number> | null> {
-  const state = await getState(dataDir, profile);
-  if (!state?.table) return null;
-  const rows = await state.table.query().select(['observation_id']).toArray();
-  return new Set(rows.map((row: any) => Number(row.observation_id)).filter(Number.isSafeInteger));
+  const keys = await listSemanticVectorKeys(dataDir, profile);
+  if (!keys) return null;
+  const ids = new Set<number>();
+  for (const key of keys) {
+    const observationId = Number(key.slice(key.lastIndexOf(':') + 1));
+    if (Number.isSafeInteger(observationId)) ids.add(observationId);
+  }
+  return ids;
 }
 
 /** Read small, operator-safe table statistics without exposing vector data. */
@@ -349,11 +376,16 @@ export function deleteSemanticVector(
   dataDir: string,
   profile: SemanticIndexProfile,
   observationId: number,
+  projectId?: string,
 ): Promise<void> {
   return queueOperation(stateKey(dataDir, profile), async () => {
     const state = await getState(dataDir, profile);
     if (!state?.table) return;
-    await state.table.delete(`observation_id = ${Math.trunc(observationId)}`);
+    const idFilter = `observation_id = ${Math.trunc(observationId)}`;
+    const filter = projectId
+      ? `${idFilter} AND project_id = '${escapeSqlString(projectId)}'`
+      : idFilter;
+    await state.table.delete(filter);
   });
 }
 

@@ -4,7 +4,7 @@
 > before resuming substantial work, update it after a material decision or
 > milestone, and do not create parallel progress logs.
 
-**Last updated:** 2026-11-18
+**Last updated:** 2026-11-26
 
 **Long-term roadmap:** [docs/ROADMAP-1.9.12-2.0.md](docs/ROADMAP-1.9.12-2.0.md)
 
@@ -14,6 +14,29 @@ local Docker data. The Dockerfile and image workflow remain deployment
 artifacts for the VPS/hosted build path only.
 
 ## Architecture Audit and 1.11 Refactor Baseline (2026-11-05)
+
+### Community maintenance, 2026-11-26
+
+- Reviewed #406 (memory CLI topic-key help), #407 (relative binding expiry
+  fixtures), #408 (legacy HTTP disconnect cleanup), #409 (stateless project
+  detection cache), and #410 (scoped Lance identities).
+- Integrated the five contributions on `codex/community-nov26`, retaining
+  contributor commits. Resolved shared imports and preferred #407's relative
+  expiry over #410's fixed-year workaround.
+- Hardened #410: preserve same-number vectors in different projects, support
+  scoped deletion, and reject a mislabelled vector before canonical hydration.
+  Automatic deletion based only on a mismatched numeric ID was removed.
+- Hardened #408: protect queued/running POSTs, ignore late close events after
+  cleanup, and reject timer-overflow configuration.
+- Built HTTP smoke passed: silent disconnect gets 404 expired; connected,
+  POST-only, active-after-close, and reconnected clients remain usable. Three
+  non-Git stateless discoveries measured 350ms, 5ms, and 4ms locally.
+- Preparing 1.10.5 after full local validation. The 1.11 P2/P3 architectural
+  remainder is still open; these maintenance fixes do not complete that goal.
+- Local gates passed: 363 test files / 3,364 tests, 5 tests skipped;
+  typecheck, build, production HTTP smoke, and dependency signatures
+  (557 packages, 95 attestations) passed. Release visibility is verified
+  separately after publishing.
 
 - [x] Audited the current tree, runtime entrypoints, persistence/index paths,
   recent issue history, npm download data, and current agent-memory ecosystem.
@@ -85,9 +108,10 @@ artifacts for the VPS/hosted build path only.
 - [x] 2026-11-05 Windows/Node 22 offline 40k gate: 40,000 seeded records,
   74.6s seed, 33.6ms warm SDK search, 418.7ms HTTP MCP cold search,
   411.8MB peak RSS, and successful SDK/HTTP/hook persistence checks.
-- [ ] GitHub Actions cannot start jobs while the repository account is locked
-  for billing. The release was completed through verified local publishing;
-  future automated workflow runs remain blocked by the account state.
+- [x] The earlier GitHub billing lock no longer prevents Actions from starting:
+  #410 ran Ubuntu/Windows, typecheck, native Node 26 SQLite, and Docker checks
+  successfully on 2026-11-24. Use live CI results for new releases; the earlier
+  local publishing workaround remains historical release evidence.
 - [x] #397 embedding transport failures now retry on the existing bounded
   backoff ladder. Timeout and caller cancellation remain terminal, and
   `retry=false` skips transport retries.

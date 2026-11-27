@@ -195,7 +195,7 @@ const main = defineCommand({
       },
     })),
     remember: () => Promise.resolve(defineCommand({
-      meta: { name: 'remember', description: 'Shortcut for `memorix memory store`' },
+      meta: { name: 'remember', description: 'Shortcut for `memorix memory store`. Does not forward --entity or --topic-key. Topic-key upsert: memorix memory store --entity <name> --topic-key <key> --title "..." --text "..."' },
       args: {
         text: { type: 'positional', description: 'Text to remember', required: true },
         title: { type: 'string', description: 'Optional observation title' },

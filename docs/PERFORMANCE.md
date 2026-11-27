@@ -167,6 +167,7 @@ On the release development machine used for this check, the healthy HTTP service
 | Knob | Default | Use When |
 | --- | --- | --- |
 | `MEMORIX_SESSION_TIMEOUT_MS` | `43200000` (12 h) | Set a shorter GC window for supervised clients, or `0` to disable idle session GC |
+| `MEMORIX_SESSION_DISCONNECT_GRACE_MS` | `120000` (2 min) | Release a legacy session after its last GET/SSE stream closes without reconnection or further requests; `0` disables this watch. Queued/running POST requests are protected. Values above Node's timer limit fall back to the default. |
 | `MEMORIX_MAX_HTTP_SESSIONS` | `64` (max `512`) | Bound concurrent stateful HTTP MCP sessions; excess initialization requests receive `429` |
 | `MEMORIX_FORMATION_TIMEOUT_MS` | `12000` (12 s) | Raise when LLM-backed formation should outlive slow proxy/provider hops |
 | `MEMORIX_LLM_API_KEY` / `OPENAI_API_KEY` | unset | Enable LLM-backed enrichment, extraction, rerank, or skill generation |
@@ -204,6 +205,12 @@ crash must be reconciled before a dangerous retry.
 
 - For memory-only use, prefer stdio MCP or a lightweight `memorix_session_start`; do not join orchestration coordination state by default.
 - HTTP sessions now default to 12 hours and return a fast `404` with a reinitialize hint after expiry. Set `MEMORIX_SESSION_TIMEOUT_MS=0` only when the host has its own reliable lifecycle cleanup; otherwise retain a bounded GC window.
+- Legacy clients that opened a GET/SSE stream and then disconnected silently
+  are released after a two-minute grace period. Reconnection, further POST
+  activity, and queued/running requests prevent disconnect cleanup. Clients
+  that never opened a GET stream continue to use idle GC. Stateless project
+  detection caches positive and negative results for five minutes, up to 256
+  paths; explicit session binding continues to detect the project live.
 - If LLM-backed formation is timing out against a slow proxy/provider, raise `MEMORIX_FORMATION_TIMEOUT_MS` and keep it higher than `MEMORIX_LLM_TIMEOUT_MS`, because the full pipeline can include multiple LLM-backed stages.
 - For Docker, use it when you want a managed HTTP service. Do not use image size alone as the runtime memory estimate.
 - For orchestrated subagent work, expect CPU and disk activity proportional to the spawned agents and verification commands.

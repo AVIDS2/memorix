@@ -43,6 +43,7 @@ import { getObservationStore, initObservationStore, type ObservationStore, type 
 import { countTextTokens } from '../compact/token-budget.js';
 import { extractEntities, enrichConcepts } from './entity-extractor.js';
 import { getEmbeddingProvider, isEmbeddingExplicitlyDisabled, validateEmbeddingInput } from '../embedding/provider.js';
+import { semanticVectorKey } from '../search/semantic-index.js';
 import { sanitizeCredentials } from './secret-filter.js';
 import { enqueueClaimDerivation, enqueueObservationQualification } from '../runtime/lifecycle.js';
 import { canManageObservation, resolveObservationVisibility } from './visibility.js';
@@ -1486,9 +1487,9 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
       for (const projectId of projects) {
         const projectObservations = await store.loadByProject(projectId);
         for (const observation of projectObservations) {
-          if (!persistedIds?.has(observation.id)) markVectorMissing(observation.id, observation.projectId);
+          if (!persistedIds?.has(semanticVectorKey(observation.projectId, observation.id))) markVectorMissing(observation.id, observation.projectId);
         }
-        if (projectObservations.some((observation) => !persistedIds?.has(observation.id))) {
+        if (projectObservations.some((observation) => !persistedIds?.has(semanticVectorKey(observation.projectId, observation.id)))) {
           queueVectorBackfill(projectId);
         }
       }
@@ -1515,7 +1516,7 @@ export async function prepareSearchIndex(options: { skipCachedVectors?: boolean 
         // Queue ALL statuses for vector backfill — status filtering happens at query time,
         // not at index time. Omitting non-active observations here would permanently
         // exclude resolved/archived memories from hybrid search after restart.
-        if (!hasObservationVector(obs.projectId, obs.id) && !persistedSemanticIds?.has(obs.id)) {
+        if (!hasObservationVector(obs.projectId, obs.id) && !persistedSemanticIds?.has(semanticVectorKey(obs.projectId, obs.id))) {
           markVectorMissing(obs.id, obs.projectId);
           projectsWithMissingVectors.add(obs.projectId);
         }

@@ -56,6 +56,25 @@ All notable changes to this project will be documented in this file.
   on Windows/Node 22 with embeddings disabled. This is offline fixture evidence,
   not a claim about remote embedding quality.
 
+## [1.10.5] - 2026-11-26
+
+### Fixed
+
+- Preserve project scope in Lance merge keys and cache/backfill checks, and
+  validate semantic hits against canonical SQLite. Upserts preserve other
+  projects' vectors; scoped deletion only removes the requested project (#410).
+- Release silently disconnected legacy HTTP sessions after a configurable
+  two-minute grace, while preserving reconnections, POST-only clients, and
+  queued/running requests (#408).
+- Cache positive and negative stateless HTTP project detection results for
+  five minutes with a 256-path limit (#409).
+- Show topic-key and structured memory store flags in CLI help, including
+  the limitations of the `remember` shortcut (#406).
+- Make binding lease fixtures relative to the current clock (#407).
+- Include the Ollama native embedding adapter (#396/#402), derived-view
+  receipt registry (#403), and lifecycle projection outbox (#405) merged
+  after 1.10.4. These are incremental reliability changes toward 1.11.
+
 ## [1.10.4] - 2026-11-18
 
 ### Fixed

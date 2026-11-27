@@ -399,6 +399,13 @@ agent or a deliberately isolated project store.
 
 ### Intelligence and Quality Layer
 
+Persistent semantic rows are keyed by `(project_id, observation_id)`.
+Cache restoration and backfill check the same scoped key; a numeric ID in
+another project cannot suppress missing-vector work. Retrieval verifies the
+vector's project against canonical SQLite before accepting the hit. A normal
+upsert does not delete other projects' rows; destructive stale-row cleanup
+requires canonical ownership evidence.
+
 This layer improves memory quality and retrieval quality.
 
 Main pieces:

@@ -95,6 +95,9 @@ describe('memorix_session_start home bind and hydrate', () => {
     const project = path.join(work, 'app');
     await fs.mkdir(project, { recursive: true });
     await createFakeGitRepo(project, 'https://github.com/AVIDS2/session-fast.git');
+    const createdAt = '2026-10-21T00:00:00.000Z';
+    const lastUsedAt = '2026-10-21T00:05:00.000Z';
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const { server, handleTransportClose } = await createMemorixServer(tempHome, undefined, undefined, {
       allowUntrackedFallback: false,
@@ -103,9 +106,9 @@ describe('memorix_session_start home bind and hydrate', () => {
       bindingTransport: 'legacy-http',
       bindingHandle: {
         handleId: 'mxh_test_handle',
-        createdAt: '2026-10-21T00:00:00.000Z',
-        lastUsedAt: '2026-10-21T00:05:00.000Z',
-        expiresAt: '2026-11-20T00:05:00.000Z',
+        createdAt,
+        lastUsedAt,
+        expiresAt,
       },
     });
     let releaseLoadAll: (() => void) | undefined;
@@ -143,9 +146,9 @@ describe('memorix_session_start home bind and hydrate', () => {
       expect(result.structuredContent.binding.gitRemote.hash).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(result.structuredContent.binding.handle).toMatchObject({
         state: 'active',
-        createdAt: '2026-10-21T00:00:00.000Z',
-        lastUsedAt: '2026-10-21T00:05:00.000Z',
-        expiresAt: '2026-11-20T00:05:00.000Z',
+        createdAt,
+        lastUsedAt,
+        expiresAt,
       });
       expect(result.structuredContent.binding.handle.idHash).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(JSON.stringify(result.structuredContent.binding)).not.toContain(project);
